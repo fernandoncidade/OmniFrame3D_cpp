@@ -1,0 +1,31 @@
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versao: 2026.11.13.0
+Data: 13 de novembro de 2026
+
+Destaques da Versao 2026.11.13.0 (Release Inicial de Producao):
+
+1. Mecanica Computacional e Elementos Finitos 3D:
+- Formulacao exata de elementos de viga-coluna espacial de Euler-Bernoulli com 6 graus de liberdade por no (12 DOFs por elemento).
+- Matriz de rigidez local 12x12 considerando efeitos axiais, torcao pura de Saint-Venant e flexao nos eixos principais locais y e z.
+- Matriz de rotacao espacial 3D com orientacao por angulo de rolamento (roll angle psi).
+- Interpolacao contínua de esforcos internos (N, Vy, Vz, T, My, Mz) ao longo das barras utilizando polinomios cubicos de Hermite.
+- Vetores de forcas nodais equivalentes exatos para carregamentos distribuidos uniformes sobre elementos, alem de carregamentos nodais concentrados, molas elasticas e deslocamentos/rotacoes prescritos.
+- Solver esparso direto de Cholesky (SimplicialLDLT) via Eigen 3.4.0 com deteccao e tratamento gracioso de singularidades e mecanismos estruturais.
+
+2. Viewport 3D de Alta Performance (OpenGL 3.3 Core):
+- Pipeline moderno baseado em shaders GLSL 330 com iluminacao Phong.
+- Camera orbital interativa com navegacao fluida por mouse (orbita com botao direito ou do meio, pan com Shift+arraste e zoom na roda do mouse).
+- Visualizacao simultanea da estrutura indeformada (aramado neutro) e da deformada elástica com controle continuo de fator de ampliacao.
+- Algoritmo matematico de selecao espacial por Raycasting (Eye-to-World ray cast) para selecao precisa de nos e barras na viewport.
+- Renderizacao de gradientes de cores (escala espectral) para diagramas N, Vy, Vz, Tx, My e Mz, alem de vetores de reacoes de apoio.
+
+3. Interface de Usuario e Produtividade (Qt 6.11.1):
+- Sistema modular com paineis acoplaveis (QDockWidget), inspetor de propriedades e tabelas sincronizadas de nos e barras.
+- Gerenciador parametrico de secoes transversais: secoes retangulares macicas, circulares macicas, tubos circulares, perfis metalicos I/W de abas paralelas e secoes genericas.
+- Banco de materiais padronizados (Aco Estrutural ASTM A36 / MR250, Concreto Armado C25/C30, Aluminio 6061-T6 e Madeira Estrutural C30) com editor para materiais customizados.
+- Persistencia robusta em formato aberto .omniframe (JSON) com validacao estrutural e exportacao de relatorios tecnicos em HTML e Markdown.
+
+4. Distribuicao, Privacidade e Duplo Licenciamento:
+- Duplo licenciamento implementado: codigo-fonte sob GNU AGPLv3 para a comunidade GitHub e EULA para distribuicao gratuita na Microsoft Store.
+- Scripts de automacao de compilacao para MSVC C++23 (CMake 3.28+), presets dedicados e empacotamento Inno Setup e MSIX com desinstalacao limpa e privacidade 100% offline.
+- Documentacao tecnica bilingue aprofundada (Portugues e Ingles) cobrindo fundamentos de FEA, comparacao com normas (NBR 8800, NBR 6118, AISC 360, Eurocode 3) e casos de teste de referencia.

@@ -1,0 +1,253 @@
+================================================================================
+OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
+Version: 2026.11.13.0 | Date: November 13, 2026 | Author: Fernando Nillsson Cidade
+Document Language: English (US) — Strict line-by-line correspondence with pt-BR
+================================================================================
+
+CHAPTER 1 — OVERVIEW, ARCHITECTURE AND MODELESS WORKSPACE
+
+1.1 Engineering Purpose and Scope
+OmniFrame 3D is a native Windows desktop application built with C++23, Qt 6, Eigen 3.4, and OpenGL 3.3 Core Profile for interactive modeling, Finite Element Method (3D FEM) matrix stiffness analysis, and graphical post-processing of 3D space frames, grids, and spatial trusses.
+Each structural node carries six degrees of freedom in 3D space (translations ux, uy, uz and rotations Rx, Ry, Rz), enabling analysis of members subjected simultaneously to axial force, biaxial shear, Saint-Venant torsion, and biaxial bending according to the exact Euler-Bernoulli beam-column formulation.
+All mathematical computations and file persistence run 100% locally on the user's computer with zero telemetry, zero mandatory accounts, zero remote servers, and consistent International System units: meters (m) for coordinates and dimensions, kilonewtons (kN) for forces, kilonewton-meters (kN·m) for moments, kilonewtons per meter (kN/m) for distributed loads, gigapascals (GPa) for elastic moduli, degrees (°) for Roll orientation angles, and Celsius (°C) for thermal delta.
+
+1.2 Main Window Anatomy (MainWindow)
+The main window organizes the engineering workflow into five integrated, resizable workspace regions:
+• Top Menu Bar: groups all commands across six thematic menus (File, Examples, Structure, View, Settings, and Help).
+• Main Toolbar: provides quick-access buttons for cursor interaction tools, active working plane controls, Snap toggle, structural assignments, one-click FEM solver execution, diagram selector, visual scale slider, and reaction/local-axis toggles.
+• Central OpenGL 3D Viewport: renders the three-dimensional structure, dark high-definition Active Plane, supports, concentrated forces, distributed loads, deformed shapes, internal force diagrams, and the viewport heads-up display (HUD) overlay.
+• Left Dock Panel (Inspector & Quick Input): provides exact node insertion via Cartesian coordinates (X, Y, Z) together with the dynamic Selected Node / Member Property Inspector.
+• Bottom Dock Panel (Result Tables & Structural Diagnostics) and Status Bar: displays synchronized tabs for Nodal Displacements, Support Reactions, and Member Forces, while the status bar continuously reports live 3D cursor coordinates, node/member counters, and diagnostic status messages.
+
+1.3 Dockable Panels (Docks) and Workspace Customization
+Both the left panel and the bottom panel are dockable widgets (QDockWidget) that can remain docked along the main window edges or be detached into independent floating windows using the undock button or by dragging their title bar.
+At any moment you can toggle panel visibility or move panels back into docked positions without losing active selections or solved analysis results.
+When a dock is floated as an independent window, it participates fully in visual layering management (Z-Order), allowing free focus switching among the floating dock, the main window, and any open child dialogs.
+
+1.4 Modeless Child Windows and Z-Order Management
+In OmniFrame 3D, all child windows and dialogs — including this Manual, About OmniFrame 3D, Advanced Resolution and Image Settings, Materials, Cross Sections, Support Conditions, Hinges / End Releases, Section Roll Angle (γ), Concentrated Nodal Loads, Uniformly Distributed Loads, file choosers, and notification boxes — operate in Modeless (non-modal) mode.
+• Modeless (Non-Modal) Operation: opening a child window never locks or freezes the main window; you can freely orbit the 3D model, pick different nodes or members in the viewport, inspect result tables, or keep multiple dialogs open simultaneously while reviewing parameters or editing properties.
+• Z-Order Stack and Raise on Click: the virtual Z-axis stack defines which window appears visually in front of the others on screen; clicking inside the client area or title bar of any active window (including the main window itself) immediately raises that window to the top of the Z-Order stack.
+• Smart Single-Instance per Tool: if a specific dialog (such as Materials or this Manual) is already open behind the main window and you trigger its menu or toolbar command again, the window manager brings that existing window to the front (raise and focus) with clean cascading instead of spawning redundant duplicates.
+• Automatic Cleanup on Exit: closing the main window via File > Exit (Ctrl+Q) or the window close button automatically and safely closes all open modeless child windows.
+
+CHAPTER 2 — PROJECT MANAGEMENT, FILES AND EXAMPLES
+
+2.1 New Project and Open .omniframe Format
+The File > New Project (Ctrl+N) command resets the workspace by clearing all nodes, members, restraints, loads, and solved results after safely confirming any pending work through a non-modal prompt.
+The native .omniframe format uses human-readable UTF-8 JSON containing four explicit collections (materials, cross sections, nodes, and elements) with strict numerical validation that rejects non-finite values (NaN or infinity) on load.
+WARNING: keep backup copies before editing .omniframe files manually in external text editors, preserving unique integer identifiers for nodes, materials, and cross sections.
+
+2.2 Opening and Saving Projects (.omniframe)
+To load an existing model, use File > Open (.omniframe)... (Ctrl+O) and pick the target .omniframe file from the modeless file dialog; upon loading, the camera automatically frames the entire structure in the 3D viewport.
+To write changes to disk, use File > Save (.omniframe)... (Ctrl+S), selecting the destination folder and filename; the serializer stores full coordinates, mechanical properties, support restraints, elastic springs, prescribed displacements, member end releases, Roll angles, and both nodal and distributed loads.
+
+2.3 Calculation Report Export (HTML and Markdown)
+The File menu provides two built-in exporters for technical engineering documentation:
+• Export Technical Report (HTML)...: generates a self-contained styled web report with formatted tables covering model summary, material and section inventory, global static equilibrium verification, nodal displacements, support reactions, and per-member action extremes.
+• Export Technical Report (Markdown)...: generates a structured plain-text (.md) report compatible with Git version control, technical editors, and corporate documentation pipelines while preserving the exact solver verification metrics.
+TIP: run the FEM solver (F5) before exporting reports so that all displacement, reaction, equilibrium, and extreme internal force tables are populated with freshly solved results.
+
+2.4 Built-in Structural Examples
+The Examples menu includes three complete 3D structural models ready for immediate analysis and parametric exploration:
+• Example 1: 3D Building Space Frame (2 Stories, Wind and Live Load): multi-story concrete space frame with columns and beams subjected to combined vertical gravity and lateral loads.
+• Example 2: L-Shaped 3D Cantilever under Bending-Torsion: plan L-bent cantilever beam clearly demonstrating torsion-bending coupling between orthogonal spans.
+• Example 3: 3D Space Truss / Steel Footbridge: three-dimensional truss structure with released member ends (Tx, My, and Mz released), exhibiting predominantly axial tension and compression behavior.
+
+CHAPTER 3 — 3D NAVIGATION, ACTIVE PLANE AND VISUALIZATION
+
+3.1 3D Orbital Camera and Standard Views
+Three-dimensional navigation combines direct mouse controls in the 3D Viewport with quick standard orientation buttons:
+• Orbit (Free Rotation): hold the Right or Middle mouse button and drag across the viewport to orbit around the scene target pivot.
+• Pan (Lateral Translation): hold the Shift key while dragging with the Right or Middle mouse button to shift the view parallel to the screen plane.
+• Smooth Zoom: rotate the mouse scroll wheel to zoom in toward or out from the model smoothly.
+• Standard Views and Framing: use the View menu or toolbar view buttons to switch immediately between 3D Isometric View (3D Iso), Front View (XZ) (Front), Plan View (XY) (Plan), or Side View (YZ) (Side), or trigger Fit All (F) / Fit View (F) to frame the entire structure inside the viewport.
+
+3.2 Active Working Plane (XY, XZ, YZ) and Offset
+To sketch nodes accurately in 3D space using a two-dimensional mouse cursor, OmniFrame 3D casts a geometric picking ray from the camera onto the selected Active Working Plane.
+• XZ Plane (Front): ideal for constructing vertical planar frames and building elevations along a constant Y coordinate.
+• XY Plane (Plan): ideal for constructing floor plans, horizontal grids, and slabs at a fixed Z elevation.
+• YZ Plane (Side): ideal for constructing transverse frames and elevations perpendicular to the global X axis.
+• Active Plane Elevation (Elevation:): the numerical elevation control shifts the working plane parallel to its normal axis (for example Z = 3.00 m when modeling a second-floor deck).
+
+3.3 Dynamic Grid and Precision Snap
+The spatial grid renders subtle minor subdivisions and accentuated major lines spaced by the configurable Step: field (in meters).
+When Snap Grid is enabled, coordinates picked on the active plane automatically round to the nearest exact multiple of the configured grid step, accompanied by a live preview marker showing the snapped point beneath the cursor prior to clicking.
+NOTE: grid borders, grid lines, and axes are rendered with analytical subpixel shaders combined with MSAA and supersampling so lines remain sharp even at grazing camera angles.
+
+3.4 3D Selection (Raycasting) and Visual Highlight
+In Select (S) mode, a single left click performs geometric raycasting against nodes (with a priority screen tolerance radius) and structural members.
+Selected nodes highlight in cyan with an enlarged sphere and selected members are drawn thicker in cyan highlight, immediately synchronizing both the Inspector & Quick Input dock and the active row in the Result Tables & Structural Diagnostics dock.
+Holding Ctrl while clicking toggles or builds multi-selections of nodes and members for batch property assignment; clicking empty space or pressing Esc clears the active selection.
+
+3.5 Member Local Axes and Graphical Symbols
+Enabling Local Axes draws the right-handed orthogonal triad (x, y, z) at the midpoint of each element: red marks longitudinal local x from start node i to end node j, green marks principal local axis y, and blue marks principal local axis z.
+Graphical symbol legend across the 3D scene:
+• Fixed Support: solid blue cube anchored beneath the restrained node.
+• Pinned Support: green 3D pyramid with its apex meeting the node.
+• Roller Support: amber/orange pyramid supporting the node.
+• Nodal and Distributed Loads: red arrows indicate concentrated nodal forces; continuous rows of green arrows along members indicate distributed loads; cyan double arrows represent applied moments or moment reactions.
+
+CHAPTER 4 — INTERACTIVE AND NUMERICAL GEOMETRIC MODELING
+
+4.1 Adding Nodes on the Active Plane and via Numerical Input
+Two complementary methods allow creating structural nodes accurately:
+• Interactive Click (Add Node (N)): activate Add Node (N) on the toolbar (or press N), hover across the Active Working Plane while monitoring live coordinates on the status bar, and left-click to place the node immediately with optional Snap Grid.
+• Exact Numerical Input (Left Dock): type exact Cartesian coordinates X, Y, and Z into the Add Node by Coordinates group inside the Inspector & Quick Input dock and insert the node, ideal for fractional dimensions or nodes located off the current working plane.
+
+4.2 Connecting Members between Nodes
+To connect two existing nodes with a frame/truss member, activate the Add Member (B) tool (or press B).
+Left-click the start node (node i) first and then left-click the end node (node j); the created member automatically adopts default Material ID 1 and Cross Section ID 1 with an initial Roll angle of 0°.
+NOTE: clicking the same start node twice or clicking empty space without a valid node prevents zero-length degenerate elements; press Esc at any time to cancel an in-progress member link.
+
+4.3 Spatial Measurement Tool (ΔX, ΔY, ΔZ, L)
+The Measure (M) tool lets you inspect clear spans, story heights, and diagonal distances without modifying the structural model.
+With Measure (M) mode active, click the first point or reference node and then click the second point; the status bar reports total Euclidean length L along with orthogonal global deltas ΔX, ΔY, and ΔZ in meters.
+
+4.4 Safe Deletion and Selection Clearing
+To delete unwanted entities, select one or more nodes or members in the viewport and trigger Delete (Del) (Del key or the corresponding toolbar button).
+Deleting a node automatically removes every member attached to that node so the structural mesh remains topologically valid without dangling references.
+Pressing Esc exits active chained creation modes or clears the current selection cleanly.
+
+CHAPTER 5 — STRUCTURAL PROPERTIES, BOUNDARY CONDITIONS AND LOADS
+
+5.1 Isotropic Material Library and Editor
+Open Structure > Materials... (or click Materials... on the toolbar) to open the modeless material editor where you can create, edit, or select materials defined by four mechanical constants: Longitudinal Elastic Modulus E (GPa in UI), Poisson's Ratio ν, Thermal Expansion Coefficient α (/°C), and Specific Weight γ (kN/m³).
+Four ready-to-use engineering presets are included: Structural Steel (ASTM A36) (E = 200 GPa, ν = 0.30, γ = 78.5 kN/m³), Structural Concrete C30 (E = 30 GPa, ν = 0.20, γ = 25.0 kN/m³), Aluminum 6061-T6 (E = 70 GPa, ν = 0.33, γ = 27.0 kN/m³), and Structural Timber (E = 14.5 GPa, ν = 0.20, γ = 8.0 kN/m³).
+Confirming with members selected in the 3D viewport assigns the chosen material to all selected members immediately without interrupting your modeling workflow.
+
+5.2 Cross Sections and Automatic Inertia Calculation
+Open Structure > Cross Sections... (or Sections... on the toolbar) to configure member cross-section geometry using five analytical shape families in meters (m), m², and m⁴:
+• Rectangular: specify width b (along local y) and height h (along local z).
+• Circular Solid: specify outer diameter D.
+• Circular Tube: specify outer diameter D_ext and wall thickness t.
+• Rolled or Welded I-Profile: specify total depth h, flange width b_f, flange thickness t_f, and web thickness t_w.
+• Generic (Manual): enter area A, principal moments of inertia Iy and Iz, and Saint-Venant torsion constant J directly.
+Computed sectional properties (A, Iy, Iz, and J) update dynamically for verification and are assigned in batch to all selected members.
+
+5.3 Nodal Supports, Elastic Springs and Prescribed Settlements
+Open Structure > Support Conditions... (or Supports... on the toolbar) with one or more nodes selected to configure each of the six global degrees of freedom (uX, uY, uZ, θX, θY, θZ) individually.
+Quick presets include Fixed (all 6 DOFs restrained), Pinned Support (uX, uY, uZ restrained and rotations free), Roller Support (Z) (vertical uZ restrained only), and Free (clears all restraints), alongside optional elastic spring stiffnesses (0 to 1×10⁹ kN/m or kN·m/rad) and prescribed support displacements or rotations (±100) on any active DOF.
+
+5.4 Member End Releases (Internal Hinges)
+Open Structure > Hinges / End Releases... (or Hinges... on the toolbar) to model pinned connections or pure truss bars by releasing individual DOFs at the start node (i) or end node (j) of selected members.
+Preset buttons switch rapidly between Fixed-Fixed (standard rigid frame connection), Start Hinge (releases bending moments at start node), End Hinge (releases bending moments at end node), and Truss Member (releases Tx, My, and Mz at both ends).
+Internally, the solver performs exact static condensation on the 12×12 local stiffness matrix before global transformation.
+
+5.5 Section Orientation via Roll Angle (γ)
+Open Structure > Section Roll Angle (γ)... (or Roll (γ)... on the toolbar) to rotate principal local axes y and z around the member's longitudinal x axis within the range -360° to +360°.
+For inclined or horizontal members at Roll = 0°, local axis z points toward the upper vertical half-space (vertical local xz plane); for strictly vertical columns (parallel to global Z), the local basis automatically applies a singularity-free reference direction combined with the requested γ angle.
+Turn on Local Axes in the viewport to verify flange and principal-axis orientation visually as soon as Roll (γ) changes are applied.
+
+5.6 Concentrated Nodal Loads (Forces and Moments)
+Open Structure > Concentrated Nodal Loads... (or Nodal Load... on the toolbar) with one or more nodes selected to apply concentrated global forces (Fx, Fy, Fz in kN) and concentrated global moments (Mx, My, Mz in kN·m).
+Under OmniFrame 3D's standard global coordinate convention, gravity acts in the negative Z direction (-Z), so downward vertical gravity forces use negative Fz values (for instance Fz = -50 kN).
+To remove nodal loads from selected nodes, set all components to zero or reset the inputs and apply to the selected nodes.
+
+5.7 Distributed Member Loads (Global and Local)
+Open Structure > Uniformly Distributed Loads... (or Dist. Load... on the toolbar) with one or more members selected to define uniform distributed loads qx, qy, and qz in kN/m along the full member span (default initial value qz = -10.0 kN/m).
+Select Global System (X, Y, Z) (loads aligned with project X, Y, Z axes, suited to gravity and dead loads) or Member Local System (x, y, z) (loads aligned with the member's own local x, y, z axes, suited to wind pressure or normal roof loads).
+The solver automatically transforms distributed loads (as well as any thermal ΔT recorded on elements) into exact equivalent nodal Fixed-End Force vectors.
+
+CHAPTER 6 — FINITE ELEMENT ANALYSIS (3D FEM SOLVER)
+
+6.1 Model Pre-Validation and Mechanism Detection
+Before assembling the linear system, the model undergoes validate() structural checks verifying sufficient nodes and elements, support restraints preventing rigid-body motion, valid material/section references, and strictly positive member lengths and mechanical moduli.
+If the model contains kinematic mechanisms, global under-restraint, or a non-positive-definite stiffness matrix, the solver halts safely and displays a diagnostic message inside a modeless alert window identifying the probable cause.
+
+6.2 Matrix Formulation and Sparse SimplicialLDLT Solver
+Triggering Structure > RUN ANALYSIS (F5 key or the ▶ RUN ANALYSIS (F5) toolbar button) executes FemSolver3D through the following 64-bit double-precision stages:
+1. Computation of the exact 12×12 local member stiffness matrix including axial (EA/L), torsional (GJ/L), and biaxial Euler-Bernoulli bending (12EI/L³, 6EI/L², 4EI/L, 2EI/L) stiffness terms plus static condensation for end releases.
+2. Orthogonal transformation to global coordinates via block matrix [T] = diag(R, R, R, R) using K_glob = T^T · K_loc · T and fixed-end force vector transformation.
+3. Global sparse stiffness matrix assembly incorporating elastic spring stiffnesses, support restraints, and prescribed displacements.
+4. Direct sparse Cholesky factorization using Eigen::SimplicialLDLT with AMD fill-reducing ordering for high speed and numerical accuracy, reporting total solve time in milliseconds.
+
+6.3 Global Static Equilibrium Verification
+Immediately after solving nodal displacements {u} and recovering local end forces and global support reactions {R}, the solver sums applied force and moment resultants against support reaction resultants.
+Residual force errors (ΔFx, ΔFy, ΔFz) and residual moment errors about the origin (ΔMx, ΔMy, ΔMz) are automatically audited in EquilibriumCheck and embedded into both HTML/Markdown calculation reports and analysis summaries.
+
+CHAPTER 7 — POST-PROCESSING, DIAGRAMS AND RESULTS INSPECTION
+
+7.1 3D Visualization Modes and Deformed Shape
+Following a successful analysis, the toolbar Diagram: selector lets you switch immediately among eight live visualization modes directly over the 3D model:
+• None (Geometry): displays original geometry, supports, and applied loads only.
+• 3D Deformed Shape: renders the displaced structural configuration smoothly alongside the undeformed reference geometry.
+• Axial (N), Shear (Vy), Shear (Vz), Torsion (Tx), Bending (My), and Bending (Mz): renders filled internal-force diagrams with crisp outline strokes along every member and distinct color coding.
+Enabling Reactions on the toolbar displays reaction arrows and values directly at restrained nodes in the 3D scene.
+
+7.2 Visual Scale Control for Deformed Shapes and Diagrams
+The Scale: slider on the main toolbar spans continuously from 1 to 100 (default 30) to adjust visual magnification without altering true physical FEA results:
+• In 3D Deformed Shape mode, the displacement amplification factor scales proportionally with slider position (from 1.5x at minimum 1 up to 150x at maximum 100).
+• Across internal force diagrams (N, Vy, Vz, Tx, My, Mz), diagram height scales proportionally relative to the baseline value 30 in real time.
+
+7.3 Continuous Hermite Polynomial Recovery and Results Tables
+Internally, each element evaluates internal forces and deflections along normalized coordinate ξ in [0, 1] via Element::evaluateAt(xi), using cubic Hermite interpolation polynomials combined with exact distributed-load particular solutions.
+Within the Bottom Dock (Result Tables & Structural Diagnostics), three synchronized tabs summarize exact numerical outputs for every entity:
+• Nodal Displacements Tab: lists node ID and all six computed global components (ux, uy, uz and rotations Rx, Ry, Rz).
+• Support Reactions Tab: lists restrained nodes together with reactive forces (Rx, Ry, Rz in kN) and reactive moments (Mx, My, Mz in kN·m).
+• Member Forces Tab: lists minimum and maximum values of N, Vy, Vz, Tx, My, Mz and maximum deflection recorded along each member.
+
+CHAPTER 8 — GRAPHICS SETTINGS, IMAGE RESOLUTION, THEME AND LANGUAGE
+
+8.1 High-Definition Multi-Stage Rendering Pipeline
+To eliminate jagged aliasing along angled lines, grid subdivisions, and slender members on both standard and HiDPI/4K monitors, the 3D Viewport executes a three-stage OpenGL pipeline:
+1. Offscreen Multisample Framebuffer (MSAA) rasterization supporting up to 16x hardware samples bounded automatically by your GPU driver's maximum sample capability.
+2. Internal Spatial Supersampling (SSAA) factor from 0.75x to 2.50x multiplying logical resolution together with display DPI scaling while respecting GPU maximum texture dimensions.
+3. Screen-aligned quad line extrusion with Subpixel Analytical Line Anti-Aliasing (Shader SDF) followed by a Fullscreen Resolve pass offering Catmull-Rom 16-tap + Sharpen, Smooth Bicubic, or Standard Bilinear filtering.
+
+8.2 Advanced Resolution and Image Settings Dialog (Live Preview)
+Under Settings > Advanced Resolution and Image Settings... (plus the quick Settings submenus: Graphics Quality Preset, Internal Resolution Scale (SSAA), Hardware Anti-Aliasing (MSAA), Line and Image Definition, Active Plane Appearance, Vertical Sync (VSync), and Restore Maximum Quality Defaults), every option updates the 3D Viewport live before clicking Apply or OK:
+• Graphics Quality Presets: Automatic (Maximum Quality), Ultra (200% SSAA + Max MSAA), High (150% SSAA + 8× MSAA), Balanced (100% Native + 4× MSAA), Performance (100% Native + Shader AA), and Custom (assigned automatically upon manual tuning).
+• Fine Manual Controls: Automatic (GPU Max) resolution checkbox, Internal Resolution Scale (SSAA) slider, Auto or manual MSAA selector (Off, 2x, 4x, 8x, 16x), Subpixel Analytical Line Anti-Aliasing (Shader SDF) toggle, Line Width Multiplier, Edge AA softness, Adaptive Sharpening, Downsample Filter method (Catmull-Rom 16-tap + Sharpen, Smooth Bicubic, or Standard Bilinear), VSync toggle, and viewport resolution telemetry toggle.
+• GPU Hardware Telemetry and Persistence: the dialog reports detected GPU renderer name, vendor, OpenGL version, max hardware MSAA/texture limits, and physical rendered pixel resolution; Cancel cleanly restores prior viewport settings, while Apply or OK saves settings locally to graphics.json.
+
+8.3 Active Plane Themes, Interface Theme (Light/Dark) and Contrast
+Under Settings > Theme you can dynamically switch at runtime between Dark and Light modes, instantly adapting windows, modeless dialogs, title bars, tables, HTML documents (Manual and About), the OpenGL viewport, deformed-shape color ramps, and internal force diagrams.
+In addition, under Settings > Active Plane Appearance or inside the advanced resolution dialog you can independently pick the Active Working Plane backdrop:
+• Obsidian Dark (Default) (#07090e): deep obsidian-blue tone balanced for extended modeling sessions without glare or eye strain.
+• Deep Night (Ultra Dark) (#040608): ultra-dark background maximizing contrast for colored force diagrams and slender lines.
+• Dark Graphite (#0d1116): balanced dark-graphite tone tailored for brightly lit rooms.
+• Technical Light (#eef3f9): high-contrast light technical drafting canvas pairing crisp slate wireframe members with saturated supports/diagrams and a translucent light HUD.
+• Grid Contrast and Plane Surface Toggle: slider adjusting minor/major grid line contrast plus toggle to show translucent Active Plane surface and frame.
+
+8.4 Dynamic Runtime Language Switching and Persistence
+The Settings > Language submenu switches the interface immediately at runtime between Português (Brasil) and English (US).
+Selecting a language broadcasts QEvent::LanguageChange across the entire application without restarting: menu bar, toolbars, docks, Property Inspector, result tables, 3D viewport HUD, this Manual, the About dialog, and all currently open modeless child dialogs retranslate live in place.
+The chosen language persists locally inside language.json under the user application data directory (%LOCALAPPDATA%\OmniFrame\OmniFrame\).
+
+CHAPTER 9 — HELP, KEYBOARD SHORTCUTS, LOCAL STORAGE AND COMPANION TOOLS
+
+9.1 Interactive Manual (F1) and About Application Dialog
+• Help > Manual (F1): opens this dedicated modeless viewer featuring an interactive chapter/subchapter index tree on the left, high-contrast formatted reader on the right, and live search bar with Next and Previous navigation buttons.
+• Help > About OmniFrame 3D: opens the modeless information center with tabs for About, Release Notes, App History, Code Licensing Commitment (CLC), Copyright and Trademark Notice, Privacy Policy, End User License Agreement (EULA), Third-Party Notices, and complete Open Source Licenses.
+
+9.2 Complete Keyboard Shortcuts and Quick Controls Table
+Use the shortcuts below whenever the main viewport or menu bar holds focus:
+• F1 — Open this Complete Operations and Engineering Manual.
+• Ctrl+N — Start a New structural project.
+• Ctrl+O — Open an existing project (.omniframe).
+• Ctrl+S — Save the current project (.omniframe).
+• Ctrl+Q — Exit OmniFrame 3D (safely closing all open child windows).
+• F5 — RUN ANALYSIS: execute full 3D FEM solver.
+• F — Fit All (F): frame the entire structure inside the 3D camera.
+• S — Select (S): activate 3D Picking and selection tool.
+• N — Add Node (N): activate interactive node placement on Active Plane.
+• B — Add Member (B): activate member connection between two nodes.
+• M — Measure (M): activate spatial distance measurement between points or nodes.
+• Del — Delete (Del): delete currently selected nodes and/or members.
+• Esc — Cancel in-progress operation (member link or measurement) and clear selection.
+• Right or Middle Mouse Drag — Orbit 3D camera freely.
+• Shift + Right or Middle Mouse Drag — Pan 3D camera laterally/vertically.
+• Mouse Wheel (Scroll) — Zoom camera in and out.
+
+9.3 Local Storage, Directory Portability and Offline Privacy
+All bilingual documentation assets (about, history, legal notices, licenses, and this manual) and compiled translations (.qm) load dynamically from the distribution directory with automatic fallback to embedded Qt resources inside the executable, guaranteeing full functionality regardless of which folder or drive hosts the app.
+OmniFrame 3D collects zero telemetry, opens zero network sockets, and stores only user-saved project files plus three local configuration files (language.json, theme.json, and graphics.json) inside %LOCALAPPDATA%\OmniFrame\OmniFrame\.
+When uninstalled via Microsoft Store or removed as a portable distribution, zero kernel drivers or hidden background services remain on the operating system.
+
+9.4 Companion Distribution Utilities
+The OmniFrame 3D suite also includes standalone helper executables packaged in independent distributions for version and localization maintenance:
+• VersionEditor (VersionEditor.exe): graphical utility for synchronized version number and revision date updates across configured Portuguese (BR) and English (US) documents and manifests.
+• CompileTranslationsGUI (CompileTranslationsGUI.exe): graphical utility for inspecting, compiling (.ts to .qm), and deploying Qt translations cleanly.
+• Automated Test Suite (CTest): analytical benchmark suite (cantilever beams, frames, trusses, static equilibrium, Roll rotations, and JSON serialization) verifying numerical accuracy on every build.
+

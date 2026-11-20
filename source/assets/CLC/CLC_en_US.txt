@@ -1,0 +1,31 @@
+COMMERCIAL LICENSING CLARIFICATION AND ENTERPRISE SUPPORT — OmniFrame 3D
+Version 2026.11.13.0, November 13, 2026
+
+Author and Developer: Fernando Nillsson Cidade (Individual Developer)
+Support & Contact Email: linceu_lighthouse@outlook.com
+Official Website / Repository: https://github.com/fernandoncidade/OmniFrame_cpp
+
+--------------------------------------------------------------------------------
+
+1. OPEN SOURCE AND TRANSPARENCY:
+The complete source code of this project is published publicly on GitHub under the GNU Affero General Public License v3 (AGPLv3). Any individual or organization is granted full freedom to inspect, audit, compile, modify, and build derivative works from the source code under GNU AGPLv3 terms.
+
+2. OFFICIAL MICROSOFT STORE EDITION AND CLEAN UNINSTALL:
+For convenient deployment across engineering workstations, universities, and structural consultancies, the author officially distributes OmniFrame 3D as a free application on the Microsoft Store:
+https://apps.microsoft.com/detail/OmniFrame3D
+Users may cleanly uninstall and remove the package at any time through Windows Settings or the Start Menu without leaving background services running.
+
+3. TECHNICAL SUPPORT POLICY AND MICROSOFT NON-COVERAGE:
+Development and maintenance are carried out by the author as a personal and educational initiative in C++23, Qt 6.11.1, and computational structural mechanics. Therefore:
+a) Microsoft does NOT provide customer or technical support for OmniFrame 3D, and the Microsoft Privacy Statement does not cover this application (OmniFrame 3D's own Privacy Policy available in PRIVACY_POLICY applies exclusively);
+b) Technical support provided by the author (individual developer) takes place via email (linceu_lighthouse@outlook.com) and publicly through the Issues and Discussions tabs of the official GitHub repository;
+c) Support is provided on a strictly voluntary best-effort basis according to author availability, with no phone support, commercial SLA, or 24/7 remote access.
+
+4. CORPORATE VALIDATION AND CUSTOM COMMERCIAL LICENSING:
+For academic institutions or engineering organizations requiring:
+- Compliance evaluation on specific projects under design standards (ABNT NBR 8800, NBR 6118, AISC 360, Eurocodes);
+- Custom integration with proprietary workflows;
+- Exemption from GNU AGPLv3 copyleft obligations for closed-source proprietary commercial distributions;
+
+Please contact the author directly via:
+linceu_lighthouse@outlook.com

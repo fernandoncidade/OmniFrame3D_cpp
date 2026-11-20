@@ -1,0 +1,31 @@
+RELEASE NOTES — OMNIFRAME 3D
+Version: 2026.11.13.0
+Date: November 13, 2026
+
+Highlights of Version 2026.11.13.0 (Initial Production Release):
+
+1. Computational Mechanics & 3D Finite Elements:
+- Exact analytical formulation of 3D Euler-Bernoulli beam-column elements with 6 degrees of freedom per node (12 DOFs per element).
+- 12x12 local stiffness matrix accounting for axial effects, Saint-Venant pure torsion, and bending about principal local y and z axes.
+- 3D spatial rotation matrix with orientation by roll angle (psi).
+- Continuous internal force recovery (N, Vy, Vz, T, My, Mz) along members utilizing Hermite cubic polynomials.
+- Exact work-equivalent nodal load vectors for uniform distributed member loads, alongside concentrated nodal forces/moments, elastic springs, and prescribed displacements/rotations.
+- Direct sparse Cholesky solver (SimplicialLDLT) via Eigen 3.4.0 with automated detection and graceful handling of singularities and structural mechanisms.
+
+2. High-Performance 3D Viewport (OpenGL 3.3 Core):
+- Modern GLSL 330 shader-based pipeline with Phong lighting.
+- Interactive orbital 3D camera with smooth mouse navigation (right or middle-click orbit, Shift+drag pan, and wheel zoom).
+- Simultaneous visualization of the undeformed geometry (neutral wireframe) and the amplified elastic deformed shape with continuous scaling factor control.
+- Spatial entity picking mathematical algorithm via Raycasting (Eye-to-World ray cast) for accurate node and member selection in the viewport.
+- Continuous color gradient rendering (spectral scale) for N, Vy, Vz, Tx, My, and Mz diagrams, plus support reaction vectors.
+
+3. User Interface & Productivity (Qt 6.11.1):
+- Modular docking panel system (QDockWidget), property inspector, and synchronized node and member tables.
+- Parametric cross-section manager: solid rectangular, solid circular, hollow pipe, parallel-flange I/W steel sections, and generic sections.
+- Pre-configured material database (Structural Steel ASTM A36 / MR250, Reinforced Concrete C25/C30, Aluminum 6061-T6, and Structural Timber C30) with custom material editor.
+- Resilient persistence in open .omniframe (JSON) format with structural validation and technical report export to HTML and Markdown.
+
+4. Distribution, Privacy & Dual Licensing:
+- Dual licensing implemented: source code under GNU AGPLv3 for the GitHub community and official EULA for free distribution on the Microsoft Store.
+- Build automation scripts for MSVC C++23 (CMake 3.28+), dedicated presets, and Inno Setup and MSIX packaging with clean uninstallation and 100% offline privacy.
+- Comprehensive bilingual technical documentation (Portuguese and English) covering FEA fundamentals, standards comparison (NBR 8800, NBR 6118, AISC 360, Eurocode 3), and reference test cases.

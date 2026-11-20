@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/fernandoncidade/OmniFrame_cpp/discussions
+    about: Please ask general questions, share structural models, or discuss FEA theory here.
+  - name: Security Vulnerability Reporting
+    url: https://github.com/fernandoncidade/OmniFrame_cpp/security/advisories/new
+    about: Please report security vulnerabilities privately.
+

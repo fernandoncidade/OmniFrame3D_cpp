@@ -1,0 +1,54 @@
+LICENÇA DE USO DE USUÁRIO FINAL (EULA) — OmniFrame 3D
+Versao 2026.11.13.0, 13 de novembro de 2026
+
+Copyright (c) 2025-2026 Fernando Nillsson Cidade. Todos os direitos reservados.
+
+AVISO DE DUPLO LICENCIAMENTO E INDEPENDÊNCIA DA MICROSOFT:
+1. Os termos deste Contrato de Licença de Usuário Final (EULA) aplicam-se EXCLUSIVAMENTE ao pacote binário pré-compilado, empacotado e assinado digitalmente distribuído oficialmente pelo autor na Microsoft Store. Estes termos complementam e observam os Termos de Licença Padrão para Aplicativos da Microsoft Store; em caso de conflito quanto ao uso de aplicativos obtidos pela Loja, prevalecem os direitos mínimos garantidos pelas regras da Microsoft Store e pela legislação consumerista aplicável.
+2. O código-fonte completo deste projeto é público no GitHub sob a Licença GNU Affero General Public License v3 (AGPLv3), garantindo liberdade para estudo, compilação, modificação, criação de forks e redistribuição independente nos termos da AGPLv3.
+3. A Microsoft NÃO presta suporte técnico ao cliente por este aplicativo e NÃO cobre o Software sob nenhuma política de privacidade da Microsoft.
+
+Ao instalar ou utilizar o pacote oficial da Microsoft Store do OmniFrame 3D, você concorda integralmente com este EULA. Caso discorde, não utilize nem instale o pacote e faça sua remoção limpa pelos controles do Windows.
+
+TERMOS E CONDIÇÕES:
+
+1. DEFINIÇÕES
+   "Licenciador": Fernando Nillsson Cidade, detentor exclusivo dos direitos autorais do Software original.
+   "Software": O programa OmniFrame 3D compilado para Windows x64 (incluindo interface Qt 6, shaders OpenGL 3.3 Core, assets de conformidade e documentação).
+   "Licenciado" ou "você": Pessoa física ou jurídica que obteve o pacote oficial na Microsoft Store ou canal autorizado.
+
+2. CONCESSÃO DE LICENÇA E DESINSTALAÇÃO LIMPA
+   O Licenciador concede licença gratuita, pessoal, não exclusiva, intransferível e revogável para instalar e executar o Software em dispositivos Windows compatíveis para modelagem geométrica, análise por elementos finitos (FEA), verificação estrutural e visualização científica 3D.
+   O Usuário tem o direito garantido de desinstalar e remover o Software de maneira limpa a qualquer momento pelas Configurações do Windows ou Menu Iniciar, sem deixar serviços ou processos ocultos em execução.
+
+3. RESTRIÇÕES SOBRE O PACOTE OFICIAL
+   O Licenciado não poderá:
+   a) Revender comercialmente de forma paga, alugar, arrendar ou sublicenciar o pacote oficial distribuído gratuitamente pelo autor na Microsoft Store sem autorização escrita prévia;
+   b) Remover ou adulterar avisos de copyright, atribuições de terceiros ou marcas deste projeto;
+   c) Utilizar o Software para finalidades ilícitas.
+
+4. PROPRIEDADE INTELECTUAL
+   O pacote oficial é licenciado, não vendido, protegido pela Lei nº 9.609/1998, Lei nº 9.610/1998 e tratados internacionais. Componentes de terceiros (Qt 6 sob LGPLv3, Eigen 3.4.0 sob MPL 2.0, Khronos OpenGL) mantêm suas respectivas licenças em NOTICES/ e LICENSES/.
+
+5. RESPONSABILIDADE TÉCNICA EM ENGENHARIA ESTRUTURAL
+   a) O Software é ferramenta auxiliar de cálculo elástico linear destinada a engenheiros, arquitetos, pesquisadores e estudantes qualificados.
+   b) A verificação de modelos, combinação normativa (ABNT NBR, AISC, Eurocode), interpretação de esforços e responsabilidade técnica pelo projeto executivo incumbem exclusivamente ao profissional habilitado responsável.
+   c) O Licenciador não assume responsabilidade civil, criminal ou técnica por colapsos, patologias ou danos decorrentes de estruturas calculadas ou executadas com auxílio dos resultados gerados.
+
+6. PRIVACIDADE E SOBERANIA LOCAL DOS DADOS
+   O OmniFrame 3D opera 100% offline, sem telemetria e sem nuvem. Projetos são salvos localmente no formato aberto .omniframe (JSON) e relatórios exportáveis em HTML e Markdown, regidos pela Política de Privacidade própria do Software (PRIVACY_POLICY).
+
+7. ATUALIZAÇÕES E SUPORTE TÉCNICO
+   Atualizações podem ser publicadas voluntariamente via Microsoft Store. A Microsoft não fornece suporte ao cliente para este Software. O suporte do autor (pessoa física) é voluntário e em regime de melhores esforços pelo e-mail linceu_lighthouse@outlook.com ou pelo repositório https://github.com/fernandoncidade/OmniFrame_cpp.
+
+8. VIGÊNCIA E RESCISÃO
+   Esta licença vigora até rescisão pelo usuário (mediante desinstalação) ou automática por violação de suas cláusulas.
+
+9. ISENÇÃO DE GARANTIAS ("AS IS")
+   Na extensão máxima permitida em lei, o Software é fornecido "NO ESTADO EM QUE SE ENCONTRA" ("AS IS"), "COM TODAS AS SUAS FALHAS", sem garantias implícitas de comercialização, operação ininterrupta ou adequação a um propósito específico.
+
+10. LIMITAÇÃO DE RESPONSABILIDADE
+    Na extensão máxima permitida pela legislação imperativa, o Licenciador não responde por lucros cessantes, perdas indiretas, danos incidentais ou consequenciais decorrentes do uso ou impossibilidade de uso do Software.
+
+11. LEGISLAÇÃO APLICÁVEL
+    Este contrato observa as leis da República Federativa do Brasil e normas imperativas de proteção ao consumidor vigentes na jurisdição do usuário.

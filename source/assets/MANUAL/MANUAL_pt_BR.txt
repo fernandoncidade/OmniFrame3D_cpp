@@ -1,0 +1,253 @@
+================================================================================
+OMNIFRAME 3D — MANUAL COMPLETO DE OPERAÇÃO E ENGENHARIA
+Versão: 2026.11.13.0 | Data: 13 de novembro de 2026 | Autor: Fernando Nillsson Cidade
+Idioma do Documento: Português (Brasil) — Correspondência rigorosa linha a linha com en-US
+================================================================================
+
+CAPÍTULO 1 — VISÃO GERAL, ARQUITETURA E ÁREA DE TRABALHO MODELESS
+
+1.1 Finalidade e Escopo de Engenharia
+O OmniFrame 3D é um aplicativo desktop nativo para Windows desenvolvido em C++23, Qt 6, Eigen 3.4 e OpenGL 3.3 Core Profile destinado à modelagem interativa, análise matricial de rigidez pelo Método dos Elementos Finitos (FEM 3D) e pós-processamento gráfico de pórticos espaciais, grelhas e treliças tridimensionais.
+Cada nó estrutural possui seis graus de liberdade no espaço (translações ux, uy, uz e rotações Rx, Ry, Rz), permitindo analisar barras submetidas simultaneamente a esforço normal, cortantes biaxiais, torção de Saint-Venant e flexão biaxial segundo a formulação exata de viga-coluna de Euler-Bernoulli.
+Todas as operações matemáticas e de persistência são executadas 100% localmente no computador do usuário, sem telemetria, sem contas obrigatórias, sem servidores remotos e utilizando unidades consistentes do Sistema Internacional: metros (m) para coordenadas e dimensões, quilonewtons (kN) para forças, quilonewtons-metro (kN·m) para momentos, quilonewtons por metro (kN/m) para cargas distribuídas, gigapascals (GPa) para módulos de elasticidade e graus (°) para ângulos de giro Roll e temperatura (°C).
+
+1.2 Anatomia da Janela Principal (MainWindow)
+A janela principal organiza o fluxo de trabalho em cinco regiões integradas e redimensionáveis:
+• Barra de Menus Superior: agrupa todos os comandos em seis menus temáticos (Arquivo, Exemplos, Estrutura, Exibir, Configurações e Ajuda).
+• Barra de Ferramentas Principal (Toolbar): fornece botões de acesso rápido para ferramentas de interação com o cursor, plano de trabalho ativo, controle de Snap, atribuições estruturais, execução do solver FEM, seleção de diagrama, escala visual e exibição de reações e eixos locais.
+• Viewport 3D OpenGL Central: renderiza a estrutura tridimensional, o Plano Ativo escuro em alta definição, apoios, forças concentradas, cargas distribuídas, deformadas, diagramas de esforços e o painel informativo (HUD) no canto da vista.
+• Painel Lateral Esquerdo (Dock Inspetor e Entrada Rápida): concentra a inserção exata de nós por coordenadas cartesianas (X, Y, Z) e o Inspetor de Propriedades dinâmico do nó ou da barra selecionada.
+• Painel Inferior (Dock Tabelas de Resultados e Diagnóstico Estrutural) e Barra de Status: exibe as abas sincronizadas de Deslocamentos Nodais, Reações de Apoio e Esforços nas Barras, enquanto a barra de status reporta continuamente as coordenadas 3D do cursor, contadores de nós/barras e mensagens de diagnóstico.
+
+1.3 Painéis Encaixáveis (Docks) e Personalização do Workspace
+Tanto o painel lateral esquerdo quanto o painel inferior são painéis encaixáveis (QDockWidget) que podem permanecer acoplados às bordas da janela principal ou ser destacados em janelas flutuantes independentes por meio do botão de desencaixe ou arrastando sua barra de título.
+A qualquer momento você pode alternar a visibilidade de cada painel ou trazê-los de volta à posição desejada sem perder seleções nem resultados já calculados.
+Quando um dock é destacado como janela flutuante, ele participa integralmente do gerenciamento de empilhamento visual (Z-Order), permitindo alternar livremente o foco entre o dock flutuante, a janela principal e qualquer janela filha aberta.
+
+1.4 Janelas Filhas Modeless e Gerenciamento de Z-Order
+No OmniFrame 3D, todas as janelas filhas e caixas de diálogo — incluindo este Manual, Sobre o OmniFrame 3D, Configurações Avançadas de Resolução e Imagem, Materiais, Seções Transversais, Condições de Apoio, Rótulas / Liberações, Ângulo de Roll da Seção (γ), Cargas Nodais Concentradas, Cargas Uniformemente Distribuídas, seletores de arquivo e avisos — operam em modo Modeless (não-modal).
+• Operação Modeless (Não-Modal): abrir uma janela filha nunca bloqueia nem congela a janela principal; você pode continuar orbitando o modelo 3D, selecionando outros nós ou barras no viewport, inspecionando tabelas ou abrindo outras janelas simultaneamente enquanto consulta parâmetros ou edita propriedades.
+• Pilha Z-Order e Elevação ao Clicar (Raise): o eixo Z virtual define qual janela aparece visualmente à frente das demais na tela; clicar na área cliente ou na barra de título de qualquer janela ativa (inclusive a própria janela principal) eleva imediatamente essa janela para o topo da pilha de Z-Order.
+• Instância Única Inteligente por Ferramenta: caso uma janela específica (por exemplo Materiais ou Manual) já esteja aberta atrás da janela principal e você acione novamente o seu comando no menu ou na barra de ferramentas, o gerenciador de janelas traz a instância existente para a frente (raise e foco) com cascateamento limpo, evitando duplicação desordenada.
+• Limpeza Automática ao Encerrar: ao fechar a janela principal pelo menu Arquivo > Sair (Ctrl+Q) ou pelo botão fechar da janela, todas as janelas filhas modeless abertas são encerradas automaticamente de forma segura.
+
+CAPÍTULO 2 — GERENCIAMENTO DE PROJETOS, ARQUIVOS E EXEMPLOS
+
+2.1 Novo Projeto e Formato Aberto .omniframe
+O comando Arquivo > Novo Projeto (Ctrl+N) reinicia a área de trabalho limpando nós, barras, vínculos, cargas e resultados ativos após confirmar com segurança quando houver alteração pendente por meio de diálogo não-modal.
+O formato nativo .omniframe utiliza estrutura JSON legível em codificação UTF-8 contendo quatro coleções explícitas (materiais, seções transversais, nós e elementos) com validação numérica rigorosa para rejeitar valores não finitos (NaN ou infinito) na leitura.
+ATENÇÃO: mantenha cópias de backup antes de editar manualmente arquivos .omniframe em editores de texto externos, preservando identificadores inteiros únicos para nós, materiais e seções.
+
+2.2 Abrir e Salvar Projetos (.omniframe)
+Para carregar um modelo existente, utilize Arquivo > Abrir (.omniframe)... (Ctrl+O) e escolha o arquivo .omniframe desejado no seletor de arquivos não-modal; após a abertura, a câmera é automaticamente enquadrada para exibir toda a geometria carregada.
+Para gravar alterações em disco, utilize Arquivo > Salvar (.omniframe)... (Ctrl+S), escolhendo o diretório de destino e o nome do arquivo; o formato grava integralmente coordenadas, propriedades mecânicas, vínculos de apoio, molas elásticas, deslocamentos prescritos, liberações de extremidade, ângulo Roll e carregamentos nodais e distribuídos.
+
+2.3 Exportação de Memorial de Cálculo (HTML e Markdown)
+O menu Arquivo disponibiliza dois exportadores nativos para documentação técnica de projeto:
+• Exportar Relatório Técnico (HTML)...: gera um documento web autônomo estilizado com tabelas formatadas contendo resumo do modelo, inventário de materiais e seções, verificação de equilíbrio estático global, deslocamentos nodais, reações nos apoios e envoltórias de esforços extremos por barra.
+• Exportar Relatório Técnico (Markdown)...: gera um arquivo texto estruturado (.md) compatível com controle de versão Git, editores técnicos e fluxos de documentação corporativa, mantendo os mesmos resultados verificados do solver.
+DICA: execute o solver FEM (F5) antes de exportar relatórios para incluir todas as tabelas de deslocamentos, reações, equilíbrio estático e esforços extremos recalculados.
+
+2.4 Exemplos Estruturais Integrados
+O menu Exemplos oferece três modelos espaciais completos prontos para análise imediata e estudo paramétrico:
+• Exemplo 1: Pórtico Espacial de Edifício (2 Pavimentos, Vento e Sobrecarga): pórtico espacial multiandar com pilares e vigas em concreto submetido a carregamentos verticais e horizontais combinados.
+• Exemplo 2: Balanço Espacial em L Sujeito a Flexo-Torção: viga em balanço dobrada a 90° em planta, demonstrando o acoplamento característico entre momento fletor em um trecho e momento torçor no trecho ortogonal.
+• Exemplo 3: Treliça Espacial / Passarela Metálica 3D: estrutura treliçada tridimensional com rótulas liberadas nas extremidades das barras (Tx, My e Mz liberados), exibindo resposta predominante de esforço axial de tração e compressão.
+
+CAPÍTULO 3 — NAVEGAÇÃO 3D, PLANO ATIVO E VISUALIZAÇÃO
+
+3.1 Câmera Orbital 3D e Vistas Rápidas
+A movimentação no espaço tridimensional combina interação direta com o mouse no Viewport 3D e atalhos de vista padronizados:
+• Orbitar (Rotação Livre): mantenha pressionado o botão direito ou o botão do meio do mouse e arraste sobre o viewport para girar ao redor do pivô da cena.
+• Pan (Translação Lateral): mantenha pressionada a tecla Shift enquanto arrasta com o botão direito ou do meio do mouse para deslocar o enquadramento paralelamente à tela.
+• Zoom Contínuo: gire a roda de rolagem (scroll) do mouse para aproximar ou afastar a câmera com suavidade.
+• Vistas Rápidas e Enquadramento: utilize o menu Exibir ou os botões da barra de ferramentas para alternar instantaneamente entre Vista 3D Isométrica (3D Iso), Vista Frontal (XZ) (Frontal), Vista de Planta (XY) (Planta), Vista Lateral (YZ) (Lateral) ou acione Enquadrar Tudo (F) / Enquadrar (F) para centralizar toda a estrutura na tela.
+
+3.2 Plano de Trabalho Ativo (XY, XZ, YZ) e Offset
+Para desenhar nós e posicionar pontos no espaço 3D com precisão usando um cursor bidimensional, o OmniFrame 3D projeta o ponteiro do mouse por raycasting sobre o Plano de Trabalho Ativo selecionado.
+• Plano XZ (Frontal): ideal para lançar pórticos planos verticais e elevações em torno da coordenada Y fixa.
+• Plano XY (Planta): ideal para lançar plantas baixas, grelhas horizontais e pavimentos em uma cota Z constante.
+• Plano YZ (Lateral): ideal para lançar pórticos transversais e planos perpendiculares ao eixo X global.
+• Cota do Plano Ativo (Cota:): o seletor numérico de cota desloca paralelamente o plano ativo ao longo do seu eixo normal (por exemplo Z = 3,00 m para modelar a laje superior do segundo pavimento).
+
+3.3 Grade Dinâmica e Snap de Precisão
+A grade espacial renderiza linhas secundárias suaves e linhas principais acentuadas com passo configurável no campo Passo: (em metros).
+Quando a opção Snap Grid está ativada, as coordenadas capturadas no plano ativo são arredondadas automaticamente para o múltiplo exato mais próximo do passo configurado, e um marcador visual acompanha a posição exata sob o cursor antes mesmo do clique.
+NOTA: as linhas de contorno, grade e eixos são renderizadas por shaders analíticos subpixel combinados com MSAA e superamostragem, garantindo nitidez mesmo em ângulos rasantes.
+
+3.4 Seleção 3D (Raycasting) e Destaque Visual
+No modo Selecionar (S), um clique simples com o botão esquerdo executa raycasting geométrico contra nós (raio prioritário de tolerância na tela) e contra barras estruturais.
+Nós selecionados são destacados na cor ciano com esfera ampliada e barras selecionadas passam a ser traçadas com maior espessura em destaque ciano, sincronizando instantaneamente o painel lateral Inspetor e Entrada Rápida e o foco nas tabelas de resultados.
+Manter Ctrl pressionado ao clicar permite alternar ou compor seleções múltiplas de nós e barras para atribuição em lote; clicar no vazio ou pressionar Esc limpa a seleção atual.
+
+3.5 Eixos Locais das Barras e Simbologia Gráfica
+Ativar Eixos Locais exibe na região central de cada elemento o triedro ortogonal direito (x, y, z): vermelho indica o eixo longitudinal x local orientado do nó inicial i para o nó final j, verde indica o eixo principal local y e azul indica o eixo principal local z.
+Na representação gráfica do modelo:
+• Apoio Engastado: cubo azul ancorado sob o nó.
+• Apoio Articulado Fixo: pirâmide verde com vértice no nó.
+• Apoio Móvel (Rolete): pirâmide âmbar/laranja apoiada no nó.
+• Cargas Nodais e Distribuídas: setas vermelhas representam forças concentradas nodais; conjuntos contínuos de setas verdes ao longo das barras representam cargas distribuídas; setas duplas ciano representam momentos aplicados ou reações de momento.
+
+CAPÍTULO 4 — MODELAGEM GEOMÉTRICA INTERATIVA E NUMÉRICA
+
+4.1 Adicionar Nós no Plano Ativo e via Entrada Numérica
+Existem duas formas complementares para criar nós na estrutura:
+• Clique Interativo (Inserir Nó (N)): ative Inserir Nó (N) na barra de ferramentas (ou pressione N), posicione o cursor sobre o Plano Ativo desejado observando as coordenadas vivas na barra de status e clique com o botão esquerdo para inserir o nó instantaneamente no ponto com ou sem Snap Grid.
+• Entrada Numérica Exata (Painel Esquerdo): informe diretamente as coordenadas cartesianas exatas X, Y e Z no grupo Adicionar Nó por Coordenadas do dock Inspetor e Entrada Rápida, ideal para coordenadas fracionárias ou fora do plano ativo corrente.
+
+4.2 Conectar Barras entre Nós
+Para criar uma barra conectando dois nós já existentes, ative a ferramenta Inserir Barra (B) (ou pressione B).
+Clique primeiro sobre o nó de origem (nó i) e em seguida clique sobre o nó de destino (nó j); a nova barra herda o material padrão (ID 1) e a seção transversal padrão (ID 1) com ângulo Roll inicial igual a 0°.
+NOTA: se você clicar no mesmo nó de origem ou em pontos sem nó válido, o procedimento impede a criação de elementos degenerados de comprimento nulo; pressione Esc a qualquer momento para cancelar a ligação em andamento.
+
+4.3 Ferramenta de Medição Espacial (ΔX, ΔY, ΔZ, L)
+A ferramenta Medir (M) permite auditar vãos, alturas de pavimento e comprimentos inclinados sem alterar o modelo.
+Com o modo Medir (M) ativo, clique no primeiro ponto ou nó de referência e clique no segundo ponto; a barra de status reporta a distância euclidiana total L bem como as projeções ortogonais ΔX, ΔY e ΔZ em metros.
+
+4.4 Exclusão Segura e Limpeza de Seleção
+Para remover entidades indesejadas, selecione um ou mais nós ou barras no viewport e acione Excluir (Del) (tecla Del ou botão correspondente na barra de ferramentas).
+Ao excluir um nó, o modelo estrutural remove automaticamente todas as barras conectadas a esse nó para manter a consistência topológica da malha sem pontas soltas.
+A tecla Esc encerra ferramentas de criação encadeada ou limpa a seleção corrente e retorna ao estado seguro de inspeção.
+
+CAPÍTULO 5 — PROPRIEDADES ESTRUTURAIS, VÍNCULOS E CARREGAMENTOS
+
+5.1 Biblioteca e Editor de Materiais Isotrópicos
+Acesse Estrutura > Materiais... (ou o botão Materiais... na barra de ferramentas) para abrir a janela modeless do editor de materiais, onde é possível criar, modificar ou selecionar materiais existentes pelos quatro parâmetros fundamentais: Módulo de Elasticidade Longitudinal E (GPa na interface), Coeficiente de Poisson ν, Coeficiente de Dilatação Térmica α (/°C) e Peso Específico γ (kN/m³).
+Estão disponíveis quatro predefinições imediatas de engenharia: Aço Estrutural (ASTM A36) (E = 200 GPa, ν = 0,30, γ = 78,5 kN/m³), Concreto Estrutural C30 (E = 30 GPa, ν = 0,20, γ = 25,0 kN/m³), Alumínio 6061-T6 (E = 70 GPa, ν = 0,33, γ = 27,0 kN/m³) e Madeira Estrutural (E = 14,5 GPa, ν = 0,20, γ = 8,0 kN/m³).
+Ao confirmar com barras selecionadas no viewport 3D, o material escolhido é aplicado imediatamente a todas as barras selecionadas sem fechar seu fluxo de modelagem.
+
+5.2 Seções Transversais e Cálculo Automático de Inércias
+Acesse Estrutura > Seções Transversais... (ou Seções... na barra de ferramentas) para definir geometrias de barra entre cinco famílias de cálculo analítico em metros (m), m² e m⁴:
+• Retangular: informando largura b (direção local y) e altura h (direção local z).
+• Circular Maciça: informando diâmetro externo D.
+• Tubo Circular: informando diâmetro externo D_ext e espessura de parede t.
+• Perfil I / W Laminado ou Soldado: informando altura total h, largura da mesa b_f, espessura da mesa t_f e espessura da alma t_w.
+• Genérica (Manual): entrada direta da área A, momentos principais de inércia Iy e Iz e constante de torção de Saint-Venant J.
+As propriedades geométricas calculadas (A, Iy, Iz e J) são exibidas dinamicamente para conferência e atribuídas em lote às barras selecionadas.
+
+5.3 Apoios Nodais, Molas Elásticas e Recalques Prescritos
+Acesse Estrutura > Condições de Apoio... (ou Apoios... na barra de ferramentas) com um ou mais nós selecionados para configurar individualmente cada um dos seis graus de liberdade globais (uX, uY, uZ, θX, θY, θZ).
+Você pode utilizar as predefinições rápidas Engastado (todos os 6 GDL bloqueados), Articulado Fixo (translações uX, uY, uZ bloqueadas e rotações livres), Apoio Móvel (Z) (somente translação vertical uZ bloqueada) ou Livre (remove todo apoio), além de atribuir coeficientes de mola elástica (0 a 1×10⁹ kN/m ou kN·m/rad) e valores de deslocamento ou rotação prescritos (±100) em qualquer GDL ativo.
+
+5.4 Liberações de Extremidade (Rótulas Internas)
+Acesse Estrutura > Rótulas / Liberações... (ou Rótulas... na barra de ferramentas) para modelar ligações articuladas ou barras puras de treliça liberando individualmente graus de liberdade no nó inicial (i) ou no nó final (j) da barra.
+Os botões de predefinição permitem alternar rapidamente entre Bi-Engastada (ligação rígida padrão), Rótula Início (libera momentos fletores locais no início), Rótula Fim (libera momentos fletores no fim) e Barra Treliça (libera Tx, My e Mz em ambas as extremidades).
+Internamente, o motor aplica condensação estática exata na matriz de rigidez local 12×12 antes da transformação para o sistema global.
+
+5.5 Orientação da Seção via Ângulo de Roll (γ)
+Acesse Estrutura > Ângulo de Roll da Seção (γ)... (ou Roll (γ)... na barra de ferramentas) para rotacionar os eixos principais locais y e z ao redor do eixo longitudinal x da barra no intervalo de -360° a +360°.
+Para barras inclinadas ou horizontais com Roll = 0°, o eixo local z aponta para o semiespaço superior vertical (plano local xz vertical); para barras estritamente verticais (paralelas ao eixo Z global), o sistema local adota automaticamente uma orientação de referência consistente sem singularidade, somada ao giro γ especificado.
+Ative Eixos Locais no viewport para visualizar instantaneamente o giro das mesas e eixos principais ao confirmar o Ângulo de Roll (γ).
+
+5.6 Cargas Nodais Concentradas (Forças e Momentos)
+Acesse Estrutura > Cargas Nodais Concentradas... (ou Carga Nodal... na barra de ferramentas) com um ou mais nós selecionados para aplicar forças concentradas globais (Fx, Fy, Fz em kN) e momentos concentrados globais (Mx, My, Mz em kN·m).
+No sistema global padrão adotado pelo OmniFrame 3D, a gravidade atua no sentido negativo do eixo Z (-Z), logo cargas gravitacionais verticais para baixo utilizam valores negativos de Fz (por exemplo Fz = -50 kN).
+Para remover cargas nodais de um conjunto de nós, zere todos os componentes no diálogo ou utilize o botão de limpeza e aplique aos nós selecionados.
+
+5.7 Cargas Distribuídas em Barras (Globais e Locais)
+Acesse Estrutura > Cargas Uniformemente Distribuídas... (ou Carga Distr.... na barra de ferramentas) com uma ou mais barras selecionadas para definir carregamentos uniformemente distribuídos qx, qy e qz em kN/m ao longo de todo o vão (valor inicial padrão qz = -10,0 kN/m).
+Escolha entre Sistema Global (X, Y, Z) (componentes orientadas pelos eixos X, Y e Z globais do projeto, ideal para peso próprio e cargas gravitacionais verticais) ou Sistema Local (x, y, z da barra) (componentes orientadas pelos eixos x, y e z locais da própria barra, ideal para empuxos ou pressões normais a telhados inclinados).
+O solver converte automaticamente cargas distribuídas (e eventuais variações térmicas ΔT registradas no elemento) nos respectivos vetores exatos de forças de engastamento perfeito (Fixed-End Forces).
+
+CAPÍTULO 6 — ANÁLISE POR ELEMENTOS FINITOS (SOLVER FEM 3D)
+
+6.1 Pré-Validação de Modelo e Detecção de Mecanismos
+Antes de montar o sistema linear, o modelo passa pela rotina estrutural validate(), que verifica se há nós e barras suficientes, se os vínculos de apoio impedem o movimento de corpo rígido, se todas as referências de material e seção são válidas e se não existem elementos de comprimento nulo ou propriedades físicas nulas ou negativas.
+Caso o modelo contenha mecanismos cinemáticos, hipoestaticidade global ou matriz de rigidez não positiva-definida, o solver interrompe o cálculo com segurança e exibe mensagem clara de diagnóstico por janela não-modal indicando a causa provável.
+
+6.2 Formulação Matricial e Solver Esparso SimplicialLDLT
+Ao acionar Estrutura > CALCULAR ESTRUTURA (tecla F5 ou botão ▶ CALCULAR ESTRUTURA (F5)), o FemSolver3D executa os seguintes estágios numéricos de precisão dupla (64 bits):
+1. Cálculo da matriz de rigidez local exata 12×12 por barra com termos axiais (EA/L), torcionais (GJ/L) e de flexão biaxial de Euler-Bernoulli (12EI/L³, 6EI/L², 4EI/L, 2EI/L), incluindo condensação estática de rótulas quando aplicável.
+2. Rotação para coordenadas globais por matriz ortogonal em blocos [T] = diag(R, R, R, R) via K_glob = T^T · K_loc · T e transformação dos vetores de engastamento perfeito.
+3. Montagem da matriz de rigidez global esparsa com incorporação de rigidez de molas elásticas e imposição de apoios e deslocamentos prescritos.
+4. Fatoração direta esparsa de Cholesky usando Eigen::SimplicialLDLT com reordenação AMD para máxima velocidade e estabilidade numérica, registrando o tempo total de execução em milissegundos.
+
+6.3 Verificação de Equilíbrio Estático Global
+Imediatamente após resolver os deslocamentos nodais {u} e recuperar as forças locais de extremidade e reações nodais globais {R}, o solver totaliza as resultantes vetoriais de todas as forças e momentos aplicados em comparação às reações nos apoios.
+Os resíduos finais de forças (ΔFx, ΔFy, ΔFz) e de momentos em relação à origem (ΔMx, ΔMy, ΔMz) são auditados automaticamente no campo EquilibriumCheck e impressos tanto nos relatórios HTML/Markdown quanto nos resumos de análise.
+
+CAPÍTULO 7 — PÓS-PROCESSAMENTO, DIAGRAMAS E INSPEÇÃO DE RESULTADOS
+
+7.1 Modos de Visualização 3D e Deformada
+Após uma análise bem-sucedida, o seletor Diagrama: na barra de ferramentas permite alternar em tempo real entre oito modos de visualização diretamente sobre o pórtico 3D:
+• Nenhum (Geometria): exibe apenas a geometria original, apoios e carregamentos.
+• Deformada 3D: renderiza a configuração deslocada da estrutura com interpolação suave comparada à silhueta da geometria indeformada.
+• Normal (N), Cortante (Vy), Cortante (Vz), Torsor (Tx), Fletor (My) e Fletor (Mz): renderiza diagramas preenchidos com linhas de contorno nítidas ao longo de cada barra acompanhados da legenda e cores características.
+Ativar Reações na barra de ferramentas exibe setas e valores de reação nos nós vinculados diretamente na cena tridimensional.
+
+7.2 Controle de Escala Visual de Deformadas e Diagramas
+O controle deslizante Escala: na barra de ferramentas varia continuamente de 1 a 100 (valor padrão inicial igual a 30) para ajustar a leitura gráfica sem modificar os resultados físicos reais calculados pelo solver:
+• Na visualização Deformada 3D, o fator de amplificação aplicado aos deslocamentos é proporcional ao valor escolhido (variando de 1,5x no mínimo 1 até 150x no máximo 100).
+• Nos diagramas de esforços internos (N, Vy, Vz, Tx, My, Mz), a altura gráfica desenhada acompanha continuamente o ajuste do controle por fator proporcional normalizado pelo valor padrão 30.
+
+7.3 Recuperação Contínua por Polinômios de Hermite e Tabelas
+Internamente, cada barra calcula seus esforços internos e deslocamentos em coordenadas adimensionais contínuas ξ pertencentes a [0, 1] via função Element::evaluateAt(xi), aplicando polinômios cúbicos de Hermite para curvatura exata sob flexão combinada com as cargas distribuídas atuantes.
+No Painel Inferior (Tabelas de Resultados e Diagnóstico Estrutural), três abas sincronizadas resumem os dados numéricos exatos de cada entidade:
+• Aba Deslocamentos Nodais: apresenta ID do nó e os seis componentes calculados (ux, uy, uz em m ou mm conforme tabela, e rotações Rx, Ry, Rz).
+• Aba Reações de Apoio: apresenta exclusivamente nós vinculados com suas forças reativas (Rx, Ry, Rz em kN) e momentos reativos (Mx, My, Mz em kN·m).
+• Aba Esforços nas Barras: apresenta os valores mínimo e máximo de N, Vy, Vz, Tx, My, Mz e deflexão máxima registrada em cada barra.
+
+CAPÍTULO 8 — CONFIGURAÇÕES GRÁFICAS, RESOLUÇÃO DE IMAGEM, TEMA E IDIOMA
+
+8.1 Arquitetura Multi-Estágio de Alta Definição
+Para eliminar serrilhado em linhas inclinadas, eixos da grade e barras finas em monitores padrão e HiDPI/4K, o Viewport 3D emprega um pipeline OpenGL em três estágios combinados:
+1. Rasterização Offscreen em Framebuffer Multisample (MSAA) com até 16x amostras configuráveis conforme o limite real do driver da placa de vídeo.
+2. Fator interno de Superamostragem Espacial (SSAA) de 0,75x até 2,50x multiplicando a resolução lógica considerando o DPI do monitor, respeitando automaticamente o tamanho máximo de textura da GPU.
+3. Primitivas de linha expandidas em quads orientados na tela com Anti-Aliasing Analítico SDF por Shader (smoothstep subpixel em bordas) seguidas por passagem Fullscreen Resolve com filtragem Catmull-Rom com nitidez adaptativa, Bicúbico Suave ou Bilinear Padrão.
+
+8.2 Diálogo Configurações Avançadas de Resolução e Imagem (Preview ao Vivo)
+Em Configurações > Configurações Avançadas de Resolução e Imagem... (além dos submenus rápidos Perfil de Qualidade Gráfica, Escala de Resolução Interna (SSAA), Suavização por Hardware (MSAA), Definição de Linhas e Imagem, Aparência do Plano Ativo, Sincronização Vertical (VSync) e Restaurar Padrões de Máxima Qualidade), todas as opções podem ser avaliadas em tempo real sobre a cena 3D antes mesmo de clicar em Aplicar ou OK:
+• Perfil de Qualidade Gráfica: Automático (Máxima Qualidade), Ultra (SSAA 200% + MSAA Máx), Alta (SSAA 150% + MSAA 8×), Equilibrada (Nativa 100% + MSAA 4×), Desempenho (Nativa 100% + Shader AA) e Personalizado (ajustado automaticamente ao personalizar parâmetros).
+• Controles Manuais Finos: resolução automática máxima, Escala de Resolução Interna (SSAA), Suavização por Hardware (MSAA) automática ou manual (Desligado, 2x, 4x, 8x, 16x), Suavização Analítica Subpixel de Linhas (Shader SDF), Multiplicador de Espessura de Linha, Suavização da borda (AA), Força de Nitidez, método de filtro (Catmull-Rom 16-tap + Nitidez, Bicúbico Suave ou Bilinear Padrão), VSync e exibição de telemetria de resolução no viewport.
+• Informações de Hardware da GPU e Persistência: o diálogo exibe o nome real do adaptador gráfico, fabricante, versão OpenGL ativa, limite de amostras MSAA/textura e resolução física renderizada em pixels; clicar em Cancelar restaura exatamente o estado anterior na cena, enquanto Aplicar ou OK salva as preferências localmente em graphics.json.
+
+8.3 Temas do Plano Ativo, Tema da Interface (Claro/Escuro) e Contraste
+Em Configurações > Tema é possível alternar dinamicamente em tempo de execução entre os modos Escuro e Claro, adaptando instantaneamente janelas, diálogos não-modais, barras de título, tabelas, documentos HTML (Manual e Sobre), viewport OpenGL, escala cromática da deformada e diagramas de esforços.
+Além disso, em Configurações > Aparência do Plano Ativo ou no diálogo avançado de resolução é possível escolher de forma independente a aparência visual do Plano de Trabalho Ativo:
+• Obsidiana Escuro (Padrão) (#07090e): fundo azul-obsidiana profundo equilibrado para longas sessões de modelagem sem fadiga visual nem ofuscamento da grade.
+• Noite Profunda (Ultra Escuro) (#040608): fundo preto noturno de alto contraste para destaque máximo de diagramas coloridos e linhas finas.
+• Grafite Escuro (#0d1116): tom grafite escuro moderado para ambientes muito iluminados.
+• Claro Técnico (#eef3f9): fundo claro de prancheta técnica em alto contraste com barras em grafite escuro, vínculos e diagramas em cores saturadas e HUD claro translúcido.
+• Contraste da Grade e Superfície do Plano: ajuste deslizante de contraste das linhas maiores/menores da grade e opção de exibir superfície translúcida e moldura do Plano Ativo.
+
+8.4 Troca Dinâmica de Idioma e Persistência
+O sub-menu Configurações > Idioma permite alternar instantaneamente em tempo de execução entre Português (Brasil) e English (US).
+A troca dispara propagação dinâmica de QEvent::LanguageChange sem necessidade de reiniciar o aplicativo: barra de menus, barras de ferramentas, painéis acoplados, inspetor, tabelas de resultados, HUD 3D, este Manual, diálogo Sobre e todas as janelas filhas modeless abertas no momento traduzem seus textos automaticamente.
+O idioma selecionado é salvo de forma autônoma no arquivo language.json dentro do diretório de dados locais do usuário (%LOCALAPPDATA%\OmniFrame\OmniFrame\).
+
+CAPÍTULO 9 — AJUDA, ATALHOS DE TECLADO, ARMAZENAMENTO LOCAL E FERRAMENTAS
+
+9.1 Manual Interativo (F1) e Diálogo Sobre o Aplicativo
+• Ajuda > Manual (F1): abre esta janela modeless dedicada contendo índice interativo de capítulos e subcapítulos à esquerda, leitor de texto estruturado em alta legibilidade à direita e barra de pesquisa instantânea com botões Próxima e Anterior para localizar termos técnicos rapidamente.
+• Ajuda > Sobre o OmniFrame 3D: abre a central informativa não-modal com abas dedicadas para Sobre o Aplicativo, Notas de Versão, Histórico do App, Compromisso de Licenciamento de Código (CLC), Aviso de Copyright e Marca Registrada, Política de Privacidade, Contrato de Licença de Usuário Final (EULA), Avisos de Terceiros e Licenças Open Source completas.
+
+9.2 Tabela Completa de Atalhos e Controles Rápidos
+Utilize os atalhos abaixo sempre que o viewport principal ou a barra de menus estiver em foco:
+• F1 — Abrir este Manual Completo de Operação e Engenharia.
+• Ctrl+N — Iniciar Novo Projeto estrutural.
+• Ctrl+O — Abrir projeto existente (.omniframe).
+• Ctrl+S — Salvar projeto atual (.omniframe).
+• Ctrl+Q — Sair do OmniFrame 3D (fechando todas as janelas filhas abertas).
+• F5 — CALCULAR ESTRUTURA: executar Solver FEM 3D completo.
+• F — Enquadrar Tudo (F): enquadrar toda a estrutura na câmera 3D.
+• S — Selecionar (S): ativar ferramenta de seleção e Picking 3D.
+• N — Inserir Nó (N): ativar inserção de nó no Plano Ativo.
+• B — Inserir Barra (B): ativar ligação de barra entre dois nós.
+• M — Medir (M): ativar medição de distância entre pontos ou nós.
+• Del — Excluir (Del): excluir nós e/ou barras selecionados no momento.
+• Esc — Cancelar operação em curso (inserção de barra ou medição) e limpar seleção.
+• Botão Direito ou do Meio + Arrastar — Orbitar câmera 3D livremente.
+• Shift + Botão Direito ou do Meio + Arrastar — Panorâmica (Pan lateral/vertical) da câmera.
+• Roda do Mouse (Scroll) — Zoom de aproximação e afastamento.
+
+9.3 Armazenamento Local, Portabilidade de Diretório e Privacidade Offline
+Todos os ativos textuais bilíngues (sobre, histórico, avisos legais, licenças e este manual) e traduções (.qm) são resolvidos de forma autônoma a partir do pacote de distribuição ou de recursos embutidos no próprio binário Qt, assegurando funcionamento integral independente da pasta ou unidade em que o aplicativo esteja instalado.
+O OmniFrame 3D não coleta telemetria, não abre conexões externas de rede e grava exclusivamente os projetos salvos manualmente pelo usuário e três arquivos de preferências locais (language.json, theme.json e graphics.json) na pasta %LOCALAPPDATA%\OmniFrame\OmniFrame\.
+Em caso de desinstalação pela Loja da Microsoft ou remoção de distribuição portátil, nenhum driver de kernel ou serviço oculto em segundo plano é mantido no sistema operacional.
+
+9.4 Utilitários Complementares de Distribuição
+O ecossistema OmniFrame 3D inclui também ferramentas auxiliares independentes empacotadas em distribuições separadas para manutenção de versão e localização:
+• VersionEditor (VersionEditor.exe): editor gráfico para atualização sincronizada de número de versão e datas de revisão nos documentos e manifestos configurados em Português (BR) e Inglês (US).
+• CompileTranslationsGUI (CompileTranslationsGUI.exe): utilitário gráfico para validação, compilação (.ts para .qm) e implantação limpa das traduções Qt do aplicativo.
+• Suíte de Testes Automatizados (CTest): conjunto de testes de verificação analítica (vigas engastadas, pórticos, treliças, equilíbrio estático, rotações Roll e serialização JSON) garantindo fidelidade numérica contínua a cada compilação.
+

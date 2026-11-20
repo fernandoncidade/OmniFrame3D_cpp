@@ -1,0 +1,40 @@
+PRIVACY POLICY FOR OMNIFRAME 3D
+Last Updated: November 13, 2026
+Version: 2026.11.13.0
+
+Your privacy, the professional confidentiality of your engineering models, and the unrestricted sovereignty of your structural calculation data are foundational principles of OmniFrame 3D. This Privacy Policy explains clearly how OmniFrame 3D ("Software") operates and how your data remains solely under your control.
+
+INDEPENDENCE FROM MICROSOFT PRIVACY STATEMENT:
+Microsoft does NOT provide a default privacy policy for OmniFrame 3D, and this Software is NOT covered by any Microsoft privacy policy or the Microsoft Privacy Statement (https://www.microsoft.com/en-us/privacy/privacystatement). Data collected separately by Microsoft through the Microsoft Store platform (such as searches, downloads, updates, uninstalls, and ratings/reviews linked to your Microsoft account) or Windows OS diagnostic settings is governed solely by Microsoft's Privacy Statement. All operations performed within OmniFrame 3D are governed exclusively by this developer Privacy Policy.
+
+1. Foundational Principle: Local-First Architecture and Privacy by Design
+OmniFrame 3D is engineered under Privacy by Default and Security by Design. All 3D structural modeling, material and cross-section definitions, 12x12 finite element stiffness formulations, sparse Cholesky solves (SimplicialLDLT), Hermite cubic force recovery, and OpenGL 3.3 Core rendering run 100% offline and locally inside your workstation's RAM, CPU, and GPU. No structural data is ever transmitted, uploaded, copied, or synchronized with remote servers, cloud services, or third parties.
+
+2. Information Processed Locally by the Software
+The Software processes solely data deliberately entered or opened by the user:
+- Geometric Coordinates & Structural Topology: 3D Cartesian coordinates (X, Y, Z), member connectivity, roll orientation angles, and member end releases (hinges).
+- Material & Cross-Section Properties: Modulus of elasticity (E), Poisson's ratio (nu), thermal expansion (alpha), unit weight (gamma), area (A), moments of inertia (Iy, Iz), and Saint-Venant torsion constant (J).
+- Boundary Constraints & Loads: Fixed/pinned/roller supports, nodal elastic springs, prescribed displacements/rotations, concentrated nodal forces/moments, and uniform distributed member loads.
+- Minimal Persisted Preference: Only the selected interface language ("pt_BR" or "en_US") is saved locally in JSON format to "%LOCALAPPDATA%\OmniFrame\OmniFrame\language.json" (or the equivalent isolated MSIX package storage container). Temporary view, camera, and scale factor preferences remain in memory during the session only.
+
+The Software DOES NOT collect, request, store, or process Personally Identifiable Information (name, email, taxpayer/national IDs, phone numbers, geographic location, biometrics, health, financial records, or children's data).
+
+3. Legal Basis and Declared Capability (LGPD / GDPR / Microsoft Store)
+Local processing strictly serves to execute the linear finite element structural analyses requested by the user, render 3D visualization, and save local .omniframe (JSON) files and .html / .md technical reports (LGPD Art. 7, V and IX; legitimate interest and contract performance under GDPR).
+For Microsoft Store MSIX packaging, the manifest declares only the restricted capability <rescap:Capability Name="runFullTrust" /> (required for native C++23 / Qt 6 execution, OpenGL 3.3 Core rendering, and standard Windows file dialogs), without using camera, microphone, location, or contacts.
+
+4. Local Storage, Zero Network Connectivity, and No Third-Party Sharing
+- Strictly Local Storage: Project files (.omniframe) and technical reports (.html and .md) are saved solely to local paths explicitly selected by you via standard Windows file dialogs.
+- Zero Telemetry & Zero App Network Requests: OmniFrame 3D contains no user accounts, analytics SDKs, advertising modules, or background HTTP/HTTPS requests. Bundled Qt 6 runtime libraries serve local UI/graphics plugins only and transmit no user data on behalf of OmniFrame 3D.
+- No Third-Party Disclosures: The Software DOES NOT share, sell, or disclose project data to the author, Microsoft, or third parties.
+
+5. User Control Rights and Clean Uninstallation
+You retain complete control over your models and application installation:
+- You may create, move, rename, edit, or delete your .omniframe, .html, .md, and language.json files at any time;
+- You may cleanly uninstall and remove OmniFrame 3D at any time via Windows Settings -> Apps -> Installed Apps (or Start Menu -> Uninstall), removing application binaries and isolated MSIX storage cleanly without leaving background services, drivers, or startup processes behind.
+
+6. Privacy & Support Contact (Individual Developer)
+Fernando Nillsson Cidade
+Email: linceu_lighthouse@outlook.com
+Official Website / Repository: https://github.com/fernandoncidade/OmniFrame_cpp
+Notice: Microsoft does not provide customer support to users for this application.

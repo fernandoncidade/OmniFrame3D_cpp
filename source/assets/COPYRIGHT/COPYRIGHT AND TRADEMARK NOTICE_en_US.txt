@@ -1,0 +1,15 @@
+COPYRIGHT AND TRADEMARK NOTICE
+==============================
+
+Copyright (C) 2025-2026 Fernando Nillsson Cidade. All rights reserved.
+
+The OmniFrame 3D software and its associated original documentation, including source code, graphical user interface, technical manuals, finite element mathematical specifications, reports, icons, and OpenGL shaders, are the intellectual property of Fernando Nillsson Cidade. All third-party libraries and components (including the Qt 6 framework under GNU LGPLv3, the Eigen library under Mozilla Public License v2.0, and Khronos OpenGL specifications) belong to their respective authors and copyright holders.
+
+The name "OmniFrame 3D" is a project reference mark created by Fernando Nillsson Cidade.
+
+OPEN-SOURCE CLARIFICATION AND DEVELOPER GUIDELINES:
+----------------------------------------------------
+1. Purpose of this Documentation: The documentation located in the source/assets/ directory (including ABOUT, CLC, COPYRIGHT, EULA, LICENSES, NOTICES, PRIVACY_POLICY, and RELEASE) has been created to comply with publishing, compliance, and distribution requirements on the Microsoft Store.
+2. Full Freedom for Developers: The author explicitly authorizes developers, contributors, and forks to make any changes, removals, additions, and adaptations to this documentation and the associated codebase, providing full freedom to adapt them as appropriate, provided they comply with applicable laws, guidelines, and regulations in their respective jurisdictions.
+3. Open Source Codebase (GNU AGPLv3 License): The complete source code is publicly available in this repository under the GNU Affero General Public License v3 (AGPLv3). Anyone is entirely free to inspect, compile, build independent binaries, modify, and redistribute their own builds under GNU AGPLv3 terms.
+4. Restriction on Author's Official Binaries: Only the binary compiled, packaged, digitally signed, and officially distributed by the author (Fernando Nillsson Cidade), notably the official free distribution on the Microsoft Store, is NOT authorized for paid commercial resale, unauthorized redistribution, or trademark hijacking by third parties (noting that reverse engineering is unnecessary, as the original source code is already fully and openly available in the repository).

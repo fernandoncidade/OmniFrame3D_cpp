@@ -1,0 +1,252 @@
+name: Update Version in README
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  update-version:
+    if: github.event.deleted == false && !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract version from push commits
+        id: extract_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVENT="$GITHUB_EVENT_PATH"
+          V_REGEX='v20[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}\.[0-9]+'
+          BARE_REGEX='(^|[^0-9.])(20[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}\.[0-9]+)([^0-9.]|$)'
+
+          extract_from_text() {
+            local text="$1"
+            local found=""
+            found=$(printf '%s\n' "$text" | grep -oE "$V_REGEX" | tail -1 || true)
+            if [ -n "$found" ]; then
+              printf '%s\n' "$found"
+              return 0
+            fi
+            found=$(printf '%s\n' "$text" | grep -oE "$BARE_REGEX" | grep -oE '20[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}\.[0-9]+' | tail -1 || true)
+            if [ -n "$found" ]; then
+              printf 'v%s\n' "$found"
+              return 0
+            fi
+            return 1
+          }
+
+          echo "=== DEBUG: inspecting push payload ==="
+          jq -r '.head_commit.message // "NO_HEAD_COMMIT_MESSAGE"' "$EVENT" || true
+
+          VERSION=""
+
+          # 1) tentativas no head_commit
+          HEAD_MSG=$(jq -r '.head_commit.message // ""' "$EVENT")
+          VERSION=$(extract_from_text "$HEAD_MSG" || true)
+
+          # 2) se nao achou no head, procurar no array de commits (do mais recente para o mais antigo)
+          if [ -z "$VERSION" ]; then
+            while IFS= read -r msg; do
+              VERSION=$(extract_from_text "$msg" || true)
+              if [ -n "$VERSION" ]; then
+                break
+              fi
+            done < <(jq -r '.commits | reverse | .[].message' "$EVENT")
+          fi
+
+          # 3) fallback: procurar no historico git recente
+          if [ -z "$VERSION" ]; then
+            RECENT_V=$(git log -20 --pretty=%B | grep -oE "$V_REGEX" | head -1 || true)
+            if [ -n "$RECENT_V" ]; then
+              VERSION="$RECENT_V"
+            fi
+          fi
+
+          if [ -n "$VERSION" ]; then
+            echo "Version found: $VERSION"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "has_version=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No version pattern found in push"
+            echo "has_version=false" >> "$GITHUB_OUTPUT"
+          fi
+      
+      - name: Debug - Show current README target lines
+        if: steps.extract_version.outputs.has_version == 'true'
+        run: |
+          echo "=== Current target lines in README.md ==="
+          grep -n -E 'Release-v|OmniFrame 3D\*\* \(Vers|docs/release-v' README.md || echo "No target lines found"
+          echo "========================================="
+      
+      - name: Update README.md target lines
+        if: steps.extract_version.outputs.has_version == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          echo "Updating README.md target lines with version $VERSION"
+
+          cp README.md README.md.bak
+
+          VERSION="$VERSION" python3 <<'PY'
+          import os
+          import re
+          from datetime import date
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          match = re.fullmatch(r"v(20\d{2})\.(\d{1,2})\.(\d{1,2})\.(\d+)", version)
+          if not match:
+              raise SystemExit(f"Invalid version format: {version}")
+
+          year = int(match.group(1))
+          month = int(match.group(2))
+          day = int(match.group(3))
+          date(year, month, day)  # Validate embedded release date
+          bare_version = version[1:]
+
+          readme = Path("README.md")
+          raw_text = readme.read_bytes().decode("utf-8")
+          lines = raw_text.splitlines(keepends=True)
+
+          counts = {
+              "badge": 0,
+              "en_intro": 0,
+              "en_notes": 0,
+              "pt_intro": 0,
+              "pt_notes": 0,
+          }
+
+          updated_lines = []
+          for line in lines:
+              if line.startswith("[![Latest Release](https://img.shields.io/badge/Release-v") and "releases/tag/v" in line:
+                  updated, c1 = re.subn(
+                      r"(Release-v)20\d{2}\.\d{1,2}\.\d{1,2}\.\d+(-blue\.svg)",
+                      rf"\g<1>{bare_version}\2",
+                      line,
+                      count=1,
+                  )
+                  updated, c2 = re.subn(
+                      r"(releases/tag/v)20\d{2}\.\d{1,2}\.\d{1,2}\.\d+",
+                      rf"\g<1>{bare_version}",
+                      updated,
+                      count=1,
+                  )
+                  if c1 == 1 and c2 == 1:
+                      counts["badge"] += 1
+                      updated_lines.append(updated)
+                      continue
+
+              if re.match(r"^\*\*OmniFrame 3D\*\* \(Version 20\d{2}\.\d{1,2}\.\d{1,2}\.\d+\)", line):
+                  updated, c = re.subn(
+                      r"(\*\*OmniFrame 3D\*\* \(Version )20\d{2}\.\d{1,2}\.\d{1,2}\.\d+(\))",
+                      rf"\g<1>{bare_version}\2",
+                      line,
+                      count=1,
+                  )
+                  if c == 1:
+                      counts["en_intro"] += 1
+                      updated_lines.append(updated)
+                      continue
+
+              if re.match(r"^- 🚀 \[Release Notes for Version 20\d{2}\.\d{1,2}\.\d{1,2}\.\d+\]\(docs/release-v20\d{2}\.\d{1,2}\.\d{1,2}\.\d+\.md#enus\)", line):
+                  updated, c1 = re.subn(
+                      r"(Release Notes for Version )20\d{2}\.\d{1,2}\.\d{1,2}\.\d+",
+                      rf"\g<1>{bare_version}",
+                      line,
+                      count=1,
+                  )
+                  updated, c2 = re.subn(
+                      r"(docs/release-v)20\d{2}\.\d{1,2}\.\d{1,2}\.\d+(\.md#enus)",
+                      rf"\g<1>{bare_version}\2",
+                      updated,
+                      count=1,
+                  )
+                  if c1 == 1 and c2 == 1:
+                      counts["en_notes"] += 1
+                      updated_lines.append(updated)
+                      continue
+
+              if re.match(r"^O \*\*OmniFrame 3D\*\* \(Versão 20\d{2}\.\d{1,2}\.\d{1,2}\.\d+\)", line):
+                  updated, c = re.subn(
+                      r"(O \*\*OmniFrame 3D\*\* \(Versão )20\d{2}\.\d{1,2}\.\d{1,2}\.\d+(\))",
+                      rf"\g<1>{bare_version}\2",
+                      line,
+                      count=1,
+                  )
+                  if c == 1:
+                      counts["pt_intro"] += 1
+                      updated_lines.append(updated)
+                      continue
+
+              if re.match(r"^- 🚀 \[Notas de Lançamento da Versão 20\d{2}\.\d{1,2}\.\d{1,2}\.\d+\]\(docs/release-v20\d{2}\.\d{1,2}\.\d{1,2}\.\d+\.md#ptbr\)", line):
+                  updated, c1 = re.subn(
+                      r"(Notas de Lançamento da Versão )20\d{2}\.\d{1,2}\.\d{1,2}\.\d+",
+                      rf"\g<1>{bare_version}",
+                      line,
+                      count=1,
+                  )
+                  updated, c2 = re.subn(
+                      r"(docs/release-v)20\d{2}\.\d{1,2}\.\d{1,2}\.\d+(\.md#ptbr)",
+                      rf"\g<1>{bare_version}\2",
+                      updated,
+                      count=1,
+                  )
+                  if c1 == 1 and c2 == 1:
+                      counts["pt_notes"] += 1
+                      updated_lines.append(updated)
+                      continue
+
+              updated_lines.append(line)
+
+          missing = [key for key, value in counts.items() if value != 1]
+          if missing:
+              raise SystemExit(f"Unexpected match count for README target lines: {counts}")
+
+          with readme.open("w", encoding="utf-8", newline="") as file:
+              file.writelines(updated_lines)
+
+          print(f"Updated README.md target lines to {bare_version}: {counts}")
+          PY
+
+          echo "=== Changes made ==="
+          diff -u README.md.bak README.md || true
+          echo "===================="
+
+          rm README.md.bak
+          echo "README.md updated with version $VERSION"
+      
+      - name: Check for changes
+        if: steps.extract_version.outputs.has_version == 'true'
+        id: check_changes
+        run: |
+          if git diff --quiet README.md; then
+            echo "No changes detected in README.md"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in README.md:"
+            git diff README.md
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Commit and push changes
+        if: steps.extract_version.outputs.has_version == 'true' && steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add README.md
+          git commit -m "chore: update version to $VERSION in README.md [skip ci]"
+          git pull --rebase
+          git push

@@ -1,0 +1,27 @@
+Projeto: OMNIFRAME 3D
+Versao: 2026.11.13.0
+Autor: Fernando Nillsson Cidade
+E-mail: linceu_lighthouse@outlook.com
+Repositorio Oficial: https://github.com/fernandoncidade/OmniFrame_cpp
+
+Descricao: Suite Computacional de Analise Estrutural Tridimensional por Elementos Finitos (FEA) de Porticos e Trelicas Espaciais em C++23 e Qt 6.11.1
+"Analise estrutural de alta precisao, transparente, deterministica e visualmente imersiva com formulacao de Euler-Bernoulli, 6 graus de liberdade por no e renderizacao em OpenGL 3.3 Core."
+
+O OmniFrame 3D e uma aplicacao desktop profissional de alto desempenho para engenheiros civis, estruturais, mecanicos, pesquisadores e estudantes, desenvolvida integralmente em C++23 moderno, com interface grafica e docking em Qt 6.11.1, algebra linear densa e esparsa com Eigen 3.4.0 e viewport grafica tridimensional acelerada por hardware em OpenGL 3.3 Core Profile.
+
+A aplicacao integra quatro pilares essenciais em uma experiencia fluida, confiavel e soberana:
+
+1. Modelagem Geometrica e Topologica Espacial:
+Criacao e manipulacao intuitiva de nos no espaco tridimensional (X, Y, Z), barras de porticos e trelicas 3D com secoes transversais parametricas (retangular macica, circular macica, tubo circular, perfil I/W de abas paralelas e propriedades customizadas) e materiais isotropicos lineares (aco estrutural, concreto armado, aluminio estrutural e madeira). Suporte a liberacao de momentos (rotulas / hinges) nas extremidades dos elementos, apoios elasticos (molas), deslocamentos/rotacoes prescritos e definicao de angulo de rolamento (roll angle psi) para orientacao dos eixos principais de inercia.
+
+2. Formulacao Rigorosa de Elementos Finitos (Euler-Bernoulli):
+Cada elemento espacial de viga-coluna possui 12 graus de liberdade (6 DOFs por no: translacoes u_x, u_y, u_z e rotacoes theta_x, theta_y, theta_z). A matriz de rigidez local 12x12 incorpora deformacao axial, torcao pura de Saint-Venant e flexao biaxial acoplada (nos eixos principais locais y e z). A transformacao para coordenadas globais utiliza matrizes ortonormais completas de rotacao tridimensional. O sistema global K * U = F e resolvido diretamente via decomposicao esparsa de Cholesky (SimplicialLDLT) do Eigen, garantindo estabilidade numerica, robustez contra mau condicionamento e deteccao graciosa de mecanismos estruturais.
+
+3. Interpolacao Exata e Diagramas de Esforcos Internos:
+Reconstrucao contínua de esforcos internos (Normal N, Cisalhantes Vy e Vz, Torcao T e Momentos Fletores My e Mz) e curvas de deformacao ao longo de cada barra atraves de polinomios cubicos de Hermite e vetores consistentes de forcas nodais equivalentes para cargas uniformemente distribuidas em barras, alem de forcas e momentos concentrados aplicados nos nos.
+
+4. Viewport Grafica 3D Imersiva (OpenGL 3.3 Core):
+Visualizacao interativa com iluminacao difusa e especular Phong, camera orbital 3D com controles de orbita, pan lateral e zoom suave. Renderizacao simultanea da geometria indeformada e da estrutura deformada amplificada com controle deslizante interativo de escala. Selecao de entidades em tempo real via algoritmo de Raycasting (Eye-to-World ray cast). Mapas de cores em gradiente espectral para diagramas N, Vy, Vz, Tx, My e Mz, alem de vetores de reacoes de apoio.
+
+Compromisso Absoluto com a Privacidade e Soberania dos Dados (Local-First):
+Seus projetos estruturais, geometrias e memorias de calculo nunca saem do seu computador. O OmniFrame 3D opera 100% offline, sem conexao obrigatoria com a internet, sem telemetria, sem rastreamento de terceiros e sem dependencia de nuvem. Toda a persistencia ocorre localmente no formato aberto e legivel .omniframe (JSON), com exportacao nativa de relatorios tecnicos em HTML e Markdown. Suporte exclusivo pelo autor em linceu_lighthouse@outlook.com (sem suporte ou cobertura pela Microsoft) e desinstalacao limpa garantida pelas Configuracoes do Windows.

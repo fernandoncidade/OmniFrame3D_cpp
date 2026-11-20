@@ -1,0 +1,33 @@
+DEVELOPMENT HISTORY OF OMNIFRAME 3D
+====================================
+
+1. Genesis and Project Motivation:
+OmniFrame 3D emerged from the need to provide a truly open, transparent educational and professional 3D finite element structural analysis platform free from costly proprietary licenses, cloud dependencies, invasive telemetry, or artificial node/element limits. While many commercial suites lock calculations inside inaccessible black boxes or enforce recurring subscriptions, OmniFrame 3D was built from the ground up on mathematical clarity and full user sovereignty (Local-First).
+
+2. Architectural Milestones and Technological Evolution:
+
+Phase 1 - Foundations and Structural Mechanics:
+- Analytical formulation of the 12-DOF 3D Euler-Bernoulli beam-column element.
+- Rigorous derivation of the 12x12 local stiffness matrix and orthonormal 3D spatial rotation matrices incorporating the roll angle (psi).
+- Integration of the Eigen 3.4.0 library for matrix operations and solving symmetric positive-definite linear systems.
+
+Phase 2 - Sparse Solver and Boundary Conditions:
+- Assembly of global stiffness matrix K using Eigen's Compressed Column Storage (CCS / SparseMatrix) format.
+- Strict application of boundary conditions supporting fixed, pinned, and roller supports, elastic springs, and partial member end releases.
+- Incorporation of the direct sparse Cholesky solver (SimplicialLDLT), delivering high speed and memory efficiency for large structural models.
+
+Phase 3 - Modern OpenGL 3.3 Core Profile Graphics Pipeline:
+- Replacement of legacy graphics pipelines with a modern GLSL 330 shader-based architecture.
+- Full GPU-accelerated pipeline utilizing Vertex Array Objects (VAO), Vertex Buffer Objects (VBO), and Element Buffer Objects (EBO).
+- Development of a high-precision 3D orbital camera with mouse controls (orbit, lateral pan, and zoom) paired with an exact spatial raycasting picking algorithm.
+- Continuous spectral gradient color mapping for axial forces, bending moments, and resultant nodal displacements.
+
+Phase 4 - Modern Desktop Interface with Qt 6.11.1:
+- Modular system with dockable panels, property inspector, and synchronized node and member tables.
+- Parametric cross-section management supporting I/W structural steel profiles, solid rectangular/circular sections, hollow pipes, and custom properties, with real-time material validation.
+- Resilient JSON serialization and deserialization engine in the open .omniframe format, plus technical report export to HTML and Markdown.
+
+Phase 5 - Packaging Maturity and Dual Licensing:
+- Strict implementation of dual licensing: GNU AGPLv3 for the open-source developer community on GitHub and EULA for official free distribution on the Microsoft Store.
+- Automated packaging with Inno Setup and MSIX application manifests.
+- Exhaustive bilingual documentation encompassing operational manuals, normative compliance comparisons, and structural validation benchmarks.

@@ -1,0 +1,31 @@
+ESCLARECIMENTO DE LICENCIAMENTO COMERCIAL E SUPORTE CORPORATIVO — OmniFrame 3D
+Versao 2026.11.13.0, 13 de novembro de 2026
+
+Autor e Desenvolvedor: Fernando Nillsson Cidade (Desenvolvedor Individual / Pessoa Física)
+E-mail de Suporte e Contato: linceu_lighthouse@outlook.com
+Site Oficial / Repositório: https://github.com/fernandoncidade/OmniFrame_cpp
+
+--------------------------------------------------------------------------------
+
+1. CÓDIGO-FONTE ABERTO E TRANSPARÊNCIA:
+O código-fonte integral deste projeto é disponibilizado publicamente no GitHub sob a Licença GNU Affero General Public License v3 (AGPLv3). Qualquer pessoa ou organização possui total liberdade para inspecionar, auditar, compilar, modificar e criar trabalhos derivados a partir do código-fonte, nos termos e condições da GNU AGPLv3.
+
+2. EDIÇÃO OFICIAL DA MICROSOFT STORE E DESINSTALAÇÃO:
+Para conveniência de implantação em ambientes acadêmicos, escritórios de cálculo e estações de trabalho Windows, o autor disponibiliza oficialmente o OmniFrame 3D como aplicação gratuita na Microsoft Store:
+https://apps.microsoft.com/detail/OmniFrame3D
+O pacote permite desinstalação limpa a qualquer momento pelas Configurações do Windows ou Menu Iniciar, sem deixar processos ou serviços em segundo plano.
+
+3. POLÍTICA DE SUPORTE TÉCNICO E ISENÇÃO DA MICROSOFT:
+O desenvolvimento e a manutenção deste projeto são realizados pelo autor como iniciativa pessoal e educacional em C++23, Qt 6.11.1 e métodos computacionais. Por essa razão:
+a) A Microsoft NÃO presta suporte técnico nem atendimento ao cliente pelo OmniFrame 3D, e sua Política de Privacidade não cobre este aplicativo (aplique-se exclusivamente a Política de Privacidade do OmniFrame 3D disponível em PRIVACY_POLICY);
+b) O suporte técnico fornecido pelo autor (desenvolvedor individual) ocorre por correio eletrônico (linceu_lighthouse@outlook.com) e publicamente pelas abas Issues e Discussions do repositório oficial no GitHub;
+c) O atendimento ocorre sob o regime voluntário de melhores esforços (best-effort), conforme a disponibilidade do autor, sem suporte telefônico, SLA comercial ou acesso remoto 24/7.
+
+4. HOMOLOGAÇÕES CORPORATIVAS E LICENCIAMENTO COMERCIAL SOB MEDIDA:
+Para instituições acadêmicas ou organizações de engenharia que necessitem de:
+- Avaliação de conformidade em projetos específicos sob referências normativas (ABNT NBR 8800, NBR 6118, AISC 360, Eurocodes);
+- Integração personalizada com fluxos proprietários;
+- Isenção de obrigações copyleft da licença AGPLv3 para distribuições comerciais proprietárias fechadas;
+
+Favor entrar em contato diretamente através do e-mail:
+linceu_lighthouse@outlook.com

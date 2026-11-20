@@ -1,0 +1,33 @@
+HISTÓRICO DO DESENVOLVIMENTO DO OMNIFRAME 3D
+===============================================
+
+1. Origem e Motivacao do Projeto:
+O OmniFrame 3D nasceu da necessidade de disponibilizar uma plataforma educacional e profissional de analise estrutural tridimensional por elementos finitos que fosse verdadeiramente aberta, transparente e desprovida de licencas proprietarias onerosas, dependencias de nuvem ou restricoes artificiais de nos e elementos. Enquanto muitas suites comerciais fecham seus calculos em caixas-pretas inacessiveis ou forcam assinaturas recorrentes com telemetria invasiva, o OmniFrame 3D foi concebido sob a premissa de clareza matematica e soberania total do usuario (Local-First).
+
+2. Marcos Arquiteturais e Evolucao Tecnologica:
+
+Fase 1 - Fundamentos e Mecanica Estrutural:
+- Formulacao analitica do elemento espacial de Euler-Bernoulli com 12 graus de liberdade.
+- Deducoes rigorosas da matriz de rigidez local 12x12 e das matrizes ortonormais de rotacao espacial 3D com angulo de roll (psi).
+- Integracao da biblioteca Eigen 3.4.0 para operacoes matriciais e resolucao de sistemas lineares simetricos e definidos positivos.
+
+Fase 2 - Solver Esparso e Condicoes de Contorno:
+- Implementacao da montagem da matriz de rigidez global K no formato esparso Compressed Column Storage (CCS / Eigen SparseMatrix).
+- Aplicacao estrita de condicoes de contorno com suporte a engastes perfeitos, apoios fixos e moveis, molas elasticas e liberacoes parciais nas extremidades.
+- Incorporacao do solver direto esparso SimplicialLDLT de Cholesky, proporcionando alta velocidade e eficiencia de memoria para modelos estruturais de grande porte.
+
+Fase 3 - Renderizacao Grafica Moderna em OpenGL 3.3 Core Profile:
+- Substituicao de pipelines graficos legados por arquitetura moderna baseada em shaders GLSL 330.
+- Pipeline integral acelerado por GPU utilizando Vertex Array Objects (VAO), Vertex Buffer Objects (VBO) e Element Buffer Objects (EBO).
+- Desenvolvimento de camera orbital 3D de alta precisao com controles por mouse (orbita, pan lateral e zoom) combinada a algoritmo exato de selecao por Raycasting espacial.
+- Mapeamento espectral de cores em gradiente continuo para esforcos axiais, momentos fletores e deslocamentos nodais resultantes.
+
+Fase 4 - Interface Desktop Moderna com Qt 6.11.1:
+- Sistema modular com paineis acoplaveis (docking), inspetor de propriedades e tabelas sincronizadas de nos e barras.
+- Gerenciamento parametrico de secoes transversais suportando perfis metalicos I/W, secoes retangulares/circulares macicas, tubos ocos e propriedades customizadas, com validacao de materiais em tempo real.
+- Motor resiliente de serializacao e desserializacao em JSON no formato aberto .omniframe, alem de exportacao de relatorios tecnicos em HTML e Markdown.
+
+Fase 5 - Maturidade de Empacotamento e Duplo Licenciamento:
+- Implementacao rigorosa de duplo licenciamento: GNU AGPLv3 para a comunidade de codigo aberto no GitHub e EULA para distribuicao gratuita oficial na Microsoft Store.
+- Automacao de empacotamento com Inno Setup e manifestos MSIX.
+- Documentacao tecnica bilíngue exaustiva cobrindo manuais operacionais, modelos de conformidade normativa e verificacao numerica.

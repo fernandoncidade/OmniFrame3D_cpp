@@ -1,0 +1,54 @@
+END USER LICENSE AGREEMENT (EULA) — OmniFrame 3D
+Version 2026.11.13.0, November 13, 2026
+
+Copyright (c) 2025-2026 Fernando Nillsson Cidade. All rights reserved.
+
+DUAL-LICENSING AND MICROSOFT INDEPENDENCE NOTICE:
+1. This End User License Agreement (EULA) governs EXCLUSIVELY the pre-compiled, packaged, and digitally signed binary package officially published by the author on the Microsoft Store. These terms operate in harmony with Microsoft Store Standard Application License Terms; to the extent any mandatory term of Microsoft Store Standard Application License Terms or applicable consumer law conflicts with this EULA for Store acquisitions, those mandatory Store/statutory terms prevail.
+2. The complete source code of OmniFrame 3D is publicly licensed on GitHub under the GNU Affero General Public License v3 (AGPLv3), granting full rights to inspect, compile, modify, fork, and distribute independent builds under AGPLv3.
+3. Microsoft does NOT provide customer or technical support for this application and does NOT cover this Software under any Microsoft privacy policy.
+
+By installing or using the official Microsoft Store package of OmniFrame 3D, you agree to this EULA in full. If you disagree, do not install or use the package, and cleanly remove it through Windows controls.
+
+TERMS AND CONDITIONS:
+
+1. DEFINITIONS
+   "Licensor": Fernando Nillsson Cidade, exclusive copyright holder of the original Software.
+   "Software": The OmniFrame 3D program compiled for Windows x64 (including Qt 6 UI, OpenGL 3.3 Core shaders, compliance assets, and documentation).
+   "Licensee" or "you": Individual or entity that obtained the official package from the Microsoft Store or an authorized channel.
+
+2. LICENSE GRANT AND CLEAN UNINSTALLATION
+   Licensor grants a free, personal, non-exclusive, non-transferable, revocable license to install and run the Software on compatible Windows devices for geometric modeling, finite element analysis (FEA), structural verification, and 3D scientific visualization.
+   The User has the guaranteed right to cleanly uninstall and remove the Software at any time through Windows Settings or the Start Menu without leaving hidden background services or processes running.
+
+3. RESTRICTIONS ON THE OFFICIAL PACKAGE
+   Licensee may not:
+   a) Commercially resell for a fee, rent, lease, or sublicense the author's official free Microsoft Store package without prior written authorization;
+   b) Remove, conceal, or alter copyright notices, third-party attributions, or project marks;
+   c) Use the Software for unlawful purposes.
+
+4. INTELLECTUAL PROPERTY
+   The official package is licensed, not sold, and is protected under Brazilian Law 9.609/1998, Law 9.610/1998, and international copyright treaties. Third-party open-source components (Qt 6 under LGPLv3, Eigen 3.4.0 under MPL 2.0, Khronos OpenGL) remain governed by their respective licenses in NOTICES/ and LICENSES/.
+
+5. STRUCTURAL ENGINEERING DISCLAIMER & PROFESSIONAL RESPONSIBILITY
+   a) The Software is an auxiliary linear elastic computational analysis tool intended for qualified engineers, architects, researchers, and students.
+   b) Code checks (ABNT NBR, AISC, Eurocode), load combinations, verification of internal forces, and final structural design sign-off remain the sole, non-delegable responsibility of a licensed professional engineer.
+   c) Licensor assumes no civil, criminal, or engineering liability for structural failure, material damage, or personal injury arising from structures analyzed or built with outputs from the Software.
+
+6. DATA SOVEREIGNTY AND LOCAL-FIRST PRIVACY
+   OmniFrame 3D operates 100% offline with zero telemetry and zero cloud storage. Project models are saved locally as open .omniframe (JSON) files, with optional local export to HTML and Markdown reports, governed exclusively by the Software's own Privacy Policy (PRIVACY_POLICY).
+
+7. UPDATES AND TECHNICAL SUPPORT
+   Updates may be published voluntarily via the Microsoft Store. Microsoft provides NO customer support for this Software. Author support (individual developer) is voluntary on a best-effort basis via email (linceu_lighthouse@outlook.com) or through the repository https://github.com/fernandoncidade/OmniFrame_cpp.
+
+8. TERM AND TERMINATION
+   This EULA remains effective until terminated by Licensee through clean uninstallation or automatically upon breach of its terms.
+
+9. DISCLAIMER OF WARRANTIES ("AS IS")
+   To the maximum extent permitted by applicable law, the Software is provided "AS IS", "WITH ALL FAULTS", and "AS AVAILABLE", without express or implied warranties of merchantability, fitness for a particular purpose, or uninterrupted operation.
+
+10. LIMITATION OF LIABILITY
+    To the maximum extent not prohibited by mandatory law, Licensor shall not be liable for lost profits or indirect, incidental, special, punitive, or consequential damages arising from the use or inability to use the Software.
+
+11. GOVERNING LAW
+    This Agreement is governed by the laws of the Federative Republic of Brazil and any non-waivable consumer protection laws of Licensee's jurisdiction.

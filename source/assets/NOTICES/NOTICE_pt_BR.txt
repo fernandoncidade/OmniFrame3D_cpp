@@ -1,0 +1,29 @@
+AVISOS E ATRIBUIÇÕES DE TERCEIROS — OmniFrame 3D
+Versao 2026.11.13.0, 13 de novembro de 2026
+
+O OmniFrame 3D inclui e utiliza componentes, bibliotecas e especificações abertas desenvolvidas por terceiros:
+
+1. OMNIFRAME 3D
+   Copyright (C) 2025-2026 Fernando Nillsson Cidade. Todos os direitos reservados.
+   Disponibilizado sob Licenca GNU AGPLv3 (codigo-fonte aberto no GitHub) e EULA (pacote oficial da Microsoft Store).
+
+2. QT APPLICATION FRAMEWORK
+   Versao: 6.11.1
+   Copyright (C) The Qt Company Ltd. e outros colaboradores.
+   Licenciado sob a Licenca GNU Lesser General Public License versao 3 (LGPLv3).
+   Informacoes completas: https://www.qt.io/licensing
+
+3. EIGEN MATRIX TEMPLATE LIBRARY
+   Versao: 3.4.0
+   Desenvolvido pela comunidade Eigen (Benoit Jacob, Gael Guennebaud e contribuidores).
+   Licenciado sob a Mozilla Public License versao 2.0 (MPL 2.0).
+   Informacoes oficiais: https://eigen.tuxfamily.org
+
+4. KHRONOS OPENGL & GLSL
+   Copyright (C) The Khronos Group Inc.
+   Especificacao aberta da industria para aceleracao grafica 3D por hardware e processamento de shaders GLSL.
+   Informacoes oficiais: https://www.khronos.org/opengl/
+
+5. MICROSOFT WINDOWS SDK
+   Copyright (C) Microsoft Corporation.
+   Utilizado para integracao nativa com a plataforma Windows.

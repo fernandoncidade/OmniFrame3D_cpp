@@ -1,0 +1,27 @@
+Project: OMNIFRAME 3D
+Version: 2026.11.13.0
+Author: Fernando Nillsson Cidade
+Email: linceu_lighthouse@outlook.com
+Official Repository: https://github.com/fernandoncidade/OmniFrame_cpp
+
+Description: Three-Dimensional Structural Finite Element Analysis (FEA) Suite for Space Frames and Trusses in C++23 and Qt 6.11.1
+"High-precision, transparent, deterministic, and visually immersive structural analysis featuring Euler-Bernoulli beam-column formulation, 6 DOFs per node, and hardware-accelerated OpenGL 3.3 Core rendering."
+
+OmniFrame 3D is a high-performance professional desktop engineering application engineered entirely in modern C++23, featuring GUI and docking management with Qt 6.11.1, dense and sparse linear algebra with Eigen 3.4.0, and a hardware-accelerated 3D viewport rendered via OpenGL 3.3 Core Profile.
+
+The application integrates four essential pillars into a cohesive, dependable, and sovereign engineering experience:
+
+1. Spatial Geometric and Topological Modeling:
+Intuitive creation and manipulation of nodes in 3D Cartesian space (X, Y, Z), 3D frame and truss members with parametric cross-sections (solid rectangular, solid circular, circular hollow pipe, parallel-flange I/W wide-flange beams, and user-defined properties), and isotropic linear materials (structural steel, reinforced concrete, structural aluminum, and timber). Supports member end-release hinges, elastic spring supports, prescribed nodal displacements/rotations, and roll angle (psi) orientation of principal bending axes.
+
+2. Rigorous Finite Element Formulation (Euler-Bernoulli):
+Each spatial beam-column member possesses 12 degrees of freedom (6 DOFs per node: translations u_x, u_y, u_z and rotations theta_x, theta_y, theta_z). The local 12x12 stiffness matrix incorporates axial deformation, Saint-Venant pure torsion, and coupled biaxial bending (about local principal y and z axes). Transformation into global coordinates uses complete orthonormal 3D rotation matrices. The global system K * U = F is solved directly using Eigen's sparse Cholesky decomposition (SimplicialLDLT), guaranteeing numerical stability, resilience against ill-conditioning, and graceful detection of structural mechanisms.
+
+3. Exact Continuous Force Recovery and Internal Action Diagrams:
+Continuous reconstruction of internal forces (Axial force N, Shear forces Vy and Vz, Torsion T, and Bending moments My and Mz) and deflection curves along each member using Hermite cubic polynomials and consistent equivalent nodal force vectors for uniform distributed member loads, alongside concentrated nodal forces and moments.
+
+4. Immersive 3D Hardware-Accelerated Viewport (OpenGL 3.3 Core):
+Interactive visualization with Phong diffuse and specular illumination, orbital 3D camera controls (orbit, lateral pan, and smooth zoom). Simultaneous rendering of undeformed geometry and amplified deformed structure with an interactive scaling slider. Real-time entity picking via Raycasting (Eye-to-World ray cast). Spectral gradient color maps for N, Vy, Vz, Tx, My, and Mz diagrams, plus support reaction vectors.
+
+Absolute Commitment to Privacy and Data Sovereignty (Local-First):
+Your structural models, geometries, and calculation memories never leave your computer. OmniFrame 3D operates 100% offline with zero mandatory internet connectivity, zero telemetry, zero third-party tracking, and zero cloud dependencies. All persistence occurs locally in the open, human-readable .omniframe (JSON) format, with built-in technical report export to HTML and Markdown. Author-only support via linceu_lighthouse@outlook.com (not supported or covered by Microsoft) and clean uninstallation guaranteed via Windows Settings.
