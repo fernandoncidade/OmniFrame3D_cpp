@@ -14,23 +14,30 @@
 
 # OmniFrame 3D — Referência de Linha de Comando (CLI) e Utilitários
 
-**Versão:** `2026.11.14.0`  
-**Data:** `14 de novembro de 2026`  
+**Versão:** `2026.11.15.0`  
+**Data:** `15 de novembro de 2027`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
 
-## 1. Execução do Aplicativo Principal (`OmniFrame.exe`)
+## 1. Execução do Aplicativo Principal (`OmniFrame.exe`) e Delegação CLI
 
-Na versão atual (`2026.11.14.0`, confira [`source/main.cpp`](../source/main.cpp)), o executável **`OmniFrame.exe`** inicia diretamente a interface gráfica desktop Qt 6 (`MainWindow`) maximizada. Não há flags de modo *headless/batch* implementadas no executável GUI principal nesta versão.
+O executável desktop **`OmniFrame.exe`** inicia a interface gráfica Qt 6 (`MainWindow`) maximizada por padrão e está integrado diretamente ao ecossistema de linha de comando:
 
-- **Execução direta no diretório de build ou distribuição:**
-```powershell
-.\OmniFrame.exe
+- **Abertura direta de projeto pela linha de comando (CMD / PowerShell / Explorador):**
+```bat
+OmniFrame.exe "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe"
 ```
-- **Alias de Execução MSIX (Microsoft Store):** Quando instalado via pacote MSIX ([`repo/AppxManifest.xml`](../repo/AppxManifest.xml)), o Windows registra o App Execution Alias:
+(aceita `.omniframe`, `.dxf` e `.ifc`).
+- **Delegação transparente de comandos CLI para `omniframe-cli.exe`:** ao passar flags *headless* ao executável GUI (`--cli`, `--version`, `-v`, `--help`, `-h`, `--list-examples`, `--validate`, `--analyze`, `--example`, `--nbr-audit`, `--audit-nbr`, `--check-windows-integration`, `--install-windows-integration`, `--uninstall-windows-integration`), `OmniFrame.exe` encaminha a execução de forma síncrona para o binário irmão `omniframe-cli.exe` ([`source/main.cpp`](../source/main.cpp) e [`source/os/WindowsCliIntegration.cpp`](../source/os/WindowsCliIntegration.cpp)):
+```powershell
+# No PowerShell, prefira chamar omniframe-cli diretamente; via OmniFrame.exe encadeie pipeline:
+.\OmniFrame.exe --version | Out-String
+```
+- **Alias de Execução MSIX (Microsoft Store):** Quando instalado via pacote MSIX ([`repo/AppxManifest.xml`](../repo/AppxManifest.xml)), o Windows 10/11 registra dois `uap5:AppExecutionAlias`:
 ```powershell
 omniframe.exe
+omniframe-cli.exe
 ```
 
 ---
@@ -52,18 +59,71 @@ Compilado pelo preset `version-msvc-release` em `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.14.0 --date 2026-11-14 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.15.0 --date 2027-11-15 --apply --root .
 ```
 
 ---
 
-## 3. CLI Dedicada Headless (`omniframe-cli.exe`)
+## 3. CLI Dedicada Headless (`omniframe-cli.exe`) e Associação Windows 10/11
 
-> Além do executável desktop `OmniFrame.exe`, o preset `omniframe-msvc-release` compila o binário headless `build/OmniFrame3D/omniframe-cli.exe` (também compilado e empacotado automaticamente na distribuição externa pela tarefa VS Code `Qt6: Compilar e Executar OmniFrame 3D (MSVC)`, pela tarefa dedicada `Qt6: Compilar omniframe-cli (MSVC)` e por `cmake/gerar_distribuicoes_limpas.ps1`), compartilhando `OmniFrameCore` e o núcleo puro `OmniFrameKernel`:
-> - `omniframe-cli.exe --version` | `--help` | `--validate <arquivo.omniframe|dxf|ifc>`
-> - `omniframe-cli.exe --analyze <arquivo.omniframe|dxf|ifc> --analysis <static|modal|buckling|nonlinear|pdelta|harmonic|spectrum> [--solver <auto|ldlt|llt|sparselu|cg|bicgstab>] [--modes <N>] [--steps <N>] [--method <nr|arclength>] [--export <json|csv|vtk|dxf|ifc> <caminho>] [--report <md|html|pdf> <caminho>] [--output <caminho.json>] [--json]`
-> - Códigos de saída: `0` (sucesso), `1` (erro de uso/I/O), `2` (falha numérica na análise).
-> - Verificação automatizada (`20` suítes CTest): `ctest --preset testes-msvc-release --output-on-failure`.
+O binário nativo de console `omniframe-cli.exe` (`/SUBSYSTEM:CONSOLE`) é compilado junto com `OmniFrame.exe` em `build/OmniFrame3D/` pelo preset `omniframe-msvc-release` (e empacotado junto com `OmniFrame.exe` e `register_cli_windows.ps1` por `cmake/gerar_distribuicoes_limpas.ps1`), compartilhando integralmente `OmniFrameCore` e `OmniFrameKernel`.
+
+### 3.1. Associação com Windows 10/11 (CMD e PowerShell)
+- **Menu GUI em `OmniFrame.exe`:** `Configurações > CLI Windows (CMD / PowerShell)` (registrar sem admin, remover, verificar status, abrir CMD ou PowerShell já prontos com a CLI).
+- **Auto-registro HKCU via CLI:** `omniframe-cli --install-windows-integration` / `--check-windows-integration` / `--uninstall-windows-integration`.
+- **Script PowerShell Portátil:** `.\cmake\register_cli_windows.ps1` (suporta `-CheckOnly`, `-Uninstall`, `-Action install|uninstall|check`, `-CliPath` e `-Json`) ou `.\register_cli_windows.ps1` dentro da pasta distribuída.
+- **Instalador Inno Setup (`repo/OmniFrame.iss`) & MSIX (`repo/AppxManifest.xml`):** tarefas `addtopath` e `assocproj` marcadas por padrão; alias `omniframe-cli.exe` com `desktop4:Subsystem="console"`.
+- **Codificação UTF-8 no terminal:** `chcp 65001 >nul` no CMD e `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` no PowerShell (`CommandLineToArgvW` + caminhos UTF-8 nativos em DXF/IFC4/CSV/VTK/JSON/MD/HTML/PDF).
+
+### 3.2. Comandos e Opções Suportadas
+
+```powershell
+omniframe-cli --version
+omniframe-cli --help
+omniframe-cli --list-examples
+omniframe-cli --validate <arquivo.omniframe|dxf|ifc>
+omniframe-cli --analyze <arquivo.omniframe|dxf|ifc> [opções]
+omniframe-cli --example building --nbr-audit --json
+omniframe-cli --check-windows-integration --json
+```
+
+| Opção | Argumentos | Descrição |
+|---|---|---|
+| `--version` / `-v` | — | Imprime versão da CLI, C++23, Eigen 3.4.0 e Schema `2.1.0` e encerra (`0`). |
+| `--help` / `-h` | — | Imprime o guia oficial de uso no Windows 10/11 (CMD e PowerShell) e opções (`0`). |
+| `--list-examples` | — | Lista os 3 exemplos oficiais embutidos (`1 \| building`, `2 \| cantilever`, `3 \| truss`). |
+| `--example` | `<nome\|1\|2\|3>` | Seleciona modelo embutido (`building`/`portico`/`edificio`/`frame`, `cantilever`/`balanco`/`lframe`, `truss`/`trelica`/`passarela`). |
+| `--validate` | `[<arquivo.omniframe\|dxf\|ifc>]` | Carrega (ou usa `--example`) e valida topologia, finitude, conectividade BFS, malhas 2D/3D e `validationIssues` (`0`=válido, `2`=inválido). |
+| `--analyze` | `[<arquivo.omniframe\|dxf\|ifc>]` | Executa a análise estrutural configurada sobre o arquivo de entrada ou `--example`. |
+| `--nbr-audit` / `--audit-nbr` | `[<arquivo>]` | Executa auditoria consolidada ABNT NBR (6118, 8800, 6120, 6122, 6123, 7480), resolvendo estática se necessário, e preenche `nbrAudit`. |
+| `--analysis` | `static\|modal\|buckling\|nonlinear\|pdelta\|harmonic\|spectrum\|transient\|seismic` | Seleciona o tipo de análise estrutural (padrão `static`). |
+| `--solver` | `auto\|ldlt\|llt\|sparselu\|cg\|bicgstab` | Seleciona o solver linear em `LinearSolverSuite` (padrão `auto`, registra fallback em `usedFallback`). |
+| `--modes` | `<N>` | Número de autovalores/modos para `modal`, `buckling` ou `spectrum` (padrão `6`). |
+| `--steps` | `<N>` | Número de incrementos para `nonlinear`/`pdelta` ou passos temporais para `transient`/`seismic` (padrão `20`). |
+| `--dt` | `<segundos>` | Incremento de tempo para integração `transient` ou `seismic` (mínimo `1e-5`, padrão `0.02`). |
+| `--scheme` | `newmark\|hht` | Integrador temporal implícito (`Newmark-beta` ou `HHT-alpha`; padrão `newmark`). |
+| `--case` | `<id>` | Seleciona um `LoadCase` específico para execução `static` ou `transient`. |
+| `--combo` | `<id>` | Seleciona uma `LoadCombination` específica para execução `static`. |
+| `--method` | `nr\|arclength` | Estratégia iterativa não linear: Newton-Raphson ou Arc-Length de Crisfield (padrão `nr`). |
+| `--load-factor` | `<fator>` | Multiplicador alvo de carga para análises `nonlinear`/`pdelta` (padrão `1.0`). |
+| `--full-tangent` | — | Atualiza a matriz tangente global `Kt` a cada iteração Newton-Raphson (padrão). |
+| `--modified-newton` | — | Mantém `Kt` constante dentro de cada passo incremental (Newton Modificado). |
+| `--line-search` | — | Habilita busca linear backtracking em Newton-Raphson (padrão). |
+| `--no-line-search` | — | Desabilita busca linear em Newton-Raphson. |
+| `--imperfection` | `<amp_m>` | Aplica perturbação geométrica pelo modo de flambagem na amplitude especificada (m) antes de resolver/exportar. |
+| `--imperfection-mode` | `<N>` | Modo de flambagem base `1` utilizado em `--imperfection` (padrão `1`). |
+| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <caminho>` | Exporta resultados 1D/2D/3D (repetível: `.vtk` `UNSTRUCTURED_GRID` com `von_mises_kPa`, `.csv` nodal/contínuo, `.json`, `.dxf`, `.ifc`). |
+| `--report` | `<md\|html\|pdf> <caminho>` | Gera memorial técnico em Markdown, HTML5 ou PDF executivo A4 (repetível; inclui resultados e auditoria NBR). |
+| `--output` | `<caminho.json>` | Grava o resumo estruturado completo em JSON no arquivo informado. |
+| `--json` | — | Emite o resumo estruturado em JSON diretamente na saída padrão (`stdout`). |
+| `--check-windows-integration` | — | Consulta `PATH` do usuário/sistema/processo, `App Paths` e `.omniframe` no Registro Windows. |
+| `--install-windows-integration` | — | Registra `omniframe-cli.exe`, `OmniFrame.exe`, `omniframe.exe` e `.omniframe` em `HKCU` sem exigir admin. |
+| `--uninstall-windows-integration` | — | Remove os registros `HKCU` da CLI e associação `.omniframe`. |
+
+### 3.3. Códigos de Saída e Verificação Automatizada
+
+- Códigos de saída (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (sucesso), `1` (erro de sintaxe CLI, I/O ou registro Windows), `2` (falha na validação estrutural `--validate` ou falha numérica/física na solução).
+- Verificação automatizada (`20` suítes CTest): `ctest --preset testes-msvc-release --output-on-failure`.
 
 </details>
 
@@ -76,23 +136,30 @@ Compilado pelo preset `version-msvc-release` em `build/Version/`:
 
 # OmniFrame 3D — Command Line Reference & Companion Utilities
 
-**Version:** `2026.11.14.0`  
-**Date:** `November 14, 2026`  
+**Version:** `2026.11.15.0`  
+**Date:** `November 15, 2027`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
 
-## 1. Main Application Execution (`OmniFrame.exe`)
+## 1. Main Application Execution (`OmniFrame.exe`) & CLI Delegation
 
-In the current version (`2026.11.14.0`, see [`source/main.cpp`](../source/main.cpp)), the **`OmniFrame.exe`** executable launches the Qt 6 desktop graphical interface (`MainWindow`) maximized directly. No *headless/batch* CLI mode flags are implemented in the main GUI executable in this version.
+The **`OmniFrame.exe`** desktop executable opens the Qt 6 graphical workspace (`MainWindow`) maximized by default and integrates directly with the command-line ecosystem:
 
-- **Direct launch from the build or distribution directory:**
-```powershell
-.\OmniFrame.exe
+- **Direct project launch from command line (CMD / PowerShell / Explorer):**
+```bat
+OmniFrame.exe "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe"
 ```
-- **MSIX Execution Alias (Microsoft Store):** When installed via the MSIX package ([`repo/AppxManifest.xml`](../repo/AppxManifest.xml)), Windows registers the App Execution Alias:
+(accepts `.omniframe`, `.dxf`, and `.ifc`).
+- **Transparent CLI delegation to `omniframe-cli.exe`:** passing headless flags to the GUI executable (`--cli`, `--version`, `-v`, `--help`, `-h`, `--list-examples`, `--validate`, `--analyze`, `--example`, `--nbr-audit`, `--audit-nbr`, `--check-windows-integration`, `--install-windows-integration`, `--uninstall-windows-integration`) synchronously forwards execution to the sibling `omniframe-cli.exe` binary ([`source/main.cpp`](../source/main.cpp) and [`source/os/WindowsCliIntegration.cpp`](../source/os/WindowsCliIntegration.cpp)):
+```powershell
+# In PowerShell, prefer invoking omniframe-cli directly; when calling OmniFrame.exe in CLI mode, pipe through Out-String:
+.\OmniFrame.exe --version | Out-String
+```
+- **MSIX Execution Aliases (Microsoft Store):** When installed via the MSIX package ([`repo/AppxManifest.xml`](../repo/AppxManifest.xml)), Windows 10/11 registers two `uap5:AppExecutionAlias` entries:
 ```powershell
 omniframe.exe
+omniframe-cli.exe
 ```
 
 ---
@@ -114,45 +181,70 @@ Built by the `version-msvc-release` preset in `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.14.0 --date 2026-11-14 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.15.0 --date 2027-11-15 --apply --root .
 ```
 
 ---
 
-## 3. Dedicated Headless CLI (`omniframe-cli.exe`)
+## 3. Dedicated Headless CLI (`omniframe-cli.exe`) & Windows 10/11 Association
 
-Alongside the interactive desktop binary `OmniFrame.exe`, the release build (`omniframe-msvc-release`) compiles `build/OmniFrame3D/omniframe-cli.exe` (also automatically built and packaged into the external distribution by the VS Code task `Qt6: Compilar e Executar OmniFrame 3D (MSVC)`, the dedicated task `Qt6: Compilar omniframe-cli (MSVC)`, and `cmake/gerar_distribuicoes_limpas.ps1`), which shares `OmniFrameCore` and the Qt-free `OmniFrameKernel` to validate models, execute structural analyses in batch mode, and export datasets/reports without opening a GUI window.
+The native Windows console binary `omniframe-cli.exe` (`/SUBSYSTEM:CONSOLE`) is compiled alongside `OmniFrame.exe` in `build/OmniFrame3D/` by `omniframe-msvc-release` (and packaged together with `OmniFrame.exe` and `register_cli_windows.ps1` by `cmake/gerar_distribuicoes_limpas.ps1`), sharing 100% of `OmniFrameCore` and `OmniFrameKernel`.
 
-### 3.1. Commands & Supported Options
+### 3.1. Windows 10/11 Integration (CMD & PowerShell)
+- **Desktop GUI menu (`OmniFrame.exe`):** `Settings > Windows CLI (CMD / PowerShell)` (register without admin, uninstall, check status, launch preconfigured CMD or PowerShell).
+- **Non-admin HKCU self-registration:** `omniframe-cli --install-windows-integration` / `--check-windows-integration` / `--uninstall-windows-integration`.
+- **Portable PowerShell Script:** `.\cmake\register_cli_windows.ps1` (supports `-CheckOnly`, `-Uninstall`, `-Action install|uninstall|check`, `-CliPath`, and `-Json`) or `.\register_cli_windows.ps1` inside every distribution directory.
+- **Inno Setup (`repo/OmniFrame.iss`) & MSIX (`repo/AppxManifest.xml`):** default-checked `addtopath` and `assocproj` tasks; `omniframe-cli.exe` alias with `desktop4:Subsystem="console"`.
+- **UTF-8 console support:** `chcp 65001 >nul` in CMD and `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` in PowerShell (`CommandLineToArgvW` + native UTF-8 DXF/IFC4/CSV/VTK/JSON/MD/HTML/PDF paths).
+
+### 3.2. Commands & Supported Options
 
 ```powershell
-.\build\OmniFrame3D\omniframe-cli.exe --version
-.\build\OmniFrame3D\omniframe-cli.exe --help
-.\build\OmniFrame3D\omniframe-cli.exe --validate <file.omniframe|dxf|ifc>
-.\build\OmniFrame3D\omniframe-cli.exe --analyze <file.omniframe|dxf|ifc> [options]
+omniframe-cli --version
+omniframe-cli --help
+omniframe-cli --list-examples
+omniframe-cli --validate <file.omniframe|dxf|ifc>
+omniframe-cli --analyze <file.omniframe|dxf|ifc> [options]
+omniframe-cli --example building --nbr-audit --json
+omniframe-cli --check-windows-integration --json
 ```
 
 | Flag | Arguments | Description |
 |---|---|---|
-| `--version` | — | Prints CLI version information and exits (`0`). |
-| `--help` | — | Prints CLI usage and flags (`0`). |
-| `--validate` | `<file.omniframe\|dxf\|ifc>` | Loads and validates topology, finiteness, and physical properties offline. |
-| `--analyze` | `<file.omniframe\|dxf\|ifc>` | Executes the selected structural analysis on the input file. |
-| `--analysis` | `static\|modal\|buckling\|nonlinear\|pdelta\|harmonic\|spectrum` | Selects analysis type. |
-| `--solver` | `auto\|ldlt\|llt\|sparselu\|cg\|bicgstab` | Selects linear solver backend from `LinearSolverSuite`. |
-| `--modes` | `<N>` | Number of eigenvalues/modes for `modal` or `buckling` (default `6`). |
-| `--steps` | `<N>` | Number of incremental steps for nonlinear analyses (default `20`). |
-| `--method` | `nr\|arclength` | Nonlinear equilibrium iteration strategy (default `nr`). |
-| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <path>` | Exports post-processed model or interoperability dataset. |
-| `--report` | `<md\|html\|pdf> <path>` | Generates Markdown, HTML, or executive A4 PDF calculation report. |
-| `--output` | `<path.json>` | Writes structured JSON analysis summary to file. |
+| `--version` / `-v` | — | Prints CLI version, C++23, Eigen 3.4.0, and Schema `2.1.0` and exits (`0`). |
+| `--help` / `-h` | — | Prints official Windows 10/11 (CMD & PowerShell) usage and flags (`0`). |
+| `--list-examples` | — | Lists the 3 built-in benchmark models (`1 \| building`, `2 \| cantilever`, `3 \| truss`). |
+| `--example` | `<name\|1\|2\|3>` | Loads built-in model (`building`/`portico`/`edificio`/`frame`, `cantilever`/`balanco`/`lframe`, `truss`/`trelica`/`passarela`). |
+| `--validate` | `[<file.omniframe\|dxf\|ifc>]` | Loads input (or uses `--example`) and validates topology, finiteness, BFS connectivity, 2D/3D meshes, and `validationIssues` (`0`=valid, `2`=invalid). |
+| `--analyze` | `[<file.omniframe\|dxf\|ifc>]` | Executes configured structural analysis on input file or `--example`. |
+| `--nbr-audit` / `--audit-nbr` | `[<file>]` | Runs consolidated ABNT NBR audit (6118, 8800, 6120, 6122, 6123, 7480), auto-solving static if needed, emitting `nbrAudit`. |
+| `--analysis` | `static\|modal\|buckling\|nonlinear\|pdelta\|harmonic\|spectrum\|transient\|seismic` | Selects structural analysis type (default `static`). |
+| `--solver` | `auto\|ldlt\|llt\|sparselu\|cg\|bicgstab` | Selects linear solver backend from `LinearSolverSuite` (default `auto`, tracks `usedFallback`). |
+| `--modes` | `<N>` | Number of eigenvalues/modes for `modal`, `buckling`, or `spectrum` (default `6`). |
+| `--steps` | `<N>` | Incremental steps for `nonlinear`/`pdelta` or time steps for `transient`/`seismic` (default `20`). |
+| `--dt` | `<seconds>` | Time step increment for `transient` or `seismic` integration (minimum `1e-5`, default `0.02`). |
+| `--scheme` | `newmark\|hht` | Implicit time integrator (`Newmark-beta` or `HHT-alpha`; default `newmark`). |
+| `--case` | `<id>` | Selects a specific `LoadCase` ID for `static` or `transient` execution. |
+| `--combo` | `<id>` | Selects a specific `LoadCombination` ID for `static` execution. |
+| `--method` | `nr\|arclength` | Nonlinear equilibrium strategy: Newton-Raphson or Crisfield Arc-Length (default `nr`). |
+| `--load-factor` | `<factor>` | Target load factor multiplier for `nonlinear`/`pdelta` (default `1.0`). |
+| `--full-tangent` | — | Updates global tangent stiffness `Kt` on every Newton-Raphson iteration (default). |
+| `--modified-newton` | — | Holds `Kt` constant per incremental step (Modified Newton). |
+| `--line-search` | — | Enables backtracking line search in Newton-Raphson (default). |
+| `--no-line-search` | — | Disables line search in Newton-Raphson. |
+| `--imperfection` | `<amp_m>` | Applies buckling-mode geometric imperfection of amplitude (m) prior to solving/exporting. |
+| `--imperfection-mode` | `<N>` | 1-based buckling mode index used by `--imperfection` (default `1`). |
+| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <path>` | Exports 1D/2D/3D results (repeatable: `.vtk` `UNSTRUCTURED_GRID` with `von_mises_kPa`, `.csv` nodal/continuum, `.json`, `.dxf`, `.ifc`). |
+| `--report` | `<md\|html\|pdf> <path>` | Generates Markdown, HTML5, or executive A4 PDF calculation report (repeatable; includes results & NBR audit). |
+| `--output` | `<path.json>` | Writes full structured JSON analysis summary cleanly to disk. |
 | `--json` | — | Emits structured JSON summary directly to `stdout`. |
+| `--check-windows-integration` | — | Queries user/system/process `PATH`, `App Paths`, and `.omniframe` association in Windows Registry. |
+| `--install-windows-integration` | — | Registers `omniframe-cli.exe`, `OmniFrame.exe`, `omniframe.exe`, and `.omniframe` in `HKCU` without admin. |
+| `--uninstall-windows-integration` | — | Removes `HKCU` CLI entries and `.omniframe` association cleanly. |
 
-### 3.2. Process Exit Codes & Automated Tests
+### 3.3. Process Exit Codes & Automated Tests
 
-- `0`: Validation, analysis, export, and report generation completed cleanly.
-- `1`: Invalid CLI arguments, unreadable input file, unsupported format, or export/report write failure.
-- `2`: Numerical analysis failure (mechanism, singularity, or convergence failure).
+- Exit codes (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (success), `1` (CLI usage/I/O/registry error), `2` (validation `--validate` failure or numerical/physical solver failure).
 - Modular CTest verification (`20` test suites): `ctest --preset testes-msvc-release --output-on-failure`.
 
 </details>

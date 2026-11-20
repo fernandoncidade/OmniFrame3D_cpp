@@ -14,8 +14,8 @@
 
 # POLÍTICA DE PRIVACIDADE — OMNIFRAME 3D
 
-**Versão:** `2026.11.14.0`  
-**Data:** `14 de novembro de 2026`  
+**Versão:** `2026.11.15.0`  
+**Data:** `15 de novembro de 2027`  
 **Desenvolvedor / Controlador:** Fernando Nillsson Cidade (Desenvolvedor Individual)  
 **E-mail de Contato e Privacidade:** `linceu_lighthouse@outlook.com`  
 **Site Oficial do Projeto:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -62,7 +62,7 @@ Para distribuição em pacote MSIX na Microsoft Store (Política 10.6), o manife
 
 O usuário exerce controle pleno sobre todos os dados locais:
 - **Acesso, Edição, Portabilidade e Exclusão:** Você pode abrir, copiar, editar ou excluir livremente qualquer arquivo `.omniframe`, `.dxf`, `.ifc`, `.pdf`, `.html`, `.md`, `.json`, `.csv`, `.vtk`, `language.json`, `theme.json` ou `graphics.json` a qualquer momento.
-- **Desinstalação Limpa:** Você pode desinstalar e remover o OmniFrame 3D de forma limpa a qualquer momento por **Configurações do Windows → Aplicativos → Aplicativos instalados** ou pelo **Menu Iniciar**. A remoção do pacote MSIX elimina os binários e o estado virtualizado do aplicativo sem deixar serviços em segundo plano, drivers ou tarefas agendadas residuais.
+- **Desinstalação Limpa e Controle de Registro Local:** Você pode desinstalar e remover o OmniFrame 3D de forma limpa a qualquer momento por **Configurações do Windows → Aplicativos → Aplicativos instalados** ou pelo **Menu Iniciar**. A remoção do pacote MSIX elimina os binários e o estado virtualizado do aplicativo sem deixar serviços em segundo plano, drivers ou tarefas agendadas residuais. Caso utilize opcionalmente a associação local da CLI no Windows (`Configurações > CLI Windows`, `--install-windows-integration` ou `register_cli_windows.ps1`), apenas chaves locais do usuário atual (`HKCU` para `PATH`, `App Paths` e `.omniframe`) são gravadas, sendo integralmente removíveis via `--uninstall-windows-integration` ou pelo desinstalador.
 
 ---
 
@@ -83,8 +83,8 @@ O usuário exerce controle pleno sobre todos os dados locais:
 
 # PRIVACY POLICY — OMNIFRAME 3D
 
-**Version:** `2026.11.14.0`  
-**Date:** `November 14, 2026`  
+**Version:** `2026.11.15.0`  
+**Date:** `November 15, 2027`  
 **Developer / Controller:** Fernando Nillsson Cidade (Individual Developer)  
 **Privacy & Support Email:** `linceu_lighthouse@outlook.com`  
 **Official Project Website:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -131,7 +131,7 @@ For MSIX package distribution on the Microsoft Store (Policy 10.6), the manifest
 
 The user exercises full control over all local data:
 - **Access, Editing, Portability & Deletion:** You may freely open, copy, edit, or delete any `.omniframe`, `.dxf`, `.ifc`, `.pdf`, `.html`, `.md`, `.json`, `.csv`, `.vtk`, `language.json`, `theme.json`, or `graphics.json` file at any time.
-- **Clean Uninstallation:** You may cleanly uninstall and remove OmniFrame 3D at any time via **Windows Settings → Apps → Installed Apps** or via the **Start Menu**. Removing the MSIX package deletes application binaries and virtualized state cleanly without leaving residual background services, drivers, or scheduled tasks behind.
+- **Clean Uninstallation & Local Registry Control:** You may cleanly uninstall and remove OmniFrame 3D at any time via **Windows Settings → Apps → Installed Apps** or via the **Start Menu**. Removing the MSIX package deletes application binaries and virtualized state cleanly without leaving residual background services, drivers, or scheduled tasks behind. If you optionally enable Windows CLI registration (`Settings > Windows CLI`, `--install-windows-integration`, or `register_cli_windows.ps1`), only current-user registry keys (`HKCU` `PATH`, `App Paths`, and `.omniframe`) are written locally and can be completely removed via `--uninstall-windows-integration` or the uninstaller.
 
 ---
 

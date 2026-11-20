@@ -23,6 +23,8 @@ public:
 
     void setTheme(UiTheme theme);
     void applyWindowChrome(QWidget* widget) const;
+    void setWindowTransitionsDisabled(QWidget* widget, bool disabled) const;
+    void setWindowCloaked(QWidget* widget, bool cloaked) const;
     void applyAllTopLevelWindowChrome() const;
 
 signals:

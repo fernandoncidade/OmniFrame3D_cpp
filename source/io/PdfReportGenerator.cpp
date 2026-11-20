@@ -1,6 +1,7 @@
 #include "PdfReportGenerator.hpp"
 
 #include <QColor>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -12,6 +13,7 @@
 #include <QPdfWriter>
 #include <QPen>
 #include <QRectF>
+#include <QUuid>
 
 #include <algorithm>
 #include <cctype>
@@ -25,6 +27,37 @@ namespace {
 
 QString toLowerQ(const std::string& s) {
     return QString::fromStdString(s).toLower();
+}
+
+QString solverTypeToQString(kernel::LinearSolverType t) {
+    switch (t) {
+        case kernel::LinearSolverType::Auto: return QStringLiteral("Auto");
+        case kernel::LinearSolverType::SparseLU: return QStringLiteral("SparseLU");
+        case kernel::LinearSolverType::SimplicialLDLT: return QStringLiteral("SimplicialLDLT");
+        case kernel::LinearSolverType::SimplicialLLT: return QStringLiteral("SimplicialLLT");
+        case kernel::LinearSolverType::ConjugateGradient: return QStringLiteral("ConjugateGradient");
+        case kernel::LinearSolverType::BiCGSTAB: return QStringLiteral("BiCGSTAB");
+    }
+    return QStringLiteral("Desconhecido");
+}
+
+std::vector<const kernel::MeshNode*> collectUniqueMeshNodes(const StructuralModel& model) {
+    std::vector<const kernel::MeshNode*> out;
+    const auto& frameNodes = model.getNodes();
+    for (const auto& mn : model.surfaceMesh().nodes) {
+        bool coincident = false;
+        for (const auto& fn : frameNodes) {
+            const double dx = mn.position.x() - fn.position.x;
+            const double dy = mn.position.y() - fn.position.y;
+            const double dz = mn.position.z() - fn.position.z;
+            if (dx * dx + dy * dy + dz * dz <= 1e-12) {
+                coincident = true;
+                break;
+            }
+        }
+        if (!coincident) out.push_back(&mn);
+    }
+    return out;
 }
 
 bool looksLikeConcrete(const Material& mat) {
@@ -749,14 +782,34 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
 
     // 1. Identificacao e Escopo do Empreendimento
     doc.drawSectionHeader(1, "Identificacao do Projeto e Escopo de Analise");
-    doc.drawParagraph(QString(
-        "Projeto: %1 | Cliente: %2 | Localizacao: %3 | Engenheiro: %4.\n"
-        "Modelo discreto composto por %5 nos, %6 elementos de barra/portico, %7 materiais e %8 secoes transversais, "
-        "totalizando %9 graus de liberdade (%10 restringidos). Sistema de unidades adotado: [kN, m, s, MPa].")
-        .arg(opts.projectTitle, opts.clientName, opts.siteLocation, opts.engineerName)
-        .arg(model.getNodes().size()).arg(model.getElements().size())
-        .arg(model.getMaterials().size()).arg(model.getCrossSections().size())
-        .arg(result.totalDofs).arg(result.restrainedDofs));
+    {
+        const QString softwareVer = QCoreApplication::applicationVersion().isEmpty()
+            ? QStringLiteral("OmniFrame 3D Kernel C++23")
+            : QCoreApplication::applicationVersion();
+        const QString execTimestamp = QDateTime::currentDateTime().toString(Qt::ISODate);
+        const QString execId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        doc.drawParagraph(QString(
+            "Projeto: %1 | Cliente: %2 | Localizacao: %3 | Engenheiro: %4.\n"
+            "Software: %5 | Data/Hora (ISO-8601): %6 | ID Execucao: %7.\n"
+            "Modelo discreto: %8 nos 1D, %9 barras/porticos, %10 nos de malha 2D/3D, %11 elementos continuos 2D/3D, "
+            "%12 materiais, %13 secoes, %14 casos de carga, %15 combinacoes, totalizando %16 DOFs (%17 restringidos).\n"
+            "Picos de tensao equivalente de von Mises: Casca 2D = %18 kPa | Solido 3D = %19 kPa. "
+            "Sistema de unidades adotado: [kN, m, s, kPa / MPa].")
+            .arg(opts.projectTitle, opts.clientName, opts.siteLocation, opts.engineerName,
+                 softwareVer, execTimestamp, execId)
+            .arg(model.getNodes().size())
+            .arg(model.getElements().size())
+            .arg(model.surfaceMesh().nodes.size())
+            .arg(model.surfaceMesh().elements.size())
+            .arg(model.getMaterials().size())
+            .arg(model.getCrossSections().size())
+            .arg(model.getLoadCases().size())
+            .arg(model.getLoadCombinations().size())
+            .arg(result.totalDofs)
+            .arg(result.restrainedDofs)
+            .arg(fmtNum(result.maxShellVonMises, 2))
+            .arg(fmtNum(result.maxSolidVonMises, 2)));
+    }
 
     // 2. Indice Tecnico das 24 Secoes
     doc.drawSectionHeader(2, "Estrutura do Memorial Executivo (24 Secoes)");
@@ -771,10 +824,23 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
 
     // 3. Metodologia Numerica FEM
     doc.drawSectionHeader(3, "Metodologia de Analise Estrutural (Kernel C++23 + Eigen 3.4.0)");
-    doc.drawParagraph(
-        "A rigidez elastica 3D utiliza formulacao exata de Euler-Bernoulli e Timoshenko 6-DOF por no (ou 7-DOF com empenamento de Vlasov), "
-        "condensacao estatica exata de rotulas internas, acoplamento por rigid links/diafragmas via multiplicadores ou transformacao mestre-escravo "
-        "e integracao de forcas nodais equivalentes em carregamento distribuido, trapezoidal e variacao termica uniforme.");
+    {
+        const auto& sopt = model.solverOptions();
+        doc.drawParagraph(QString(
+            "A formulacao unificada 1D/2D/3D acopla barras 3D (Euler-Bernoulli, Timoshenko 6-DOF e Vlasov 7-DOF com empenamento, "
+            "condensacao estatica exata de rotulas, rigid links e diafragmas rigidos), elementos de casca 2D (Tri3 CST+DKT, Quad4 Q4+DKQ e Quad8 Mindlin-Reissner "
+            "com estabilizacao de drilling DOF) e solidos 3D (Tet4, Tet10, Hex8, Hex20 com mapeamento mask3 de 3 DOFs translacionais em nos exclusivamente solidos, "
+            "acoplados automaticamente por coincidencia espacial dentro de 1e-6 m).\n"
+            "Solver linear configurado: %1 (tolerancia = %2, maxIter = %3, fallback automatico = %4). "
+            "Para analises nao lineares e P-Delta, emprega-se Newton-Raphson / Arc-Length com criterios de convergencia em deslocamento (dispTol), "
+            "residuo de forca (forceTol) e incremento de energia (energyTol = |dU*R|/|dU0*R0|).\n"
+            "Hipoteses explicitas: regime de pequenas deformacoes/deslocamentos na analise linear elastica, material isotropico homogeneo (salvo modelo J2), "
+            "espessura constante por elemento de casca e rigidez bruta das secoes conforme especificado no modelo.")
+            .arg(solverTypeToQString(sopt.type))
+            .arg(fmtSci(sopt.tolerance, 2))
+            .arg(sopt.maxIterations)
+            .arg(sopt.allowFallback ? "Ativo" : "Desativado"));
+    }
 
     // 4. Matriz de Cobertura Normativa Local ABNT NBR
     doc.drawSectionHeader(4, "Rastreabilidade Normativa Frente a Biblioteca Local (Normas_Tecnicas_NBRs)");
@@ -945,24 +1011,48 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
     doc.drawSectionHeader(12, "Diagnostico do Solver e Equilibrio Estatico Global");
     {
         const auto& eq = result.equilibrium;
+        const bool hadFallback = QString::fromStdString(result.solverStats.message)
+            .contains(QStringLiteral("Fallback"), Qt::CaseInsensitive);
         std::vector<std::vector<QString>> rows = {
             {"Tempo de Execucao / DOFs", QString("%1 ms / %2 DOFs (%3 fixos)").arg(fmtNum(result.executionTimeMs, 2)).arg(result.totalDofs).arg(result.restrainedDofs), "OK"},
+            {"Solver Linear Efetivo",
+             QString("%1%2").arg(solverTypeToQString(result.solverStats.solverUsed),
+                                 hadFallback ? QString(" (%1)").arg(QString::fromStdString(result.solverStats.message)) : QString()),
+             hadFallback ? "FALLBACK" : "OK"},
+            {"Residuo Relativo ||K*u - F||/||F||", fmtSci(result.solverStats.relativeResidual, 3), result.solverStats.success ? "OK" : "ALERTA"},
             {"Forcas Aplicadas (Fx, Fy, Fz)", QString("(%1, %2, %3) kN").arg(fmtNum(eq.sumAppliedForces.x, 3), fmtNum(eq.sumAppliedForces.y, 3), fmtNum(eq.sumAppliedForces.z, 3)), "-"},
             {"Reacoes Totais (Rx, Ry, Rz)", QString("(%1, %2, %3) kN").arg(fmtNum(eq.sumReactions.x, 3), fmtNum(eq.sumReactions.y, 3), fmtNum(eq.sumReactions.z, 3)), "-"},
             {"Residuo de Forcas |SF + SR|", QString("%1 kN").arg(fmtSci(eq.residualForces.norm(), 3)), eq.isBalanced ? "OK" : "FALHA"},
             {"Residuo de Momentos |SM + SMR|", QString("%1 kN.m").arg(fmtSci(eq.residualMoments.norm(), 3)), eq.isBalanced ? "OK" : "FALHA"},
-            {"Energia de Deformacao Total", QString("%1 kN.m").arg(fmtNum(result.totalStrainEnergy, 4)), "-"}
+            {"Energia de Deformacao Total", QString("%1 kN.m").arg(fmtNum(result.totalStrainEnergy, 4)), "-"},
+            {"Pico von Mises Casca 2D / Solido 3D",
+             QString("%1 kPa / %2 kPa").arg(fmtNum(result.maxShellVonMises, 2), fmtNum(result.maxSolidVonMises, 2)), "-"}
         };
+        if (!model.surfaceMesh().elements.empty()) {
+            const auto qm = kernel::MeshGenerator::evaluateQuality(model.surfaceMesh());
+            rows.push_back({
+                "Qualidade da Malha 2D/3D",
+                QString("%1/%2 validos | minJ=%3 | maxAR=%4 | maxSkew=%5")
+                    .arg(qm.validElements)
+                    .arg(qm.totalElements)
+                    .arg(fmtSci(qm.minJacobian, 2))
+                    .arg(fmtNum(qm.maxAspectRatio, 2))
+                    .arg(fmtNum(qm.maxSkewness, 3)),
+                qm.isValid() ? "OK" : "ALERTA"
+            });
+        }
         doc.drawTable({"Grandeza / Auditoria", "Valor Calculado", "Status"},
                       {0.35, 0.48, 0.17}, rows);
     }
+
+    const auto uniqueMeshNodes = collectUniqueMeshNodes(model);
 
     // 13. Deslocamentos Nodais
     doc.drawSectionHeader(13, "Deslocamentos e Rotacoes Nodais");
     {
         std::vector<std::vector<QString>> rows;
         constexpr size_t kMaxDispPrint = 35;
-        for (size_t i = 0; i < model.getNodes().size() && i < kMaxDispPrint; ++i) {
+        for (size_t i = 0; i < model.getNodes().size() && rows.size() < kMaxDispPrint; ++i) {
             const auto& n = model.getNodes()[i];
             rows.push_back({
                 QString::number(n.id),
@@ -972,6 +1062,18 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
                 fmtNum(n.displacement[3] * 1000.0, 3),
                 fmtNum(n.displacement[4] * 1000.0, 3),
                 fmtNum(n.displacement[5] * 1000.0, 3)
+            });
+        }
+        for (size_t i = 0; i < uniqueMeshNodes.size() && rows.size() < kMaxDispPrint; ++i) {
+            const auto* mn = uniqueMeshNodes[i];
+            rows.push_back({
+                QString("M%1").arg(mn->id),
+                fmtNum(mn->displacement[0] * 1000.0, 3),
+                fmtNum(mn->displacement[1] * 1000.0, 3),
+                fmtNum(mn->displacement[2] * 1000.0, 3),
+                fmtNum(mn->displacement[3] * 1000.0, 3),
+                fmtNum(mn->displacement[4] * 1000.0, 3),
+                fmtNum(mn->displacement[5] * 1000.0, 3)
             });
         }
         doc.drawTable({"No", "ux [mm]", "uy [mm]", "uz [mm]", "rx [mrad]", "ry [mrad]", "rz [mrad]"},
@@ -992,6 +1094,18 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
                 fmtNum(n.reaction[3], 2),
                 fmtNum(n.reaction[4], 2),
                 fmtNum(n.reaction[5], 2)
+            });
+        }
+        for (const auto* mn : uniqueMeshNodes) {
+            if (!mn->isSupported()) continue;
+            rows.push_back({
+                QString("M%1").arg(mn->id),
+                fmtNum(mn->reaction[0], 2),
+                fmtNum(mn->reaction[1], 2),
+                fmtNum(mn->reaction[2], 2),
+                fmtNum(mn->reaction[3], 2),
+                fmtNum(mn->reaction[4], 2),
+                fmtNum(mn->reaction[5], 2)
             });
         }
         doc.drawTable({"No", "Rx [kN]", "Ry [kN]", "Rz [kN]", "Mx [kNm]", "My [kNm]", "Mz [kNm]"},
@@ -1042,6 +1156,30 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
         }
         doc.drawTable({"Barra", "N [kN]", "Vmax [kN]", "Tx [kNm]", "|My| [kNm]", "|Mz| [kNm]", "wMax [mm]"},
                       {0.10, 0.15, 0.15, 0.14, 0.15, 0.15, 0.16}, rows);
+    }
+
+    if (!result.continuumElementResults.empty()) {
+        doc.drawParagraph(QString(
+            "Esforcos e Tensoes em Elementos Continuos 2D/3D (Casca / Solido) - exibindo ate 35 de %1 elementos resolvidos:")
+            .arg(result.continuumElementResults.size()));
+        std::vector<std::vector<QString>> cRows;
+        constexpr size_t kMaxContPrint = 35;
+        for (size_t i = 0; i < result.continuumElementResults.size() && i < kMaxContPrint; ++i) {
+            const auto& cr = result.continuumElementResults[i];
+            const double val1 = cr.isShell ? cr.membraneResultants[0] : cr.stressVoigt[0];
+            const double val2 = cr.isShell ? cr.bendingResultants[0] : cr.stressVoigt[2];
+            cRows.push_back({
+                QString("M%1").arg(cr.elementId),
+                QString::fromStdString(cr.cellTypeName),
+                fmtNum(cr.vonMisesStress, 2),
+                fmtNum(cr.maxPrincipalStress, 2),
+                fmtNum(cr.minPrincipalStress, 2),
+                fmtNum(val1, 2),
+                fmtNum(val2, 2)
+            });
+        }
+        doc.drawTable({"Elem", "Tipo", "s_vM [kPa]", "s_1 [kPa]", "s_3 [kPa]", "Nxx/sxx", "Mxx/szz"},
+                      {0.10, 0.14, 0.16, 0.15, 0.15, 0.15, 0.15}, cRows);
     }
 
     // 17. Diagramas Vetoriais N / V / M / Deflexao das Barras Mais Solicitadas
@@ -1191,7 +1329,30 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
         "Os PDFs normativos ausentes na biblioteca local (ABNT NBR 8681, NBR 14762 perfis formados a frio e NBR 15421 sismo), "
         "bem como normas internacionais (AISC 360, Eurocode), estao explicitamente fora de escopo neste memorial. "
         "Para concreto armado, os resultados refletem verificacoes de secao transversal basica (armadura de pilar adotada em 1% Ac quando nao detalhada no modelo). "
+        "As verificacoes automaticas de dimensionamento normativo (DCR) aplicam-se aos elementos 1D de barra/portico; elementos continuos 2D/3D (cascas e solidos) "
+        "reportam campos elasticos de tensoes (von Mises, principais, Voigt) e resultantes de membrana/flexao para avaliacao direta pelo Engenheiro Responsavel.\n"
         "Detalhamento executivo, ancoragens e emendas devem ser conferidos pelo Engenheiro Responsavel.");
+
+    {
+        const auto valCheck = model.validate();
+        if (!valCheck.issues.empty()) {
+            std::vector<std::vector<QString>> vRows;
+            for (const auto& iss : valCheck.issues) {
+                QString sev = QStringLiteral("INFO");
+                if (iss.severity == IssueSeverity::Error) sev = QStringLiteral("ERRO");
+                else if (iss.severity == IssueSeverity::Warning) sev = QStringLiteral("ALERTA");
+                vRows.push_back({
+                    sev,
+                    QString::fromStdString(iss.code),
+                    QString::fromStdString(iss.category),
+                    QString::fromStdString(iss.entityId),
+                    QString::fromStdString(iss.message)
+                });
+            }
+            doc.drawTable({"Sev.", "Codigo", "Categoria", "Entidade", "Diagnostico Estruturado"},
+                          {0.09, 0.16, 0.15, 0.12, 0.48}, vRows);
+        }
+    }
 
     // 24. Conclusoes e Responsabilidade Tecnica
     doc.drawSectionHeader(24, "Conclusoes Executivas e Termo de Responsabilidade");

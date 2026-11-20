@@ -1,4 +1,5 @@
 #include "DxfInterop.hpp"
+#include "Utf8Path.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cctype>
@@ -179,7 +180,7 @@ bool DxfInterop::exportToFile(const std::string& filePath,
                               const kernel::MeshContainer* surfaceOrSolidMesh,
                               DxfInteropReport* report)
 {
-    std::ofstream ofs(filePath, std::ios::binary);
+    std::ofstream ofs(pathFromUtf8(filePath), std::ios::binary);
     if (!ofs.is_open()) {
         if (report) {
             report->success = false;
@@ -410,7 +411,7 @@ bool DxfInterop::importFromFile(const std::string& filePath,
                                 const DxfImportOptions& opts,
                                 DxfInteropReport* report)
 {
-    std::ifstream ifs(filePath, std::ios::binary);
+    std::ifstream ifs(pathFromUtf8(filePath), std::ios::binary);
     if (!ifs.is_open()) {
         if (report) {
             report->success = false;

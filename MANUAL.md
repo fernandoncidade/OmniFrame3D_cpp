@@ -1,8 +1,8 @@
 # MANUAL DO USUÁRIO E GUIA DE ENGENHARIA FEA 3D — OMNIFRAME 3D
 # USER MANUAL AND 3D FEA ENGINEERING GUIDE — OMNIFRAME 3D
 
-**Versão / Version:** `2026.11.14.0`  
-**Data / Date:** `14 de novembro de 2026` / `November 14, 2026`  
+**Versão / Version:** `2026.11.15.0`  
+**Data / Date:** `15 de novembro de 2027` / `November 15, 2027`  
 **Ambiente Tecnológico / Tech Stack:** C++23 | Qt 6.11.1 | Eigen 3.4.0 Sparse Cholesky | OpenGL 3.3 Core Profile  
 **Plataforma / Platform:** Windows 11 / Windows 10 x64  
 **Autor / Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
@@ -64,8 +64,8 @@ A topologia da estrutura é definida no espaço tridimensional com histórico co
 1. **Nós Estruturais:** Criados clicando no Plano Ativo (`N`) ou via coordenadas cartesianas $(X, Y, Z)$ em metros no painel esquerdo. Cada nó recebe um identificador numérico único.
 2. **Barras (Elementos):** Conectam um nó de origem $i$ a um nó de destino $j$ (`B`). O comprimento euclidiano $L = \sqrt{(X_j - X_i)^2 + (Y_j - Y_i)^2 + (Z_j - Z_i)^2}$ é calculado automaticamente.
 3. **Rótulas nas Extremidades (Releases):** É possível liberar os momentos fletores e de torção nas extremidades inicial ou final, convertendo a barra em um elemento de treliça articulada.
-4. **Inspetor Lateral (`Elemento / Nó Selecionado`) & Reedição dos 3 Exemplos:** Ao selecionar nós ou barras (inclusive nos **3 exemplos pré-definidos**, que permanecem 100% abertos para reedição, testes paramétricos e recálculo como exercício), o inspetor libera edição direta de coordenadas/incrementos $\Delta$, atalhos de seleção em lote (**`Mesmo Material`** / **`Mesma Seção`**) e listas suspensas (**`Material:`** e **`Seção Transversal:`**) exibindo nomes limpos sem prefixos `#ID`.
-5. **Gerador Paramétrico de Malha (`Estrutura > Gerador de Malha 1D/2D/3D...` / `Malha 2D/3D...`):** Cria malhas estruturadas de cascas (`Quad4 MITC4`, `Tri3 MITC3`, `Tri6`, `Quad8`) e sólidos (`Hex8 B-Bar`, `Tet4`) com ajuste automático à caixa envoltória (*bounding box*) e limpeza seletiva.
+4. **Inspetor Lateral (`Elemento / Nó Selecionado`) & Reedição dos 3 Exemplos:** Todos os **3 exemplos pré-definidos** abrem por padrão no plano de trabalho **`XY (Planta)`** e permanecem 100% abertos para reedição, testes paramétricos e recálculo como exercício; ao selecionar nós ou barras, o inspetor libera edição direta de coordenadas/incrementos $\Delta$, atalhos de seleção em lote (**`Mesmo Material`** / **`Mesma Seção`**) e listas suspensas (**`Material:`** e **`Seção Transversal:`**) exibindo nomes limpos sem prefixos `#ID`.
+5. **Gerador Paramétrico de Malha (`Estrutura > Gerador de Malha 1D/2D/3D...` / `Malha 2D/3D...`):** Cria malhas `1D Linha Refinada (Line2)`, cascas (`Quad4`, `Quad8`, `Tri3`, `Polígono Delaunay (Tri3)`) e sólidos (`Hex8`, `Hex20`, `Tet4`, `Extrusão 2D -> 3D Hex8`) com configuração integrada de **`Material da Malha:`**, **`Espessura (Casca 2D):`**, **`Condição de Contorno:`**, **`Pressão / Carga Z (2D/3D):`**, acoplamento automático em nós coincidentes e resolução unificada 1D/2D/3D via **`Calcular Estrutura (F5)`**.
 
 ---
 
@@ -113,7 +113,7 @@ O OmniFrame 3D suporta carregamentos nodais, distribuídos, térmicos e combina�
 
 Ao pressionar **F5** (execução assíncrona em *worker thread* sem bloquear a interface) ou via **Suíte de Análises Avançadas (`Avançadas...`)**:
 1. A matriz global $[K]$ é montada no formato esparso (`Eigen::SparseMatrix<double>`) dentro do núcleo puro `OmniFrameKernel`.
-2. O usuário pode selecionar `SimplicialLDLT` (padrão AMD), `SimplicialLLT`, `SparseLU`, `ConjugateGradient` ou `BiCGSTAB` na suíte linear, além de análises de **Combinações & Envoltória**, **Modal**, **Flambagem Linear** ($\lambda_{cr}$), **Harmônica FRF**, **Espectro de Resposta (`NBR 15421`)**, **Sísmica Transiente (`Newmark-β`)**, **P-Delta** e **Não Linear** (Corrotacional NR/Arc-Length e **Plasticidade J2** $\sigma_y, H_{iso}, H_{kin}$).
+2. O usuário pode selecionar `Auto`, `SimplicialLDLT` (SPD Cholesky), `SparseLU (COLAMD)` ou `ConjugateGradient (PCG)` no seletor **`Solver:`** da suíte (com fallback explícito rastreável), além de análises de **Combinações & Envoltória**, **Modal**, **Flambagem Linear** ($\lambda_{cr}$, com campo **`Imperfeição Inicial (amp):`** e botão **`Aplicar Imperfeição à Geometria`**), **Harmônica FRF**, **Espectro de Resposta (`NBR 15421`)**, **Sísmica / Transiente** (`Newmark-Beta (γ=0,50, β=0,25)` ou `HHT-Alpha (α=-0,05)`, com opção **`Acelerograma Sísmico (a_g)`** ou **`Histórico de Força F(t)`**), **P-Delta** e **Não Linear** (`Corrotacional 3D`, **`Tangente Completa`**, **`Line Search`**, Newton-Raphson / Arc-Length e **Plasticidade J2** $\sigma_y, H_{iso}, H_{kin}$).
 3. Condições de contorno, molas elásticas e deslocamentos prescritos são aplicados preservando o cálculo exato das reações de apoio $\{R\} = [K] \{U\} - \{F\}$ e detectando nós/mecanismos singulares.
 4. **Auditoria Normativa ABNT NBR (`Auditoria NBR...`):** Verifica critérios das normas `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022` e `8800:2024` (`LocalPdfVerified`), sinalizando explicitamente normas fora do pacote PDF local (`OutOfLocalPdfScope`), com projeção do **Mapa de Calor DCR 3D** diretamente na viewport e exportação do Memorial PDF A4.
 
@@ -126,7 +126,7 @@ A partir dos deslocamentos nodais calculados, os esforços internos em qualquer 
 - **Momento Fletor $M_z(x')$:** $E I_z \frac{d^2 v}{dx'^2}$;
 - **Esforço Cortante $V_y(x')$:** $-\frac{d M_z}{dx'}$;
 - **Momento de Torção $T(x')$:** $G J \frac{d\theta_x}{dx'}$.
-- **Controles 3D Avançados (`Corte/Contornos...`):** Permite alternar mapas de contorno (`|u|`, `von Mises`, `Axial`, `DCR`), exibir/ocultar malha superficial 2D/3D, fatiar o modelo com **Plano de Corte 3D** nos eixos `X`, `Y` ou `Z` (com inversão) e reproduzir **Animação Contínua 3D** (deformada, modal, flambagem ou harmônica/transiente).
+- **Controles 3D Avançados (`Corte/Contornos...`) & Aba Contínua 2D/3D:** Permite alternar mapas de contorno (`|u|`, **`Tensão de von Mises (Casca/Sólido)`**, `Axial`, `DCR`), exibir/ocultar malha superficial 2D/3D, fatiar o modelo com **Plano de Corte 3D** nos eixos `X`, `Y` ou `Z` (com inversão), reproduzir **Animação Contínua 3D** (deformada, modal, flambagem ou harmônica/transiente) e consultar tensões/resultantes na aba **`Esforços 2D/3D (Casca/Sólido)`** do painel inferior.
 
 ---
 
@@ -158,8 +158,80 @@ A viewport OpenGL 3.3 Core Profile oferece renderização de última geração:
 - **4 Perfis Científicos de Ritmo de Leitura (PPM):** `Leitor Típico — Fluente (250 PPM)`, `Leitura Técnica / Engenharia (150 PPM — recomendado)`, `Leitura em Voz Alta (155 PPM)` e `Dislexia / Acessível (130 PPM + margem para regressões)`.
 - **Callout e Destaque Unificados em 2 Fases (Sem Sobreposição):** Antes de cada ação, um destaque luminoso e um único balão explicativo em **amarelo** detalham o recurso no ritmo proporcional às palavras/PPM; na execução (**verde**), o aplicativo posiciona eventuais janelas filhas no canto inferior esquerdo mantendo o balão legível e livre de sobreposição, com suporte completo a **Temas Escuro/Claro**, **Modeless/Z-Order** e **restauração automática do exemplo selecionado para o estado inicial** ao concluir.
 
-### CLI Dedicada (`omniframe-cli.exe`):
-- O binário headless `omniframe-cli.exe` (compilado por `omniframe-msvc-release` / tarefa `Qt6: Compilar omniframe-cli (MSVC)` e distribuído junto com `OmniFrame.exe`) compartilha `OmniFrameCore` e `OmniFrameKernel` com suporte a `--version`, `--help`, `--validate`, `--analyze`, `--analysis <static|modal|buckling|nonlinear|pdelta|harmonic|spectrum>`, `--solver`, `--export <json|csv|vtk|dxf|ifc>`, `--report <md|html|pdf>`, `--output` e `--json` (consulte [docs/cli-reference.md](docs/cli-reference.md) para exemplos e códigos de saída).
+### CLI Dedicada e Integração com Windows 10/11 (`omniframe-cli.exe` e `OmniFrame.exe`):
+
+O `omniframe-cli.exe` é o executável oficial de linha de comando (*headless*, `/SUBSYSTEM:CONSOLE`), compilado em conjunto na mesma pasta de `OmniFrame.exe` com compartilhamento integral de `OmniFrameCore` e `OmniFrameKernel` — produzindo resultados FEA 3D, validações de malha, auditorias ABNT NBR e exportações rigorosamente idênticos aos da interface gráfica, sem abrir nenhuma janela.
+
+#### Para que serve e como acessar no Windows 10/11 (CMD e PowerShell):
+- **Propósito:** automação em lote (`.bat`, `.cmd`, `.ps1`), validação offline de projetos (`.omniframe`, `.dxf`, `.ifc`), varreduras paramétricas de não linearidade/imperfeição/dinâmica, auditorias normativas ABNT em CI/CD, geração de conjuntos VTK/CSV/DXF/IFC4 e emissão automatizada de memoriais de cálculo (MD/HTML/PDF).
+- **Menu Gráfico Integrado (zero digitação):** em `OmniFrame.exe`, abra **`Configurações > CLI Windows (CMD / PowerShell)`** para registrar no Windows sem administrador (`PATH` + `App Paths` + `.omniframe`), remover o registro, verificar o status ou abrir imediatamente um terminal **CMD** ou **PowerShell** já pronto com `omniframe-cli`.
+- **Auto-registro HKCU via CLI (sem administrador):** execute `omniframe-cli --install-windows-integration` (registra `HKCU\Environment\Path`, `App Paths` para `omniframe-cli.exe` / `OmniFrame.exe` / `omniframe.exe` e a associação `.omniframe` -> `OmniFrame3D.Project` com broadcast `WM_SETTINGCHANGE`/`SHChangeNotify`).
+- **Script PowerShell Portátil (`register_cli_windows.ps1`):** presente em `cmake/register_cli_windows.ps1` e na raiz das distribuições limpas (suporta instalação padrão, `-CheckOnly` e `-Uninstall`).
+- **Instalador Desktop (Inno Setup) & MSIX (Microsoft Store):** o instalador Inno Setup (`repo/OmniFrame.iss`) oferece as tarefas `addtopath` e `assocproj` marcadas por padrão; o pacote MSIX (`repo/AppxManifest.xml`) registra `uap5:AppExecutionAlias` oficiais para `omniframe.exe` e `omniframe-cli.exe` (`desktop4:Subsystem="console"`).
+- **Integração Direta no `OmniFrame.exe`:**
+  - Abrir modelo na GUI: `OmniFrame.exe "caminho\modelo.omniframe|.dxf|.ifc"` inicia a interface 3D já com o arquivo carregado.
+  - Delegação transparente para CLI: passar flags headless ao `OmniFrame.exe` (`--cli`, `--version`, `-v`, `--help`, `-h`, `--list-examples`, `--validate`, `--analyze`, `--example`, `--nbr-audit`, `--audit-nbr`, `--check-windows-integration`, `--install-windows-integration`, `--uninstall-windows-integration`) delega de forma síncrona ao `omniframe-cli.exe` irmão (no CMD/PowerShell prefira chamar `omniframe-cli` diretamente, ou use `| Out-String` no PowerShell se invocar `OmniFrame.exe` em modo CLI).
+- **Suporte UTF-8 no CMD e PowerShell:** execute `chcp 65001 >nul` no CMD ou `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` no PowerShell para preservar acentos em JSON/texto; os leitores e gravadores (`CommandLineToArgvW`, DXF, IFC4, CSV, VTK, JSON, HTML, MD, PDF) suportam caminhos UTF-8 com espaços e acentos entre aspas duplas.
+
+#### Referência Completa de Comandos e Opções (`omniframe-cli.exe`):
+
+| Flag / Comando | Argumentos | Descrição |
+|---|---|---|
+| `--version` / `-v` | — | Exibe a versão da CLI, padrão C++23, Eigen 3.4.0 e schema `.omniframe` e sai (`0`). |
+| `--help` / `-h` | — | Imprime a ajuda completa de uso no Windows 10/11 (CMD e PowerShell) e sai (`0`). |
+| `--list-examples` | — | Lista os 3 modelos embutidos (`1 \| building`, `2 \| cantilever`, `3 \| truss`) em texto ou `--json`/`--output`. |
+| `--example` | `<nome\|1\|2\|3>` | Seleciona modelo embutido sem arquivo em disco (aceita `1`/`building`/`portico`/`edificio`/`frame`, `2`/`cantilever`/`balanco`/`lframe`, `3`/`truss`/`trelica`/`passarela`). |
+| `--validate` | `[<arquivo.omniframe\|dxf\|ifc>]` | Valida topologia, conectividade em grafo (BFS), finitude, apoios e qualidade de malhas 2D/3D (`0` válido, `2` inválido). |
+| `--analyze` | `[<arquivo.omniframe\|dxf\|ifc>]` | Executa a análise FEA 3D configurada sobre o arquivo ou sobre `--example` (também acionado automaticamente com `--output`, `--export` ou `--report`). |
+| `--nbr-audit` / `--audit-nbr` | `[<arquivo>]` | Executa auditoria normativa ABNT NBR (6118, 8800, 6120, 6122, 6123, 7480), resolvendo estática prévia se necessário, e preenche `nbrAudit` no JSON. |
+| `--analysis` | `static\|modal\|buckling\|nonlinear\|pdelta\|harmonic\|spectrum\|transient\|seismic` | Define o tipo de análise estrutural (padrão `static`). |
+| `--solver` | `auto\|ldlt\|llt\|sparselu\|cg\|bicgstab` | Seleciona o solver linear de `LinearSolverSuite` (padrão `auto`, registra `usedFallback`). |
+| `--modes` | `<N>` | Número de autovalores/modos em `modal`, `buckling` ou `spectrum` (padrão `6`). |
+| `--steps` | `<N>` | Passos incrementais em `nonlinear`/`pdelta` ou passos temporais em `transient`/`seismic` (padrão `20`). |
+| `--dt` | `<segundos>` | Incremento de tempo em segundos para `transient`/`seismic` (mínimo `1e-5`, padrão `0.02`). |
+| `--scheme` | `newmark\|hht` | Integrador temporal implícito para `transient`/`seismic`: Newmark-beta ou HHT-alpha (padrão `newmark`). |
+| `--case` | `<id>` | ID inteiro do Caso de Carga (`LoadCase`) em `static` ou `transient`. |
+| `--combo` | `<id>` | ID inteiro da Combinação ABNT (`LoadCombination`) em `static`. |
+| `--method` | `nr\|arclength` | Estratégia não linear incremental-iterativa: Newton-Raphson (`nr`, padrão) ou Arc-Length Crisfield (`arclength`). |
+| `--load-factor` | `<fator>` | Multiplicador alvo de carregamento para análises `nonlinear`/`pdelta` (padrão `1.0`). |
+| `--full-tangent` | — | Atualiza a matriz de rigidez tangente global `Kt` a cada iteração Newton-Raphson (padrão). |
+| `--modified-newton` | — | Mantém `Kt` constante por incremento de carga (Newton Modificado). |
+| `--line-search` | — | Habilita busca linear com retrocesso (backtracking) em Newton-Raphson (padrão). |
+| `--no-line-search` | — | Desabilita busca linear em Newton-Raphson. |
+| `--imperfection` | `<amp_m>` | Pré-calcula flambagem linear e perturba a geometria inicial na amplitude (em metros) antes de resolver/exportar. |
+| `--imperfection-mode` | `<N>` | Índice base `1` do modo de flambagem aplicado em `--imperfection` (padrão `1`). |
+| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <caminho>` | Exporta modelo/resultados (repetível): `.vtk` `UNSTRUCTURED_GRID` (`von_mises_kPa`), `.csv` (nodal + tensões contínuas), `.json`, `.dxf`, `.ifc`. |
+| `--report` | `<md\|html\|pdf> <caminho>` | Gera memorial técnico em Markdown, HTML5 ou PDF A4 (repetível; integra estática, modal, flambagem, não linear e `nbrAudit`). |
+| `--output` | `<caminho.json>` | Grava o resumo JSON estruturado completo em disco. |
+| `--json` | — | Emite o resumo JSON estruturado completo diretamente no `stdout`. |
+| `--check-windows-integration` | — | Inspeciona `PATH` do usuário/sistema/processo, `App Paths` e associação `.omniframe` no Windows 10/11. |
+| `--install-windows-integration` | — | Registra `omniframe-cli.exe`, `OmniFrame.exe` e `.omniframe` no `HKCU` sem necessidade de privilégios de administrador. |
+| `--uninstall-windows-integration` | — | Remove do registro `HKCU` as chaves e entradas de `PATH` criadas pela integração Windows da CLI. |
+
+#### Códigos de Retorno (`%ERRORLEVEL%` no CMD / `$LASTEXITCODE` no PowerShell):
+- `0`: execução, validação, análise, auditoria NBR ou registro no Windows concluídos com êxito.
+- `1`: erro de sintaxe nos argumentos, arquivo ilegível/inexistente, formato desconhecido ou falha de gravação/registro Windows.
+- `2`: falha na validação estrutural (`--validate`) ou falha numérica/física (mecanismo, singularidade, falta de modo de flambagem positivo em `--imperfection` ou não convergência).
+
+#### Exemplos Práticos (CMD e PowerShell):
+```bat
+:: Windows Command Prompt (CMD)
+chcp 65001 >nul
+omniframe-cli --install-windows-integration --json
+omniframe-cli --example building --nbr-audit --report pdf "C:\Projetos\memorial_edificio.pdf" --export vtk "C:\Projetos\edificio.vtk" --json
+omniframe-cli --validate "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe"
+OmniFrame.exe "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe"
+```
+```powershell
+# Windows PowerShell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$res = omniframe-cli --example building --analysis nonlinear --steps 10 --load-factor 1.25 --modified-newton --no-line-search --imperfection 0.005 --imperfection-mode 1 --json | ConvertFrom-Json
+if ($LASTEXITCODE -eq 0 -and $res.success) { $res.appliedImperfection }
+omniframe-cli --example cantilever --analysis transient --scheme hht --dt 0.01 --steps 50 --export csv ".\saida_hht.csv" --json | ConvertFrom-Json
+OmniFrame.exe --example truss --analysis buckling --modes 4 --json | Out-String
+```
+
+Consulte também [docs/cli-reference.md](docs/cli-reference.md) e o Capítulo 10 do Manual interativo embutido (`F1`).
 
 ### Atalhos Úteis:
 - `F1`: Abrir Manual Completo (`ManualDialog`)
@@ -207,8 +279,8 @@ Structural topology is defined in three-dimensional space with full multi-level 
 1. **Structural Nodes:** Created by clicking the Active Plane (`N`) or entering Cartesian coordinates $(X, Y, Z)$ in meters in the left dock. Each node receives a unique numeric identifier.
 2. **Members (Elements):** Connect a start node $i$ to an end node $j$ (`B`). Euclidean length $L = \sqrt{(X_j - X_i)^2 + (Y_j - Y_i)^2 + (Z_j - Z_i)^2}$ is computed automatically.
 3. **End Releases (Hinges):** Bending and torsional moments may be released at the start or end node, converting the member into an articulated truss element.
-4. **Side Property Inspector (`Selected Node / Member`) & Built-in Example Re-Editing:** Selecting nodes or members (including inside all **3 built-in examples**, which remain 100% open to live edits, parametric trials, and re-solving as hands-on practice) unlocks inline coordinate/offset ($\Delta$) controls, batch selection buttons (**`Same Material`** / **`Same Section`**), and clean **`Material:`** / **`Cross-Section:`** dropdown comboboxes without `#ID` prefixes.
-5. **Parametric Mesh Generator (`Structure > 1D/2D/3D Mesh Generator...` / `2D/3D Mesh...`):** Builds structured shell (`Quad4 MITC4`, `Tri3 MITC3`, `Tri6`, `Quad8`) and solid (`Hex8 B-Bar`, `Tet4`) meshes with automatic bounding-box fitting and selective mesh clearing.
+4. **Side Property Inspector (`Selected Node / Member`) & Built-in Example Re-Editing:** All **3 built-in examples** open in the **`XY (Plan)`** work plane by default and remain 100% open to live edits, parametric trials, and re-solving as hands-on practice; selecting nodes or members unlocks inline coordinate/offset ($\Delta$) controls, batch selection buttons (**`Same Material`** / **`Same Section`**), and clean **`Material:`** / **`Cross-Section:`** dropdown comboboxes without `#ID` prefixes.
+5. **Parametric Mesh Generator (`Structure > 1D/2D/3D Mesh Generator...` / `2D/3D Mesh...`):** Builds `1D Refined Line (Line2)`, shell (`Quad4`, `Quad8`, `Tri3`, `Delaunay Polygon (Tri3)`), and solid (`Hex8`, `Hex20`, `Tet4`, `Extrusion 2D -> 3D Hex8`) meshes with integrated **`Mesh Material:`**, **`Thickness (2D Shell):`**, **`Boundary Condition:`**, and **`Pressure / Z Load (2D/3D):`**, automatic coincident-node coupling, and unified 1D/2D/3D solving via **`Solve Structure (F5)`**.
 
 ---
 
@@ -256,7 +328,7 @@ OmniFrame 3D supports nodal, distributed, thermal, and code-combination loading:
 
 Upon pressing **F5** (running asynchronously on a worker thread without blocking the UI) or via **Advanced Analysis Suite (`Advanced...`)**:
 1. The global matrix $[K]$ is assembled in Compressed Column Storage (`Eigen::SparseMatrix<double>`) inside the Qt-free `OmniFrameKernel`.
-2. Users can select `SimplicialLDLT` (AMD default), `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, or `BiCGSTAB`, alongside **Combinations & Envelope**, **Modal**, **Linear Buckling** ($\lambda_{cr}$), **Harmonic FRF**, **Response Spectrum (`NBR 15421`)**, **Seismic Transient (`Newmark-β`)**, **P-Delta**, and **Nonlinear** analyses (Corotational NR / Arc-Length and **J2 Plasticity** $\sigma_y, H_{iso}, H_{kin}$).
+2. Users can pick `Auto`, `SimplicialLDLT (SPD Cholesky)`, `SparseLU (COLAMD)`, or `ConjugateGradient (PCG)` from the suite **`Solver:`** selector (with tracked explicit fallback), alongside **Combinations & Envelope**, **Modal**, **Linear Buckling** ($\lambda_{cr}$, with **`Initial Imperfection (amp):`** and **`Apply Imperfection to Geometry`**), **Harmonic FRF**, **Response Spectrum (`NBR 15421`)**, **Seismic / Transient** (`Newmark-Beta` or `HHT-Alpha (α=-0.05)` with **`Seismic Accelerogram (a_g)`** or **`Force Time History F(t)`**), **P-Delta**, and **Nonlinear** analyses (`Corotational 3D`, **`Full Tangent`**, **`Line Search`**, Newton-Raphson / Arc-Length, and **J2 Plasticity** $\sigma_y, H_{iso}, H_{kin}$).
 3. Boundary conditions, elastic springs, and prescribed displacements are applied while recovering exact support reactions $\{R\} = [K] \{U\} - \{F\}$ and flagging singular nodes/mechanisms.
 4. **ABNT NBR Code Compliance Audit (`NBR Audit...`):** Runs local PDF-verified checks (`NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024` as `LocalPdfVerified`), explicitly marks absent standards as `OutOfLocalPdfScope`, projects the **3D DCR Heatmap** directly onto the viewport, and exports executive A4 PDF reports.
 
@@ -269,7 +341,7 @@ From calculated nodal displacements, internal forces at any cross-section $x'$ a
 - **Bending Moment $M_z(x')$:** $E I_z \frac{d^2 v}{dx'^2}$;
 - **Shear Force $V_y(x')$:** $-\frac{d M_z}{dx'}$;
 - **Torsional Moment $T(x')$:** $G J \frac{d\theta_x}{dx'}$.
-- **Advanced 3D Controls (`Clip/Contours...`):** Toggles surface/element contour maps (`|u|`, `von Mises`, `Axial`, `DCR`), shows/hides 2D/3D meshes, slices the model with interactive **3D Clip Planes (`X`, `Y`, `Z` with invert)**, and plays real-time **Continuous 3D Animations** for deformed, modal, buckling, harmonic, or transient responses.
+- **Advanced 3D Controls (`Clip/Contours...`) & 2D/3D Continuum Tab:** Toggles surface/element contour maps (`|u|`, **`von Mises Stress (Shell/Solid)`**, `Axial`, `DCR`), shows/hides 2D/3D meshes, slices the model with interactive **3D Clip Planes (`X`, `Y`, `Z` with invert)**, plays real-time **Continuous 3D Animations** (deformed, modal, buckling, harmonic, or transient responses), and lists continuum stresses/resultants inside the **`2D/3D Forces (Shell/Solid)`** bottom results tab.
 
 ---
 
@@ -301,8 +373,80 @@ The OpenGL 3.3 Core Profile viewport delivers state-of-the-art rendering:
 - **4 Scientific Cognitive Reading Speed Profiles (WPM):** `Fluent Typical Reader (250 WPM)`, `Technical / Engineering Reading (150 WPM — recommended)`, `Read Aloud Pace (155 WPM)`, and `Dyslexia / Accessible (130 WPM + regression margin)`.
 - **Unified Two-Phase Spotlight & Callout (Zero Overlap):** Before executing an action, a unified highlight and **yellow** explanatory callout balloon introduce the control proportionally to word count and WPM; during execution (**green**), auxiliary child windows dock neatly at the lower-left without overlapping the callout balloon, supporting **Dark/Light themes**, **Modeless/Z-Order**, and **automatic restoration of the chosen example to its initial state** when finished.
 
-### Dedicated CLI (`omniframe-cli.exe`):
-- The headless binary `omniframe-cli.exe` (compiled via `omniframe-msvc-release` / VS Code task `Qt6: Compilar omniframe-cli (MSVC)` and packaged alongside `OmniFrame.exe`) shares `OmniFrameCore` and `OmniFrameKernel`, supporting `--version`, `--help`, `--validate`, `--analyze`, `--analysis <static|modal|buckling|nonlinear|pdelta|harmonic|spectrum>`, `--solver`, `--export <json|csv|vtk|dxf|ifc>`, `--report <md|html|pdf>`, `--output`, and `--json` (see [docs/cli-reference.md](docs/cli-reference.md) for usage and exit codes).
+### Dedicated CLI & Windows 10/11 Integration (`omniframe-cli.exe` and `OmniFrame.exe`):
+
+`omniframe-cli.exe` is the official headless command-line executable (`/SUBSYSTEM:CONSOLE`), built alongside `OmniFrame.exe` in the exact same directory while sharing 100% of `OmniFrameCore` and `OmniFrameKernel` — ensuring 3D FEA formulations, mesh/topology validation, ABNT NBR code audits, and exporters match desktop GUI results identically with zero windows opened.
+
+#### Purpose and How to Access on Windows 10/11 (CMD and PowerShell):
+- **Purpose:** batch automation (`.bat`, `.cmd`, `.ps1`), offline structural validation (`.omniframe`, `.dxf`, `.ifc`), parametric nonlinear/imperfection/dynamic studies, CI/CD normative ABNT compliance audits, ParaView VTK/CSV/DXF/IFC4 exports, and unattended calculation reports (MD/HTML/PDF).
+- **Integrated Desktop GUI Menu (zero typing):** inside `OmniFrame.exe`, open **`Settings > Windows CLI (CMD / PowerShell)`** to register on Windows without admin rights (`PATH` + `App Paths` + `.omniframe`), remove registration, inspect status, or launch a preconfigured **CMD** or **PowerShell** session directly.
+- **Non-Admin HKCU Self-Registration:** run `omniframe-cli --install-windows-integration` to register `HKCU\Environment\Path`, `App Paths` keys for `omniframe-cli.exe` / `OmniFrame.exe` / `omniframe.exe`, and the `.omniframe` -> `OmniFrame3D.Project` association with `WM_SETTINGCHANGE`/`SHChangeNotify` broadcast.
+- **Portable PowerShell Script (`register_cli_windows.ps1`):** shipped in `cmake/register_cli_windows.ps1` and every clean distribution root (supports default registration, `-CheckOnly`, and `-Uninstall`).
+- **Desktop Installer (Inno Setup) & MSIX (Microsoft Store):** `repo/OmniFrame.iss` provides default-checked `addtopath` and `assocproj` tasks; `repo/AppxManifest.xml` declares native `uap5:AppExecutionAlias` entries for `omniframe.exe` and `omniframe-cli.exe` (`desktop4:Subsystem="console"`).
+- **Direct Integration in `OmniFrame.exe`:**
+  - Open project in GUI: `OmniFrame.exe "path\model.omniframe|.dxf|.ifc"` opens the workspace maximized with that model loaded.
+  - Transparent CLI forwarding: passing headless flags to `OmniFrame.exe` (`--cli`, `--version`, `-v`, `--help`, `-h`, `--list-examples`, `--validate`, `--analyze`, `--example`, `--nbr-audit`, `--audit-nbr`, `--check-windows-integration`, `--install-windows-integration`, `--uninstall-windows-integration`) forwards execution cleanly to sibling `omniframe-cli.exe` (prefer calling `omniframe-cli` directly in scripts, or pipe through `| Out-String` in PowerShell if delegating via `OmniFrame.exe`).
+- **UTF-8 Support in CMD and PowerShell:** run `chcp 65001 >nul` in CMD or `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` in PowerShell when redirecting JSON/text output; argument parsing (`CommandLineToArgvW`) and DXF/IFC4/CSV/VTK/JSON/HTML/MD/PDF file I/O support full UTF-8 accented paths inside double quotes.
+
+#### Complete Command and Option Reference (`omniframe-cli.exe`):
+
+| Flag / Command | Arguments | Description |
+|---|---|---|
+| `--version` / `-v` | — | Prints CLI version string, C++23, Eigen 3.4.0, and `.omniframe` schema version and exits (`0`). |
+| `--help` / `-h` | — | Prints official Windows 10/11 (CMD & PowerShell) usage summary and exits (`0`). |
+| `--list-examples` | — | Lists the 3 built-in models (`1 \| building`, `2 \| cantilever`, `3 \| truss`) in plain text or `--json`/`--output`. |
+| `--example` | `<name\|1\|2\|3>` | Loads a built-in example without a file on disk (`1`/`building`/`portico`/`edificio`/`frame`, `2`/`cantilever`/`balanco`/`lframe`, `3`/`truss`/`trelica`/`passarela`). |
+| `--validate` | `[<file.omniframe\|dxf\|ifc>]` | Validates topology, BFS graph connectivity, finiteness, supports, and 2D/3D mesh quality (`0` valid, `2` invalid). |
+| `--analyze` | `[<file.omniframe\|dxf\|ifc>]` | Executes configured 3D FEA analysis on input file or `--example` (also implied with `--output`, `--export`, or `--report`). |
+| `--nbr-audit` / `--audit-nbr` | `[<file>]` | Runs consolidated ABNT NBR audit (6118, 8800, 6120, 6122, 6123, 7480), auto-solving static forces if needed, emitting `nbrAudit`. |
+| `--analysis` | `static\|modal\|buckling\|nonlinear\|pdelta\|harmonic\|spectrum\|transient\|seismic` | Selects structural analysis solver (default `static`). |
+| `--solver` | `auto\|ldlt\|llt\|sparselu\|cg\|bicgstab` | Selects `LinearSolverSuite` backend (default `auto`, tracks `usedFallback`). |
+| `--modes` | `<N>` | Number of eigenvalues/modes for `modal`, `buckling`, or `spectrum` (default `6`). |
+| `--steps` | `<N>` | Load increments for `nonlinear`/`pdelta` or time steps for `transient`/`seismic` (default `20`). |
+| `--dt` | `<seconds>` | Time step increment in seconds for `transient`/`seismic` (minimum `1e-5`, default `0.02`). |
+| `--scheme` | `newmark\|hht` | Time-integration algorithm for `transient`/`seismic`: Newmark-beta or HHT-alpha (default `newmark`). |
+| `--case` | `<id>` | Integer `LoadCase` ID for `static` or `transient`. |
+| `--combo` | `<id>` | Integer ABNT `LoadCombination` ID for `static`. |
+| `--method` | `nr\|arclength` | Nonlinear equilibrium strategy: Newton-Raphson (`nr`, default) or Crisfield Arc-Length (`arclength`). |
+| `--load-factor` | `<factor>` | Target load factor multiplier for `nonlinear`/`pdelta` (default `1.0`). |
+| `--full-tangent` | — | Updates global tangent stiffness `Kt` on every Newton-Raphson iteration (default). |
+| `--modified-newton` | — | Freezes tangent stiffness `Kt` during each increment (Modified Newton). |
+| `--line-search` | — | Enables backtracking line search in Newton-Raphson (default). |
+| `--no-line-search` | — | Disables line search in Newton-Raphson. |
+| `--imperfection` | `<amp_m>` | Pre-runs linear buckling and perturbs initial geometry by mode amplitude (meters) prior to solving/exporting. |
+| `--imperfection-mode` | `<N>` | 1-based buckling mode index used by `--imperfection` (default `1`). |
+| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <path>` | Exports model/results (repeatable): `.vtk` `UNSTRUCTURED_GRID` (`von_mises_kPa`), `.csv` (nodal + continuum stresses), `.json`, `.dxf`, `.ifc`. |
+| `--report` | `<md\|html\|pdf> <path>` | Writes engineering calculation report in Markdown, HTML5, or A4 PDF (repeatable; embeds static/modal/buckling/nonlinear & `nbrAudit`). |
+| `--output` | `<path.json>` | Writes full indented JSON analysis summary cleanly to disk. |
+| `--json` | — | Prints full indented JSON summary directly to `stdout`. |
+| `--check-windows-integration` | — | Audits user/system/process `PATH`, `App Paths`, and `.omniframe` file association on Windows 10/11. |
+| `--install-windows-integration` | — | Registers `omniframe-cli.exe`, `OmniFrame.exe`, and `.omniframe` in `HKCU` without Administrator elevation. |
+| `--uninstall-windows-integration` | — | Removes `HKCU` Registry keys and user `PATH` entries created by CLI Windows integration. |
+
+#### Process Exit Codes (`%ERRORLEVEL%` in CMD / `$LASTEXITCODE` in PowerShell):
+- `0`: query, validation, solver run, NBR audit, or Windows registration completed cleanly.
+- `1`: CLI syntax error, missing/unreadable input file, unknown format, disk write failure, or Windows registry write failure.
+- `2`: structural model validation failure (`--validate`) or numerical/physical solver failure (mechanism, singularity, missing positive buckling mode for `--imperfection`, or non-convergence).
+
+#### Ready-to-Run Workflows (CMD and PowerShell):
+```bat
+:: Windows Command Prompt (CMD)
+chcp 65001 >nul
+omniframe-cli --install-windows-integration --json
+omniframe-cli --example building --nbr-audit --report pdf "C:\Projects\building_report.pdf" --export vtk "C:\Projects\building.vtk" --json
+omniframe-cli --validate "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe"
+OmniFrame.exe "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe"
+```
+```powershell
+# Windows PowerShell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$res = omniframe-cli --example building --analysis nonlinear --steps 10 --load-factor 1.25 --modified-newton --no-line-search --imperfection 0.005 --imperfection-mode 1 --json | ConvertFrom-Json
+if ($LASTEXITCODE -eq 0 -and $res.success) { $res.appliedImperfection }
+omniframe-cli --example cantilever --analysis transient --scheme hht --dt 0.01 --steps 50 --export csv ".\hht_out.csv" --json | ConvertFrom-Json
+OmniFrame.exe --example truss --analysis buckling --modes 4 --json | Out-String
+```
+
+See also [docs/cli-reference.md](docs/cli-reference.md) and Chapter 10 of the built-in interactive Manual (`F1`).
 
 ### Useful Shortcuts:
 - `F1`: Open Complete Operations Manual (`ManualDialog`)

@@ -7,8 +7,10 @@
 #include "kernel/analysis/NonlinearSolver.hpp"
 #include "kernel/core/KernelTypes.hpp"
 #include <Eigen/Sparse>
+#include <array>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <chrono>
 
@@ -35,18 +37,37 @@ struct ElementExtremes {
     double maxDeflection = 0.0;
 };
 
+struct ContinuumElementResult {
+    ElementId elementId = INVALID_ID;
+    bool isShell = false;
+    bool isSolid = false;
+    std::string cellTypeName;
+    double vonMisesStress = 0.0;
+    double maxPrincipalStress = 0.0;
+    double minPrincipalStress = 0.0;
+    std::array<double, 3> membraneResultants{0.0, 0.0, 0.0}; // Nxx, Nyy, Nxy
+    std::array<double, 3> bendingResultants{0.0, 0.0, 0.0};  // Mxx, Myy, Mxy
+    std::array<double, 2> transverseShear{0.0, 0.0};         // Qxz, Qyz
+    std::array<double, 6> stressVoigt{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+};
+
 struct SolverResult {
     bool success = false;
     std::string errorMessage;
     int totalNodes = 0;
     int totalElements = 0;
+    int totalSurfaceNodes = 0;
+    int totalSurfaceElements = 0;
     int totalDofs = 0;
     int restrainedDofs = 0;
     double executionTimeMs = 0.0;
 
     EquilibriumCheck equilibrium;
     std::vector<ElementExtremes> elementExtremes;
+    std::vector<ContinuumElementResult> continuumElementResults;
     double maxNodalDisplacement = 0.0;
+    double maxShellVonMises = 0.0;
+    double maxSolidVonMises = 0.0;
     double totalStrainEnergy = 0.0;
     kernel::LinearSolverStats solverStats;
 };
@@ -88,6 +109,34 @@ public:
         const StructuralModel& model,
         const std::function<kernel::Vec3(double timeSec, int stepIdx)>& groundAccelMS2Fn,
         const kernel::TransientOptions& opts = {});
+
+    static kernel::TransientResult solveTransient(
+        const StructuralModel& model,
+        const kernel::LoadHistory& history,
+        const kernel::TransientOptions& opts = {});
+
+    static kernel::TransientResult solveTransient(
+        const StructuralModel& model,
+        const std::function<double(double timeSec, int stepIdx)>& loadScaleFn,
+        kernel::LoadCaseId baseLoadCaseId = 0,
+        const kernel::TransientOptions& opts = {});
+
+    struct NodalVectorField {
+        std::unordered_map<NodeId, Vec3> frameNodes;
+        std::unordered_map<NodeId, Vec3> meshNodes;
+        double maxTranslationalNorm = 0.0;
+    };
+
+    static NodalVectorField extractNodalDisplacements(
+        const StructuralModel& model,
+        const kernel::VecX& uFull);
+
+    static bool applyBucklingImperfection(
+        StructuralModel& model,
+        const kernel::BucklingResult& buckling,
+        int modeIndex,
+        double amplitude,
+        std::string* errorMsg = nullptr);
 };
 
 } // namespace omniframe

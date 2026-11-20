@@ -2,13 +2,18 @@
 #include "kernel/core/DofManager.hpp"
 #include "kernel/elements/BeamTruss1D.hpp"
 #include "kernel/elements/IFiniteElement.hpp"
+#include "kernel/elements/ShellElements.hpp"
+#include "kernel/elements/SolidElements.hpp"
+#include "kernel/materials/LinearElasticMaterial.hpp"
 #include "kernel/assembly/GlobalAssembler.hpp"
 #include "kernel/solver/LinearSolverSuite.hpp"
 #include "kernel/postprocessing/PostProcessor.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace omniframe {
 
@@ -197,19 +202,75 @@ private:
     std::vector<kernel::NodeId> m_nodes;
 };
 
+struct ContinuumElemRecord {
+    size_t meshElemIdx = 0;
+    ElementId kernelElemId = 0;
+    std::shared_ptr<kernel::IFiniteElement> elemPtr;
+    std::shared_ptr<kernel::ShellElement> shellPtr;
+    std::shared_ptr<kernel::SolidElement> solidPtr;
+};
+
+struct UnifiedSolverMapping {
+    std::unordered_map<NodeId, kernel::NodeId> meshNodeToKernelId;
+    std::vector<kernel::NodeId> kernelNodeForMeshIdx;
+    std::vector<bool> meshNodeMergedWith1D;
+    std::vector<ContinuumElemRecord> continuumElems;
+};
+
+std::unordered_map<MaterialId, std::shared_ptr<const kernel::IConstitutiveModel>>
+buildKernelMaterialMap(const StructuralModel& model)
+{
+    std::unordered_map<MaterialId, std::shared_ptr<const kernel::IConstitutiveModel>> matMap;
+    matMap.reserve(model.getMaterials().size());
+    for (const auto& m : model.getMaterials()) {
+        matMap[m.id] = std::make_shared<kernel::LinearElasticIsotropic>(
+            m.id, m.name, m.E, m.nu, m.alpha, m.rho, m.gamma);
+    }
+    return matMap;
+}
+
 bool setupDofManagerFromModel(const StructuralModel& model,
                               kernel::DofManager& dofMgr,
+                              UnifiedSolverMapping& mapping,
                               int& outRestrainedCount,
                               int& outSpringCount,
                               std::string* errMsg)
 {
     dofMgr.clear();
+    mapping = UnifiedSolverMapping{};
     outRestrainedCount = 0;
     outSpringCount = 0;
 
     const std::array<bool, kernel::NODAL_MAX_DOFS> mask6{true, true, true, true, true, true, false};
-    for (const auto& n : model.getNodes()) {
-        dofMgr.registerNode(n.id, mask6);
+    const std::array<bool, kernel::NODAL_MAX_DOFS> mask3{true, true, true, false, false, false, false};
+
+    struct NodeBcState {
+        std::array<bool, 6> fixed{false, false, false, false, false, false};
+        std::array<double, 6> prescribed{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        std::array<double, 6> spring{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        bool needsRot = true;
+    };
+    std::unordered_map<kernel::NodeId, NodeBcState> bcMap;
+    std::vector<kernel::NodeId> orderedKernelNodes;
+
+    // Hash espacial de nós 1D para acoplamento automático 1D + 2D/3D em coordenadas coincidentes
+    auto bucketKey = [](long long bx, long long by, long long bz) -> std::string {
+        return std::to_string(bx) + ":" + std::to_string(by) + ":" + std::to_string(bz);
+    };
+    std::unordered_map<std::string, std::vector<size_t>> barNodeBuckets;
+    const auto& nodes1D = model.getNodes();
+    std::unordered_set<kernel::NodeId> usedKernelIds;
+    usedKernelIds.reserve(nodes1D.size() + model.surfaceMesh().nodes.size());
+    kernel::NodeId maxKernelId = 0;
+
+    for (size_t i = 0; i < nodes1D.size(); ++i) {
+        const auto& n = nodes1D[i];
+        usedKernelIds.insert(n.id);
+        maxKernelId = std::max(maxKernelId, n.id);
+        orderedKernelNodes.push_back(n.id);
+
+        NodeBcState st;
+        st.needsRot = true;
         for (int d = 0; d < 6; ++d) {
             const bool isFixed = n.support.hasPrescribed[d] || n.support.fixed[d];
             const double val = n.support.hasPrescribed[d] ? n.support.prescribedValue[d] : 0.0;
@@ -218,9 +279,123 @@ bool setupDofManagerFromModel(const StructuralModel& model,
                 if (errMsg) *errMsg = "Rigidez de mola ou recalque inválido no nó " + std::to_string(n.id) + ".";
                 return false;
             }
-            if (isFixed) outRestrainedCount++;
-            else if (spring > 1e-9) outSpringCount++;
-            dofMgr.setBoundaryCondition(n.id, d, isFixed, val, (spring > 1e-9 ? spring : 0.0));
+            st.fixed[d] = isFixed;
+            st.prescribed[d] = val;
+            st.spring[d] = (spring > 1e-9) ? spring : 0.0;
+        }
+        bcMap[n.id] = st;
+
+        const long long bx = std::llround(n.position.x * 1e4);
+        const long long by = std::llround(n.position.y * 1e4);
+        const long long bz = std::llround(n.position.z * 1e4);
+        barNodeBuckets[bucketKey(bx, by, bz)].push_back(i);
+    }
+
+    // Verifica quais nós da malha precisam de DOFs rotacionais (cascas, Line2, ou rotação fixa/mola/momento)
+    const auto& surf = model.surfaceMesh();
+    std::unordered_set<NodeId> meshNodesWithRot;
+    for (const auto& me : surf.elements) {
+        if (!me.isSolid()) {
+            for (NodeId nid : me.nodeIds) meshNodesWithRot.insert(nid);
+        }
+    }
+
+    mapping.kernelNodeForMeshIdx.resize(surf.nodes.size(), -1);
+    mapping.meshNodeMergedWith1D.assign(surf.nodes.size(), false);
+    kernel::NodeId nextFreeId = std::max(maxKernelId + 1, 1);
+
+    for (size_t i = 0; i < surf.nodes.size(); ++i) {
+        const auto& mn = surf.nodes[i];
+        for (int d = 0; d < 6; ++d) {
+            if (!std::isfinite(mn.prescribedDisplacement[d]) ||
+                !std::isfinite(mn.springStiffness[d]) || mn.springStiffness[d] < 0.0) {
+                if (errMsg) *errMsg = "Rigidez de mola ou recalque inválido no nó de malha M" + std::to_string(mn.id) + ".";
+                return false;
+            }
+        }
+
+        // Busca nó 1D coincidente (tolerância 1e-5 m -> dist^2 <= 1e-10)
+        kernel::NodeId matched1D = -1;
+        if (!nodes1D.empty()) {
+            const long long bx = std::llround(mn.position.x() * 1e4);
+            const long long by = std::llround(mn.position.y() * 1e4);
+            const long long bz = std::llround(mn.position.z() * 1e4);
+            double bestDist2 = 1e-10;
+            for (long long dx = -1; dx <= 1; ++dx) {
+                for (long long dy = -1; dy <= 1; ++dy) {
+                    for (long long dz = -1; dz <= 1; ++dz) {
+                        auto bit = barNodeBuckets.find(bucketKey(bx + dx, by + dy, bz + dz));
+                        if (bit == barNodeBuckets.end()) continue;
+                        for (size_t idx1D : bit->second) {
+                            const auto& n1 = nodes1D[idx1D];
+                            const double ddx = n1.position.x - mn.position.x();
+                            const double ddy = n1.position.y - mn.position.y();
+                            const double ddz = n1.position.z - mn.position.z();
+                            const double d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+                            if (d2 <= bestDist2) {
+                                bestDist2 = d2;
+                                matched1D = n1.id;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        kernel::NodeId kid = -1;
+        if (matched1D >= 0) {
+            kid = matched1D;
+            mapping.meshNodeMergedWith1D[i] = true;
+            auto& st = bcMap[kid];
+            for (int d = 0; d < 6; ++d) {
+                if (mn.fixed[d]) {
+                    st.fixed[d] = true;
+                    if (std::abs(mn.prescribedDisplacement[d]) > 0.0) {
+                        st.prescribed[d] = mn.prescribedDisplacement[d];
+                    }
+                }
+                if (mn.springStiffness[d] > 1e-9) {
+                    st.spring[d] += mn.springStiffness[d];
+                }
+            }
+        } else {
+            if (mn.id > 0 && usedKernelIds.find(mn.id) == usedKernelIds.end()) {
+                kid = mn.id;
+            } else {
+                while (usedKernelIds.find(nextFreeId) != usedKernelIds.end()) ++nextFreeId;
+                kid = nextFreeId++;
+            }
+            usedKernelIds.insert(kid);
+            maxKernelId = std::max(maxKernelId, kid);
+            orderedKernelNodes.push_back(kid);
+
+            NodeBcState st;
+            st.needsRot = (meshNodesWithRot.find(mn.id) != meshNodesWithRot.end())
+                       || mn.nodalMoment.squaredNorm() > 1e-18;
+            for (int d = 3; d < 6; ++d) {
+                if (mn.fixed[d] || mn.springStiffness[d] > 1e-9 || std::abs(mn.prescribedDisplacement[d]) > 0.0) {
+                    st.needsRot = true;
+                }
+            }
+            for (int d = 0; d < 6; ++d) {
+                st.fixed[d] = mn.fixed[d] || (std::abs(mn.prescribedDisplacement[d]) > 0.0);
+                st.prescribed[d] = mn.prescribedDisplacement[d];
+                st.spring[d] = (mn.springStiffness[d] > 1e-9) ? mn.springStiffness[d] : 0.0;
+            }
+            bcMap[kid] = st;
+        }
+        mapping.meshNodeToKernelId[mn.id] = kid;
+        mapping.kernelNodeForMeshIdx[i] = kid;
+    }
+
+    for (kernel::NodeId kid : orderedKernelNodes) {
+        const auto& st = bcMap.at(kid);
+        dofMgr.registerNode(kid, st.needsRot ? mask6 : mask3);
+        const int maxDof = st.needsRot ? 6 : 3;
+        for (int d = 0; d < maxDof; ++d) {
+            if (st.fixed[d]) outRestrainedCount++;
+            else if (st.spring[d] > 1e-9) outSpringCount++;
+            dofMgr.setBoundaryCondition(kid, d, st.fixed[d], st.prescribed[d], st.spring[d]);
         }
     }
     dofMgr.finalizeNumbering();
@@ -270,33 +445,273 @@ bool setupDofManagerFromModel(const StructuralModel& model,
     return true;
 }
 
-void buildKernelElements(const StructuralModel& model,
-                         std::vector<std::shared_ptr<kernel::IFiniteElement>>& outElements)
+class Line2MeshKernelElement final : public kernel::IFiniteElement {
+public:
+    Line2MeshKernelElement(kernel::ElementId eid,
+                           std::vector<kernel::NodeId> nodeIds,
+                           std::array<kernel::Vec3, 2> coords,
+                           const Material& mat,
+                           const CrossSection& sec)
+        : m_id(eid), m_nodes(std::move(nodeIds)), m_coords(coords), m_mat(mat), m_sec(sec)
+    {
+        const kernel::Vec3 d = m_coords[1] - m_coords[0];
+        m_props.L = d.norm();
+        m_props.E = mat.E;
+        m_props.G = mat.G();
+        m_props.alpha = mat.alpha;
+        m_props.rhoConsistent = mat.consistentMassDensity();
+        m_props.gammaKNM3 = mat.gamma;
+        m_props.A = sec.A;
+        m_props.Iy = sec.Iy;
+        m_props.Iz = sec.Iz;
+        m_props.J = sec.J;
+        m_props.Asy = sec.Asy;
+        m_props.Asz = sec.Asz;
+        m_props.formulation = kernel::Beam1DFormulation::EulerBernoulli3D;
+        m_R12 = buildRot12();
+    }
+
+    kernel::ElementId id() const override { return m_id; }
+    kernel::ElementFamily family() const override { return kernel::ElementFamily::Frame1D; }
+    std::string typeName() const override { return "Line2"; }
+    kernel::MaterialId materialId() const override { return m_mat.id; }
+    const std::vector<kernel::NodeId>& nodeIds() const override { return m_nodes; }
+    std::array<bool, kernel::NODAL_MAX_DOFS> requiredNodeDofMask() const override {
+        return {true, true, true, true, true, true, false};
+    }
+    int localDofCount() const override { return 12; }
+
+    kernel::MatX computeGlobalStiffness() const override {
+        if (m_props.L <= 1e-12) return kernel::MatX::Zero(12, 12);
+        return m_R12.transpose() * kernel::BeamTruss1D::computeUncondensedLocalStiffness(m_props) * m_R12;
+    }
+    kernel::MatX computeGlobalMass(bool consistent) const override {
+        if (m_props.L <= 1e-12) return kernel::MatX::Zero(12, 12);
+        const auto mLoc = consistent
+            ? kernel::BeamTruss1D::computeConsistentLocalMass(m_props)
+            : kernel::BeamTruss1D::computeLumpedLocalMass(m_props);
+        return m_R12.transpose() * mLoc * m_R12;
+    }
+    kernel::MatX computeGlobalGeometricStiffness(const kernel::VecX& uGlob) const override {
+        if (uGlob.size() != 12 || m_props.L <= 1e-12) return kernel::MatX::Zero(12, 12);
+        const Eigen::Matrix<double, 12, 1> uLoc = m_R12 * uGlob;
+        const double N = m_props.E * m_props.A * (uLoc(6) - uLoc(0)) / m_props.L;
+        return m_R12.transpose() * kernel::BeamTruss1D::computeLocalGeometricStiffness(N, m_props.L, m_props.formulation) * m_R12;
+    }
+    kernel::VecX computeGlobalLoadVector(const kernel::ElementLoadInput& load) const override {
+        if (m_props.L <= 1e-12) return kernel::VecX::Zero(12);
+        kernel::Vec3 q = kernel::Vec3::Zero();
+        if (load.hasDistributed) {
+            q += (load.coordSystem == 1) ? (m_R3.transpose() * load.distributedForce) : load.distributedForce;
+        }
+        if (load.hasBodyGravity) {
+            q += (m_props.gammaKNM3 * m_props.A) * load.gravityAccel;
+        }
+        kernel::VecX f = kernel::VecX::Zero(12);
+        const kernel::Vec3 fNode = 0.5 * m_props.L * q;
+        f.segment<3>(0) += fNode;
+        f.segment<3>(6) += fNode;
+        if (load.hasThermal && std::abs(load.deltaT) > 0.0) {
+            const double Pth = m_props.E * m_props.A * m_props.alpha * load.deltaT;
+            const kernel::Vec3 dir = (m_coords[1] - m_coords[0]) / m_props.L;
+            f.segment<3>(0) -= Pth * dir;
+            f.segment<3>(6) += Pth * dir;
+        }
+        return f;
+    }
+
+private:
+    kernel::ElementId m_id;
+    std::vector<kernel::NodeId> m_nodes;
+    std::array<kernel::Vec3, 2> m_coords;
+    Material m_mat;
+    CrossSection m_sec;
+    kernel::Beam1DProps m_props;
+    kernel::Mat3 m_R3 = kernel::Mat3::Identity();
+    kernel::MatX m_R12 = kernel::MatX::Zero(12, 12);
+
+    kernel::MatX buildRot12() {
+        kernel::Vec3 x = m_coords[1] - m_coords[0];
+        if (x.norm() <= 1e-12) x = kernel::Vec3(1.0, 0.0, 0.0);
+        else x.normalize();
+        kernel::Vec3 ref = (std::abs(x.z()) < 0.99) ? kernel::Vec3(0.0, 0.0, 1.0) : kernel::Vec3(0.0, 1.0, 0.0);
+        kernel::Vec3 z = x.cross(ref).normalized();
+        kernel::Vec3 y = z.cross(x).normalized();
+        m_R3.row(0) = x.transpose();
+        m_R3.row(1) = y.transpose();
+        m_R3.row(2) = z.transpose();
+        kernel::MatX T = kernel::MatX::Zero(12, 12);
+        for (int b = 0; b < 4; ++b) T.block<3, 3>(3 * b, 3 * b) = m_R3;
+        return T;
+    }
+};
+
+bool buildKernelElements(const StructuralModel& model,
+                         UnifiedSolverMapping& mapping,
+                         std::vector<std::shared_ptr<kernel::IFiniteElement>>& outElements,
+                         std::string* errMsg = nullptr)
 {
     outElements.clear();
-    outElements.reserve(model.getElements().size());
-    for (const auto& elem : model.getElements()) {
+    mapping.continuumElems.clear();
+    const auto& barElems = model.getElements();
+    const auto& surf = model.surfaceMesh();
+    outElements.reserve(barElems.size() + surf.elements.size());
+
+    std::unordered_set<ElementId> usedElemIds;
+    usedElemIds.reserve(barElems.size() + surf.elements.size());
+    ElementId maxElemId = 0;
+
+    for (const auto& elem : barElems) {
+        usedElemIds.insert(elem.id);
+        maxElemId = std::max(maxElemId, elem.id);
         outElements.push_back(std::make_shared<Frame1DKernelElement>(model, elem));
     }
+
+    if (surf.elements.empty()) {
+        return true;
+    }
+
+    const auto matMap = buildKernelMaterialMap(model);
+    std::unordered_map<NodeId, kernel::Vec3> meshPosMap;
+    meshPosMap.reserve(surf.nodes.size());
+    for (const auto& mn : surf.nodes) {
+        meshPosMap[mn.id] = mn.position;
+    }
+
+    ElementId nextFreeElemId = std::max(maxElemId + 1, 1);
+    mapping.continuumElems.reserve(surf.elements.size());
+
+    for (size_t idx = 0; idx < surf.elements.size(); ++idx) {
+        const auto& me = surf.elements[idx];
+        auto matIt = matMap.find(me.materialId);
+        if (matIt == matMap.end() || !matIt->second) {
+            if (errMsg) *errMsg = "Elemento de malha E" + std::to_string(me.id) + " referencia material inválido.";
+            return false;
+        }
+
+        ElementId keid = -1;
+        if (me.id > 0 && usedElemIds.find(me.id) == usedElemIds.end()) {
+            keid = me.id;
+        } else {
+            while (usedElemIds.find(nextFreeElemId) != usedElemIds.end()) ++nextFreeElemId;
+            keid = nextFreeElemId++;
+        }
+        usedElemIds.insert(keid);
+        maxElemId = std::max(maxElemId, keid);
+
+        std::vector<kernel::NodeId> kNodeIds;
+        std::vector<kernel::Vec3> kCoords;
+        kNodeIds.reserve(me.nodeIds.size());
+        kCoords.reserve(me.nodeIds.size());
+        for (NodeId nid : me.nodeIds) {
+            auto kit = mapping.meshNodeToKernelId.find(nid);
+            auto pit = meshPosMap.find(nid);
+            if (kit == mapping.meshNodeToKernelId.end() || pit == meshPosMap.end()) {
+                if (errMsg) *errMsg = "Elemento de malha E" + std::to_string(me.id) + " referencia nó inexistente.";
+                return false;
+            }
+            kNodeIds.push_back(kit->second);
+            kCoords.push_back(pit->second);
+        }
+
+        try {
+            ContinuumElemRecord rec;
+            rec.meshElemIdx = idx;
+            rec.kernelElemId = keid;
+
+            switch (me.type) {
+                case kernel::MeshCellType::Tri3:
+                    rec.shellPtr = std::make_shared<kernel::ShellElement>(
+                        keid, kernel::ShellElementType::Tri3MITC3, kNodeIds, kCoords, matIt->second, me.thickness);
+                    rec.elemPtr = rec.shellPtr;
+                    break;
+                case kernel::MeshCellType::Quad4:
+                    rec.shellPtr = std::make_shared<kernel::ShellElement>(
+                        keid, kernel::ShellElementType::Quad4MITC4, kNodeIds, kCoords, matIt->second, me.thickness);
+                    rec.elemPtr = rec.shellPtr;
+                    break;
+                case kernel::MeshCellType::Quad8:
+                    rec.shellPtr = std::make_shared<kernel::ShellElement>(
+                        keid, kernel::ShellElementType::Quad8Serendipity, kNodeIds, kCoords, matIt->second, me.thickness);
+                    rec.elemPtr = rec.shellPtr;
+                    break;
+                case kernel::MeshCellType::Tet4:
+                    rec.solidPtr = std::make_shared<kernel::SolidElement>(
+                        keid, kernel::SolidElementType::Tet4, kNodeIds, kCoords, matIt->second);
+                    rec.elemPtr = rec.solidPtr;
+                    break;
+                case kernel::MeshCellType::Tet10:
+                    rec.solidPtr = std::make_shared<kernel::SolidElement>(
+                        keid, kernel::SolidElementType::Tet10, kNodeIds, kCoords, matIt->second);
+                    rec.elemPtr = rec.solidPtr;
+                    break;
+                case kernel::MeshCellType::Hex8:
+                    rec.solidPtr = std::make_shared<kernel::SolidElement>(
+                        keid, kernel::SolidElementType::Hex8BBar, kNodeIds, kCoords, matIt->second);
+                    rec.elemPtr = rec.solidPtr;
+                    break;
+                case kernel::MeshCellType::Hex20:
+                    rec.solidPtr = std::make_shared<kernel::SolidElement>(
+                        keid, kernel::SolidElementType::Hex20Serendipity, kNodeIds, kCoords, matIt->second);
+                    rec.elemPtr = rec.solidPtr;
+                    break;
+                case kernel::MeshCellType::Line2: {
+                    const Material* mat = model.findMaterial(me.materialId);
+                    const CrossSection* secPtr = (me.sectionId > 0)
+                        ? model.findCrossSection(me.sectionId)
+                        : (model.getCrossSections().empty() ? nullptr : &model.getCrossSections().front());
+                    CrossSection fallbackSec = secPtr ? *secPtr : CrossSection::makeGeneric(999, "Line2Default", 0.01, 1e-5, 1e-5, 1e-5);
+                    if (!mat || kCoords.size() < 2) {
+                        if (errMsg) *errMsg = "Elemento Line2 inválido na malha.";
+                        return false;
+                    }
+                    rec.elemPtr = std::make_shared<Line2MeshKernelElement>(
+                        keid, std::vector<kernel::NodeId>{kNodeIds[0], kNodeIds[1]},
+                        std::array<kernel::Vec3, 2>{kCoords[0], kCoords[1]}, *mat, fallbackSec);
+                    break;
+                }
+            }
+            if (rec.elemPtr) {
+                outElements.push_back(rec.elemPtr);
+                mapping.continuumElems.push_back(std::move(rec));
+            }
+        } catch (const std::exception& ex) {
+            if (errMsg) *errMsg = std::string("Falha geométrica no elemento E") + std::to_string(me.id) + ": " + ex.what();
+            return false;
+        }
+    }
+    return true;
 }
 
 void extractLegacyLoadMaps(
     const StructuralModel& model,
+    const UnifiedSolverMapping& mapping,
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput>& elemLoads,
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>>& nodalLoads)
 {
     elemLoads.clear();
     nodalLoads.clear();
+    using NodalVec = Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>;
     for (const auto& n : model.getNodes()) {
-        Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1> fv =
-            Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>::Zero();
-        fv(0) = n.load.force.x;
-        fv(1) = n.load.force.y;
-        fv(2) = n.load.force.z;
-        fv(3) = n.load.moment.x;
-        fv(4) = n.load.moment.y;
-        fv(5) = n.load.moment.z;
-        nodalLoads[n.id] = fv;
+        NodalVec& fv = nodalLoads.try_emplace(n.id, NodalVec::Zero()).first->second;
+        fv(0) += n.load.force.x;
+        fv(1) += n.load.force.y;
+        fv(2) += n.load.force.z;
+        fv(3) += n.load.moment.x;
+        fv(4) += n.load.moment.y;
+        fv(5) += n.load.moment.z;
+    }
+    for (size_t i = 0; i < model.surfaceMesh().nodes.size(); ++i) {
+        const auto& mn = model.surfaceMesh().nodes[i];
+        if (!mn.hasLoad()) continue;
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        NodalVec& fv = nodalLoads.try_emplace(kid, NodalVec::Zero()).first->second;
+        fv(0) += mn.nodalForce.x();
+        fv(1) += mn.nodalForce.y();
+        fv(2) += mn.nodalForce.z();
+        fv(3) += mn.nodalMoment.x();
+        fv(4) += mn.nodalMoment.y();
+        fv(5) += mn.nodalMoment.z();
     }
     for (const auto& e : model.getElements()) {
         kernel::ElementLoadInput inp;
@@ -307,10 +722,31 @@ void extractLegacyLoadMaps(
         inp.deltaT = e.thermalLoad.deltaT;
         elemLoads[e.id] = inp;
     }
+    const auto& meshElems = model.surfaceMesh().elements;
+    for (const auto& rec : mapping.continuumElems) {
+        const auto& me = meshElems[rec.meshElemIdx];
+        kernel::ElementLoadInput inp;
+        inp.normalPressure = me.normalPressure;
+        if (me.distributedLoad.squaredNorm() > 0.0) {
+            inp.hasDistributed = true;
+            inp.coordSystem = 0;
+            inp.distributedForce = me.distributedLoad;
+        }
+        if (std::abs(me.deltaT) > 0.0) {
+            inp.hasThermal = true;
+            inp.deltaT = me.deltaT;
+        }
+        if (me.includeSelfWeight) {
+            inp.hasBodyGravity = true;
+            inp.gravityAccel = kernel::Vec3{0.0, 0.0, -1.0};
+        }
+        elemLoads[rec.kernelElemId] = inp;
+    }
 }
 
 void extractCaseLoadMaps(
     const StructuralModel& model,
+    const UnifiedSolverMapping& mapping,
     const kernel::LoadCase& lc,
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput>& elemLoads,
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>>& nodalLoads)
@@ -318,9 +754,18 @@ void extractCaseLoadMaps(
     elemLoads.clear();
     nodalLoads.clear();
     using NodalVec = Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>;
+    std::unordered_set<NodeId> barNodeIds;
+    barNodeIds.reserve(model.getNodes().size());
+    for (const auto& n : model.getNodes()) barNodeIds.insert(n.id);
+
     for (const auto& nEntry : lc.nodalLoads) {
-        // Fixed-size Eigen vectors default-construct uninitialized; zero-initialize on first insert.
-        NodalVec& vec = nodalLoads.try_emplace(nEntry.nodeId, NodalVec::Zero()).first->second;
+        kernel::NodeId targetKid = nEntry.nodeId;
+        if (barNodeIds.find(targetKid) == barNodeIds.end()) {
+            if (auto it = mapping.meshNodeToKernelId.find(targetKid); it != mapping.meshNodeToKernelId.end()) {
+                targetKid = it->second;
+            }
+        }
+        NodalVec& vec = nodalLoads.try_emplace(targetKid, NodalVec::Zero()).first->second;
         for (int d = 0; d < 6; ++d) {
             vec(d) += nEntry.forceMoment[d];
         }
@@ -329,10 +774,16 @@ void extractCaseLoadMaps(
         elemLoads[eEntry.elementId] = eEntry.load;
     }
     if (lc.selfWeight.enabled && std::abs(lc.selfWeight.factor) > 0.0) {
+        const kernel::Vec3 gAcc = lc.selfWeight.direction * lc.selfWeight.factor;
         for (const auto& e : model.getElements()) {
             auto& inp = elemLoads[e.id];
             inp.hasBodyGravity = true;
-            inp.gravityAccel = lc.selfWeight.direction * lc.selfWeight.factor;
+            inp.gravityAccel = gAcc;
+        }
+        for (const auto& rec : mapping.continuumElems) {
+            auto& inp = elemLoads[rec.kernelElemId];
+            inp.hasBodyGravity = true;
+            inp.gravityAccel = gAcc;
         }
     }
 }
@@ -341,6 +792,9 @@ void populatePostProcessingFromVectors(
     StructuralModel& model,
     const kernel::DofManager& dofMgr,
     const kernel::DofClassification& cls,
+    const UnifiedSolverMapping& mapping,
+    const std::unordered_map<kernel::ElementId, kernel::ElementLoadInput>& elemLoads,
+    const std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>>& nodalLoads,
     const kernel::VecX& U_full,
     const kernel::VecX& R_full,
     const kernel::SpMat& K_orig,
@@ -349,6 +803,7 @@ void populatePostProcessingFromVectors(
 {
     auto& nodes = model.getNodes();
     auto& elements = model.getElements();
+    auto& surf = model.surfaceMesh();
     const int nNodes = static_cast<int>(nodes.size());
 
     std::unordered_map<NodeId, int> nodeIndex;
@@ -370,6 +825,29 @@ void populatePostProcessingFromVectors(
         }
         maxDisp = std::max(maxDisp, nodes[i].displacementNorm());
     }
+
+    // Deslocamentos e reações nodais da malha contínua 2D/3D
+    std::unordered_map<NodeId, size_t> meshNodePosIdx;
+    meshNodePosIdx.reserve(surf.nodes.size());
+    for (size_t i = 0; i < surf.nodes.size(); ++i) {
+        meshNodePosIdx[surf.nodes[i].id] = i;
+        auto& mn = surf.nodes[i];
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        for (int d = 0; d < 6; ++d) {
+            const int g = dofMgr.getNodeGlobalDof(kid, d);
+            mn.displacement[d] = (g >= 0 && g < U_full.size()) ? U_full(g) : 0.0;
+            if (g >= 0 && g < R_full.size() && (cls.isRestrained[g] || cls.isMpcSlave[g])) {
+                mn.reaction[d] = R_full(g);
+            } else if (mn.springStiffness[d] > 1e-9) {
+                mn.reaction[d] = -mn.springStiffness[d] * mn.displacement[d];
+            } else {
+                mn.reaction[d] = 0.0;
+            }
+        }
+        mn.hasResults = true;
+        maxDisp = std::max(maxDisp, mn.displacementNorm());
+    }
+
     result.maxNodalDisplacement = maxDisp;
     result.totalStrainEnergy = kernel::PostProcessor::computeTotalStrainEnergy(K_orig, U_full);
 
@@ -466,7 +944,71 @@ void populatePostProcessingFromVectors(
         result.elementExtremes.push_back(ext);
     }
 
-    // Verificação de equilíbrio estático global
+    // Recuperação de esforços/tensões para elementos contínuos 2D (Shell) e 3D (Solid)
+    result.continuumElementResults.clear();
+    result.continuumElementResults.reserve(mapping.continuumElems.size());
+    result.maxShellVonMises = 0.0;
+    result.maxSolidVonMises = 0.0;
+
+    for (const auto& rec : mapping.continuumElems) {
+        auto& me = surf.elements[rec.meshElemIdx];
+        const auto mask = rec.elemPtr->requiredNodeDofMask();
+        const int nd = rec.elemPtr->localDofCount();
+        kernel::VecX uElem = kernel::VecX::Zero(nd);
+        int ptr = 0;
+        for (kernel::NodeId kid : rec.elemPtr->nodeIds()) {
+            for (int d = 0; d < kernel::NODAL_MAX_DOFS; ++d) {
+                if (mask[d]) {
+                    const int g = dofMgr.getNodeGlobalDof(kid, d);
+                    uElem(ptr++) = (g >= 0 && g < U_full.size()) ? U_full(g) : 0.0;
+                }
+            }
+        }
+
+        double effDeltaT = me.deltaT;
+        if (auto lit = elemLoads.find(rec.kernelElemId); lit != elemLoads.end() && lit->second.hasThermal) {
+            effDeltaT = lit->second.deltaT;
+        }
+
+        ContinuumElementResult cr;
+        cr.elementId = me.id;
+        cr.cellTypeName = rec.elemPtr->typeName();
+
+        if (rec.shellPtr) {
+            const auto sr = rec.shellPtr->evaluateCenterStress(uElem, effDeltaT);
+            me.hasResults = true;
+            me.vonMisesStress = sr.maxVonMises;
+            me.membraneResultants = {sr.Nxx, sr.Nyy, sr.Nxy};
+            me.bendingResultants = {sr.Mxx, sr.Myy, sr.Mxy};
+            me.transverseShear = {sr.Qxz, sr.Qyz};
+
+            cr.isShell = true;
+            cr.vonMisesStress = sr.maxVonMises;
+            cr.membraneResultants = me.membraneResultants;
+            cr.bendingResultants = me.bendingResultants;
+            cr.transverseShear = me.transverseShear;
+            result.maxShellVonMises = std::max(result.maxShellVonMises, sr.maxVonMises);
+        } else if (rec.solidPtr) {
+            const auto ss = rec.solidPtr->evaluateCenterStress(uElem, effDeltaT);
+            me.hasResults = true;
+            me.vonMisesStress = ss.vonMises;
+            me.maxPrincipalStress = ss.majorPrincipal;
+            me.minPrincipalStress = ss.minorPrincipal;
+            me.stressVoigt = {ss.sxx, ss.syy, ss.szz, ss.txy, ss.tyz, ss.tzx};
+
+            cr.isSolid = true;
+            cr.vonMisesStress = ss.vonMises;
+            cr.maxPrincipalStress = ss.majorPrincipal;
+            cr.minPrincipalStress = ss.minorPrincipal;
+            cr.stressVoigt = me.stressVoigt;
+            result.maxSolidVonMises = std::max(result.maxSolidVonMises, ss.vonMises);
+        } else {
+            me.hasResults = true;
+        }
+        result.continuumElementResults.push_back(std::move(cr));
+    }
+
+    // Verificação de equilíbrio estático global (1D + 2D/3D unificados sem dupla contagem)
     Vec3 sumAppliedF{0.0, 0.0, 0.0};
     Vec3 sumAppliedM{0.0, 0.0, 0.0};
     Vec3 sumReacF{0.0, 0.0, 0.0};
@@ -474,28 +1016,41 @@ void populatePostProcessingFromVectors(
     double refForceMag = 0.0;
     double refMomentMag = 0.0;
 
-    for (const auto& n : nodes) {
-        Vec3 nF = n.load.force;
-        Vec3 nM = n.load.moment;
-        if (activeLoadCase) {
-            nF = {0.0, 0.0, 0.0};
-            nM = {0.0, 0.0, 0.0};
-            for (const auto& ne : activeLoadCase->nodalLoads) {
-                if (ne.nodeId == n.id) {
-                    nF += {ne.forceMoment[0], ne.forceMoment[1], ne.forceMoment[2]};
-                    nM += {ne.forceMoment[3], ne.forceMoment[4], ne.forceMoment[5]};
-                }
+    std::unordered_map<kernel::NodeId, Vec3> kernelNodePositions;
+    kernelNodePositions.reserve(nodes.size() + surf.nodes.size());
+    for (const auto& n : nodes) kernelNodePositions[n.id] = n.position;
+    for (size_t i = 0; i < surf.nodes.size(); ++i) {
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        kernelNodePositions.try_emplace(kid, Vec3{surf.nodes[i].position.x(), surf.nodes[i].position.y(), surf.nodes[i].position.z()});
+    }
+
+    // Soma cargas nodais e reações em todos os kernel nodes exatamente 1 vez
+    for (const auto& ns : dofMgr.nodeStates()) {
+        Vec3 pos{0.0, 0.0, 0.0};
+        if (auto pit = kernelNodePositions.find(ns.nodeId); pit != kernelNodePositions.end()) {
+            pos = pit->second;
+        }
+        if (auto lit = nodalLoads.find(ns.nodeId); lit != nodalLoads.end()) {
+            const Vec3 nF{lit->second(0), lit->second(1), lit->second(2)};
+            const Vec3 nM{lit->second(3), lit->second(4), lit->second(5)};
+            sumAppliedF += nF;
+            const Vec3 rCrossF = pos.cross(nF);
+            sumAppliedM += nM + rCrossF;
+            refForceMag += nF.norm();
+            refMomentMag += nM.norm() + rCrossF.norm();
+        }
+        std::array<double, 6> rVec{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        for (int d = 0; d < 6; ++d) {
+            const int g = ns.globalDof[d];
+            if (g >= 0 && g < R_full.size() && (cls.isRestrained[g] || cls.isMpcSlave[g])) {
+                rVec[d] = R_full(g);
+            } else if (g >= 0 && ns.springStiffness[d] > 1e-9 && g < U_full.size()) {
+                rVec[d] = -ns.springStiffness[d] * U_full(g);
             }
         }
-        sumAppliedF += nF;
-        const Vec3 rCrossF = n.position.cross(nF);
-        sumAppliedM += nM + rCrossF;
-        refForceMag += nF.norm();
-        refMomentMag += nM.norm() + rCrossF.norm();
-
-        const Vec3 rF{n.reaction[0], n.reaction[1], n.reaction[2]};
-        const Vec3 rM{n.reaction[3], n.reaction[4], n.reaction[5]};
-        const Vec3 rCrossReac = n.position.cross(rF);
+        const Vec3 rF{rVec[0], rVec[1], rVec[2]};
+        const Vec3 rM{rVec[3], rVec[4], rVec[5]};
+        const Vec3 rCrossReac = pos.cross(rF);
         sumReacF += rF;
         sumReacM += rM + rCrossReac;
         refForceMag += rF.norm();
@@ -506,6 +1061,8 @@ void populatePostProcessingFromVectors(
         bool hasDist = elem.distLoad.active;
         CoordSystem cs = elem.distLoad.coordSystem;
         Vec3 w = elem.distLoad.w;
+        bool hasGravity = false;
+        Vec3 gAcc{0.0, 0.0, 0.0};
         if (activeLoadCase) {
             hasDist = false;
             w = {0.0, 0.0, 0.0};
@@ -516,30 +1073,74 @@ void populatePostProcessingFromVectors(
                     cs = (it->second.coordSystem == 1) ? CoordSystem::Local : CoordSystem::Global;
                     w = {it->second.distributedForce.x(), it->second.distributedForce.y(), it->second.distributedForce.z()};
                 }
+                if (it->second.hasBodyGravity) {
+                    hasGravity = true;
+                    gAcc = {it->second.gravityAccel.x(), it->second.gravityAccel.y(), it->second.gravityAccel.z()};
+                }
             }
         }
-        if (!hasDist) continue;
         const double L = elem.computeLength(model);
-        Vec3 qGlob{0.0, 0.0, 0.0};
-        if (cs == CoordSystem::Global) {
-            qGlob = w;
-        } else {
-            const Eigen::Matrix3d R = elem.computeRotationMatrix3x3(model);
-            const Eigen::Vector3d ql(w.x, w.y, w.z);
-            const Eigen::Vector3d qg = R.transpose() * ql;
-            qGlob = {qg.x(), qg.y(), qg.z()};
-        }
-        const Vec3 totalF = qGlob * L;
-        sumAppliedF += totalF;
-        refForceMag += totalF.norm();
-
         const Node* n1 = model.findNode(elem.nodeStart);
         const Node* n2 = model.findNode(elem.nodeEnd);
-        if (n1 && n2) {
-            const Vec3 midPos = (n1->position + n2->position) * 0.5;
+        const Vec3 midPos = (n1 && n2) ? ((n1->position + n2->position) * 0.5) : Vec3{0.0, 0.0, 0.0};
+
+        if (hasDist) {
+            Vec3 qGlob{0.0, 0.0, 0.0};
+            if (cs == CoordSystem::Global) {
+                qGlob = w;
+            } else {
+                const Eigen::Matrix3d R = elem.computeRotationMatrix3x3(model);
+                const Eigen::Vector3d qg = R.transpose() * Eigen::Vector3d(w.x, w.y, w.z);
+                qGlob = {qg.x(), qg.y(), qg.z()};
+            }
+            const Vec3 totalF = qGlob * L;
+            sumAppliedF += totalF;
+            refForceMag += totalF.norm();
             const Vec3 mDist = midPos.cross(totalF);
             sumAppliedM += mDist;
             refMomentMag += mDist.norm();
+        }
+        if (hasGravity) {
+            const Material* mat = model.findMaterial(elem.materialId);
+            const CrossSection* sec = model.findCrossSection(elem.sectionId);
+            if (mat && sec) {
+                const Vec3 wG = gAcc * (mat->gamma * sec->A * L);
+                sumAppliedF += wG;
+                refForceMag += wG.norm();
+                const Vec3 mG = midPos.cross(wG);
+                sumAppliedM += mG;
+                refMomentMag += mG.norm();
+            }
+        }
+    }
+
+    // Cargas consistentes equivalentes nos elementos contínuos 2D/3D
+    for (const auto& rec : mapping.continuumElems) {
+        auto lit = elemLoads.find(rec.kernelElemId);
+        if (lit == elemLoads.end()) continue;
+        const kernel::VecX fe = rec.elemPtr->computeGlobalLoadVector(lit->second);
+        const auto mask = rec.elemPtr->requiredNodeDofMask();
+        const auto& nids = rec.elemPtr->nodeIds();
+        int ptr = 0;
+        for (kernel::NodeId kid : nids) {
+            std::array<double, 6> nf{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+            for (int d = 0; d < kernel::NODAL_MAX_DOFS; ++d) {
+                if (mask[d]) {
+                    if (d < 6 && ptr < fe.size()) nf[d] = fe(ptr);
+                    ++ptr;
+                }
+            }
+            Vec3 pos{0.0, 0.0, 0.0};
+            if (auto pit = kernelNodePositions.find(kid); pit != kernelNodePositions.end()) {
+                pos = pit->second;
+            }
+            const Vec3 fN{nf[0], nf[1], nf[2]};
+            const Vec3 mN{nf[3], nf[4], nf[5]};
+            sumAppliedF += fN;
+            const Vec3 rCross = pos.cross(fN);
+            sumAppliedM += mN + rCross;
+            refForceMag += fN.norm();
+            refMomentMag += mN.norm() + rCross.norm();
         }
     }
 
@@ -576,10 +1177,11 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
     }
 
     kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
     int restrainedCount = 0;
     int springCount = 0;
     std::string setupErr;
-    if (!setupDofManagerFromModel(model, dofMgr, restrainedCount, springCount, &setupErr)) {
+    if (!setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, &setupErr)) {
         result.success = false;
         result.errorMessage = setupErr;
         return result;
@@ -587,6 +1189,8 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
 
     result.totalNodes = static_cast<int>(model.getNodes().size());
     result.totalElements = static_cast<int>(model.getElements().size());
+    result.totalSurfaceNodes = static_cast<int>(model.surfaceMesh().nodes.size());
+    result.totalSurfaceElements = static_cast<int>(model.surfaceMesh().elements.size());
     result.totalDofs = dofMgr.totalDofs();
     result.restrainedDofs = restrainedCount;
 
@@ -597,11 +1201,16 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
     }
 
     std::vector<std::shared_ptr<kernel::IFiniteElement>> kElements;
-    buildKernelElements(model, kElements);
+    std::string buildErr;
+    if (!buildKernelElements(model, mapping, kElements, &buildErr)) {
+        result.success = false;
+        result.errorMessage = buildErr;
+        return result;
+    }
 
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
-    extractLegacyLoadMaps(model, elemLoads, nodalLoads);
+    extractLegacyLoadMaps(model, mapping, elemLoads, nodalLoads);
 
     kernel::SpMat K_orig;
     kernel::VecX F_orig;
@@ -663,7 +1272,7 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
         return result;
     }
 
-    populatePostProcessingFromVectors(model, dofMgr, cls, U_full, R_full, K_orig, result);
+    populatePostProcessingFromVectors(model, dofMgr, cls, mapping, elemLoads, nodalLoads, U_full, R_full, K_orig, result);
     result.solverStats = solverStats;
 
     const auto endTime = std::chrono::high_resolution_clock::now();
@@ -691,9 +1300,10 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
     }
 
     kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
     int restrainedCount = 0;
     int springCount = 0;
-    if (!setupDofManagerFromModel(model, dofMgr, restrainedCount, springCount, errorMsg)) {
+    if (!setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, errorMsg)) {
         return false;
     }
     if (restrainedCount == 0 && springCount == 0) {
@@ -702,27 +1312,17 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
     }
 
     std::vector<std::shared_ptr<kernel::IFiniteElement>> kElements;
-    buildKernelElements(model, kElements);
+    if (!buildKernelElements(model, mapping, kElements, errorMsg)) {
+        return false;
+    }
 
-    // Se o modelo ainda não tiver LoadCases explícitos, cria um caso implícito das cargas diretas
+    // Se o modelo ainda não tiver LoadCases explícitos, cria um caso implícito das cargas diretas (1D + 2D/3D)
+    const bool useImplicitLegacy = model.getLoadCases().empty();
     std::vector<kernel::LoadCase> casesToSolve = model.getLoadCases();
-    if (casesToSolve.empty()) {
+    if (useImplicitLegacy) {
         kernel::LoadCase fallback;
         fallback.id = 1;
         fallback.name = "Caso Único";
-        for (const auto& n : model.getNodes()) {
-            fallback.nodalLoads.push_back({n.id, {n.load.force.x, n.load.force.y, n.load.force.z,
-                                                  n.load.moment.x, n.load.moment.y, n.load.moment.z}});
-        }
-        for (const auto& e : model.getElements()) {
-            kernel::ElementLoadInput inp;
-            inp.hasDistributed = e.distLoad.active;
-            inp.coordSystem = (e.distLoad.coordSystem == CoordSystem::Local) ? 1 : 0;
-            inp.distributedForce = {e.distLoad.w.x, e.distLoad.w.y, e.distLoad.w.z};
-            inp.hasThermal = e.thermalLoad.active;
-            inp.deltaT = e.thermalLoad.deltaT;
-            fallback.elementLoads.push_back({e.id, inp});
-        }
         casesToSolve.push_back(std::move(fallback));
     }
 
@@ -737,7 +1337,11 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
     for (const auto& lc : casesToSolve) {
         std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
         std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
-        extractCaseLoadMaps(model, lc, elemLoads, nodalLoads);
+        if (useImplicitLegacy) {
+            extractLegacyLoadMaps(model, mapping, elemLoads, nodalLoads);
+        } else {
+            extractCaseLoadMaps(model, mapping, lc, elemLoads, nodalLoads);
+        }
 
         kernel::VecX F_case;
         if (!systemBuilt) {
@@ -834,11 +1438,20 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
     }
 
     std::vector<std::pair<kernel::NodeId, std::array<int, 6>>> nodeDofMap;
-    nodeDofMap.reserve(model.getNodes().size());
+    nodeDofMap.reserve(model.getNodes().size() + model.surfaceMesh().nodes.size());
+    std::unordered_set<kernel::NodeId> seenEnvelopeIds;
     for (const auto& n : model.getNodes()) {
         std::array<int, 6> dofs;
         for (int d = 0; d < 6; ++d) dofs[d] = dofMgr.getNodeGlobalDof(n.id, d);
+        seenEnvelopeIds.insert(n.id);
         nodeDofMap.emplace_back(n.id, dofs);
+    }
+    for (size_t i = 0; i < model.surfaceMesh().nodes.size(); ++i) {
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        if (!seenEnvelopeIds.insert(kid).second) continue;
+        std::array<int, 6> dofs;
+        for (int d = 0; d < 6; ++d) dofs[d] = dofMgr.getNodeGlobalDof(kid, d);
+        nodeDofMap.emplace_back(kid, dofs);
     }
 
     const auto& envelopeSource = outComboResults.empty() ? outCaseResults : outComboResults;
@@ -858,9 +1471,10 @@ kernel::BucklingResult FemSolver3D::solveBuckling(
     }
 
     kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
     int restrainedCount = 0;
     int springCount = 0;
-    if (!setupDofManagerFromModel(model, dofMgr, restrainedCount, springCount, &out.errorMessage)) {
+    if (!setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, &out.errorMessage)) {
         return out;
     }
     if (restrainedCount == 0 && springCount == 0) {
@@ -869,11 +1483,13 @@ kernel::BucklingResult FemSolver3D::solveBuckling(
     }
 
     std::vector<std::shared_ptr<kernel::IFiniteElement>> kElements;
-    buildKernelElements(model, kElements);
+    if (!buildKernelElements(model, mapping, kElements, &out.errorMessage)) {
+        return out;
+    }
 
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
-    extractLegacyLoadMaps(model, elemLoads, nodalLoads);
+    extractLegacyLoadMaps(model, mapping, elemLoads, nodalLoads);
 
     kernel::SpMat K_orig;
     kernel::VecX F_orig;
@@ -946,6 +1562,11 @@ kernel::NonlinearResult FemSolver3D::solveNonlinear(
     kernel::NonlinearResult out;
     model.clearResults();
 
+    if (!model.surfaceMesh().elements.empty()) {
+        out.errorMessage = "Análise não-linear corrotacional/J2 atualmente opera apenas sobre pórticos e treliças 1D; utilize Análise Estática, Flambagem Linearizada ou Dinâmica para malhas 2D/3D.";
+        return out;
+    }
+
     const ModelValidation val = model.validate();
     if (!val.valid) {
         out.errorMessage = val.errors.empty() ? "Erro de validação." : val.errors[0];
@@ -953,9 +1574,10 @@ kernel::NonlinearResult FemSolver3D::solveNonlinear(
     }
 
     kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
     int restrainedCount = 0;
     int springCount = 0;
-    if (!setupDofManagerFromModel(model, dofMgr, restrainedCount, springCount, &out.errorMessage)) {
+    if (!setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, &out.errorMessage)) {
         return out;
     }
     if (restrainedCount == 0 && springCount == 0) {
@@ -964,11 +1586,13 @@ kernel::NonlinearResult FemSolver3D::solveNonlinear(
     }
 
     std::vector<std::shared_ptr<kernel::IFiniteElement>> kElements;
-    buildKernelElements(model, kElements);
+    if (!buildKernelElements(model, mapping, kElements, &out.errorMessage)) {
+        return out;
+    }
 
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
-    extractLegacyLoadMaps(model, elemLoads, nodalLoads);
+    extractLegacyLoadMaps(model, mapping, elemLoads, nodalLoads);
 
     kernel::SpMat K_orig;
     kernel::VecX F_orig;
@@ -1088,6 +1712,8 @@ namespace {
 
 struct AssembledDynamicSystem {
     kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
+    std::vector<std::shared_ptr<kernel::IFiniteElement>> kElements;
     kernel::SpMat K_orig;
     kernel::SpMat M_full;
     kernel::VecX F_orig;
@@ -1108,7 +1734,7 @@ bool assembleDynamicBaseSystem(const StructuralModel& model,
 
     int restrainedCount = 0;
     int springCount = 0;
-    if (!setupDofManagerFromModel(model, sys.dofMgr, restrainedCount, springCount, &errOut)) {
+    if (!setupDofManagerFromModel(model, sys.dofMgr, sys.mapping, restrainedCount, springCount, &errOut)) {
         return false;
     }
     if (restrainedCount == 0 && springCount == 0) {
@@ -1116,15 +1742,16 @@ bool assembleDynamicBaseSystem(const StructuralModel& model,
         return false;
     }
 
-    std::vector<std::shared_ptr<kernel::IFiniteElement>> kElements;
-    buildKernelElements(model, kElements);
+    if (!buildKernelElements(model, sys.mapping, sys.kElements, &errOut)) {
+        return false;
+    }
 
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
-    extractLegacyLoadMaps(model, elemLoads, nodalLoads);
+    extractLegacyLoadMaps(model, sys.mapping, elemLoads, nodalLoads);
 
     if (!kernel::GlobalAssembler::assembleStiffnessAndLoad(
-            sys.dofMgr, kElements, elemLoads, nodalLoads, sys.K_orig, sys.F_orig, &errOut)) {
+            sys.dofMgr, sys.kElements, elemLoads, nodalLoads, sys.K_orig, sys.F_orig, &errOut)) {
         return false;
     }
 
@@ -1138,7 +1765,7 @@ bool assembleDynamicBaseSystem(const StructuralModel& model,
         return false;
     }
 
-    if (!kernel::GlobalAssembler::assembleMass(sys.dofMgr, kElements, true, {}, sys.M_full, &errOut)) {
+    if (!kernel::GlobalAssembler::assembleMass(sys.dofMgr, sys.kElements, true, {}, sys.M_full, &errOut)) {
         return false;
     }
     if (!kernel::DynamicSolver::reduceMassAndInfluence(sys.dofMgr, sys.M_full, sys.redSys, sys.M_ff, sys.infl, &errOut)) {
@@ -1212,6 +1839,221 @@ kernel::TransientResult FemSolver3D::solveSeismic(
     const kernel::SpMat C_ff = kernel::DynamicSolver::assembleRayleighDamping(sys.M_ff, sys.redSys.K_ff, damp);
     return kernel::DynamicSolver::solveSeismicTimeHistory(
         sys.redSys.K_ff, sys.M_ff, C_ff, sys.infl, sys.redSys, groundAccelMS2Fn, opts);
+}
+
+kernel::TransientResult FemSolver3D::solveTransient(
+    const StructuralModel& model,
+    const kernel::LoadHistory& history,
+    const kernel::TransientOptions& opts)
+{
+    return solveTransient(
+        model,
+        [&history](double timeSec, int /*stepIdx*/) -> double {
+            return history.evaluateAt(timeSec);
+        },
+        history.loadCaseId,
+        opts);
+}
+
+kernel::TransientResult FemSolver3D::solveTransient(
+    const StructuralModel& model,
+    const std::function<double(double timeSec, int stepIdx)>& loadScaleFn,
+    kernel::LoadCaseId baseLoadCaseId,
+    const kernel::TransientOptions& opts)
+{
+    kernel::TransientResult out;
+    if (!loadScaleFn) {
+        out.errorMessage = "Função temporal de carregamento nula.";
+        return out;
+    }
+
+    AssembledDynamicSystem sys;
+    if (!assembleDynamicBaseSystem(model, sys, out.errorMessage)) {
+        return out;
+    }
+
+    kernel::VecX baseRhs_f = sys.redSys.rhs_f;
+    if (baseLoadCaseId > 0 && !model.getLoadCases().empty()) {
+        const kernel::LoadCase* foundCase = nullptr;
+        for (const auto& lc : model.getLoadCases()) {
+            if (lc.id == baseLoadCaseId) {
+                foundCase = &lc;
+                break;
+            }
+        }
+        if (!foundCase) {
+            out.errorMessage = "Caso de carga base ID " + std::to_string(baseLoadCaseId)
+                             + " não encontrado para integração transiente.";
+            return out;
+        }
+        std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
+        std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
+        extractCaseLoadMaps(model, sys.mapping, *foundCase, elemLoads, nodalLoads);
+
+        kernel::SpMat K_unused;
+        kernel::VecX F_case;
+        if (!kernel::GlobalAssembler::assembleStiffnessAndLoad(
+                sys.dofMgr, sys.kElements, elemLoads, nodalLoads, K_unused, F_case, &out.errorMessage)) {
+            return out;
+        }
+        if (!kernel::GlobalAssembler::buildReducedRightHandSide(
+                sys.dofMgr, sys.K_orig, F_case, sys.redSys, baseRhs_f, &out.errorMessage)) {
+            return out;
+        }
+    }
+
+    kernel::RayleighDampingParams damp;
+    damp.alphaM = opts.rayleighAlphaM;
+    damp.betaK = opts.rayleighBetaK;
+    const kernel::SpMat C_ff = kernel::DynamicSolver::assembleRayleighDamping(sys.M_ff, sys.redSys.K_ff, damp);
+
+    return kernel::DynamicSolver::solveTransientForceHistory(
+        sys.redSys.K_ff,
+        sys.M_ff,
+        C_ff,
+        sys.redSys,
+        [&baseRhs_f, &loadScaleFn](double timeSec, int stepIdx) -> kernel::VecX {
+            return loadScaleFn(timeSec, stepIdx) * baseRhs_f;
+        },
+        opts);
+}
+
+bool FemSolver3D::applyBucklingImperfection(
+    StructuralModel& model,
+    const kernel::BucklingResult& buckling,
+    int modeIndex,
+    double amplitude,
+    std::string* errorMsg)
+{
+    if (!buckling.success || buckling.modeShapesFull.empty()) {
+        if (errorMsg) *errorMsg = "Resultado de flambagem inválido ou sem modos disponíveis.";
+        return false;
+    }
+    if (modeIndex < 0 || modeIndex >= static_cast<int>(buckling.modeShapesFull.size())) {
+        if (errorMsg) *errorMsg = "Índice de modo de flambagem fora do intervalo.";
+        return false;
+    }
+    if (!std::isfinite(amplitude) || std::abs(amplitude) <= 0.0) {
+        if (errorMsg) *errorMsg = "Amplitude de imperfeição geométrica deve ser não nula e finita.";
+        return false;
+    }
+
+    kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
+    int restrainedCount = 0;
+    int springCount = 0;
+    if (!setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, errorMsg)) {
+        return false;
+    }
+
+    const kernel::VecX& modeFull = buckling.modeShapesFull[static_cast<size_t>(modeIndex)];
+    if (modeFull.size() != dofMgr.totalDofs()) {
+        if (errorMsg) *errorMsg = "Dimensão do modo de flambagem não corresponde aos DOFs atuais do modelo.";
+        return false;
+    }
+
+    // Indexa posições atuais na exata ordem de dofMgr.nodeStates()
+    std::unordered_map<kernel::NodeId, kernel::Vec3> currentPos;
+    const auto& states = dofMgr.nodeStates();
+    currentPos.reserve(states.size());
+    for (const auto& n : model.getNodes()) {
+        currentPos[n.id] = kernel::Vec3(n.position.x, n.position.y, n.position.z);
+    }
+    for (size_t i = 0; i < model.surfaceMesh().nodes.size(); ++i) {
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        currentPos.try_emplace(kid, model.surfaceMesh().nodes[i].position);
+    }
+
+    std::vector<kernel::Vec3> baseCoords;
+    baseCoords.reserve(states.size());
+    for (const auto& st : states) {
+        auto it = currentPos.find(st.nodeId);
+        baseCoords.push_back((it != currentPos.end()) ? it->second : kernel::Vec3::Zero());
+    }
+
+    const std::vector<kernel::Vec3> perturbed =
+        kernel::BucklingSolver::applyGeometricImperfection(baseCoords, dofMgr, modeFull, amplitude);
+
+    std::unordered_map<kernel::NodeId, kernel::Vec3> updatedPos;
+    updatedPos.reserve(states.size());
+    for (size_t i = 0; i < states.size() && i < perturbed.size(); ++i) {
+        updatedPos[states[i].nodeId] = perturbed[i];
+    }
+
+    for (auto& n : model.getNodes()) {
+        if (auto it = updatedPos.find(n.id); it != updatedPos.end()) {
+            n.position = Vec3{it->second.x(), it->second.y(), it->second.z()};
+        }
+    }
+    for (size_t i = 0; i < model.surfaceMesh().nodes.size(); ++i) {
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        if (auto it = updatedPos.find(kid); it != updatedPos.end()) {
+            model.surfaceMesh().nodes[i].position = it->second;
+        }
+    }
+
+    model.clearResults();
+    return true;
+}
+
+FemSolver3D::NodalVectorField FemSolver3D::extractNodalDisplacements(
+    const StructuralModel& model,
+    const kernel::VecX& uFull)
+{
+    NodalVectorField out;
+    if (uFull.size() == 0) {
+        return out;
+    }
+
+    kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
+    int restrainedCount = 0;
+    int springCount = 0;
+    if (setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, nullptr)
+        && uFull.size() == dofMgr.totalDofs()) {
+        const auto& nodes = model.getNodes();
+        out.frameNodes.reserve(nodes.size());
+        for (const auto& n : nodes) {
+            const int dx = dofMgr.getNodeGlobalDof(n.id, 0);
+            const int dy = dofMgr.getNodeGlobalDof(n.id, 1);
+            const int dz = dofMgr.getNodeGlobalDof(n.id, 2);
+            const double ux = (dx >= 0 && dx < uFull.size()) ? uFull(dx) : 0.0;
+            const double uy = (dy >= 0 && dy < uFull.size()) ? uFull(dy) : 0.0;
+            const double uz = (dz >= 0 && dz < uFull.size()) ? uFull(dz) : 0.0;
+            const Vec3 v(ux, uy, uz);
+            out.frameNodes[n.id] = v;
+            out.maxTranslationalNorm = std::max(out.maxTranslationalNorm, v.norm());
+        }
+
+        const auto& mNodes = model.surfaceMesh().nodes;
+        out.meshNodes.reserve(mNodes.size());
+        for (size_t i = 0; i < mNodes.size(); ++i) {
+            const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+            const int dx = dofMgr.getNodeGlobalDof(kid, 0);
+            const int dy = dofMgr.getNodeGlobalDof(kid, 1);
+            const int dz = dofMgr.getNodeGlobalDof(kid, 2);
+            const double ux = (dx >= 0 && dx < uFull.size()) ? uFull(dx) : 0.0;
+            const double uy = (dy >= 0 && dy < uFull.size()) ? uFull(dy) : 0.0;
+            const double uz = (dz >= 0 && dz < uFull.size()) ? uFull(dz) : 0.0;
+            const Vec3 v(ux, uy, uz);
+            out.meshNodes[mNodes[i].id] = v;
+            out.maxTranslationalNorm = std::max(out.maxTranslationalNorm, v.norm());
+        }
+        return out;
+    }
+
+    // Fallback seguro para vetores puramente nodais (6 DOFs por nó)
+    const auto& nodes = model.getNodes();
+    if (uFull.size() >= static_cast<Eigen::Index>(nodes.size() * 6)) {
+        out.frameNodes.reserve(nodes.size());
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const Eigen::Index base = static_cast<Eigen::Index>(i * 6);
+            const Vec3 v(uFull(base), uFull(base + 1), uFull(base + 2));
+            out.frameNodes[nodes[i].id] = v;
+            out.maxTranslationalNorm = std::max(out.maxTranslationalNorm, v.norm());
+        }
+    }
+    return out;
 }
 
 } // namespace omniframe

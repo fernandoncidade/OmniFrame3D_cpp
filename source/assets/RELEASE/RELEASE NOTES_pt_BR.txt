@@ -1,4 +1,43 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.15.0
+Data: 15 de novembro de 2026
+
+Destaques da Versão 2026.11.15.0:
+
+1. Fluxo Completo para Malhas 2D (Cascas) e Sólidos 3D Integrado às Barras
+- O Gerador Paramétrico de Malha agora permite definir diretamente o material da malha, a espessura para placas e cascas, a condição de apoio e a carga ou pressão aplicada no sentido vertical, criando malhas prontas para calcular junto com vigas, pilares e treliças no comando Calcular Estrutura (F5).
+- Na região de resultados na parte inferior da tela, uma nova aba chamada "Esforços 2D/3D (Casca/Sólido)" lista cada elemento contínuo com sua tensão equivalente de von Mises, tensões principais e esforços locais resultantes.
+- Nos controles de Pós-Processamento 3D (Corte/Contornos...), foi adicionado o mapa visual de "Tensão de von Mises (Casca/Sólido)" para colorir diretamente superfícies e volumes conforme a concentração de esforços.
+- Relatórios exportados em HTML, Markdown e PDF Executivo A4, além das planilhas de resultados e exportações científicas em 3D, passaram a incluir os diagnósticos completos de validação do modelo e os esforços das malhas 2D e 3D.
+
+2. Solvers Avançados, Imperfeição de Flambagem e Histórico Temporal de Forças
+- Nas Análises Avançadas, agora é possível escolher explicitamente o método de resolução linear desejado (Seleção Automática, Cholesky LDLT, SparseLU ou Gradiente Conjugado) e acompanhar avisos claros sempre que ocorrer ajuste automático para garantir estabilidade numérica.
+- A análise de Flambagem ganhou os recursos "Imperfeição Inicial (amp)" e "Aplicar Imperfeição à Geometria", permitindo incorporar o deslocamento do modo crítico diretamente na geometria da estrutura para estudos seguintes.
+- A aba Sísmica / Transiente foi ampliada para aceitar tanto acelerogramas sísmicos quanto um "Histórico de Força F(t)" aplicado às cargas ativas ou a um caso de carga específico, com seleção de método de integração temporal entre Newmark-Beta e HHT-Alpha e controle refinado de passo de tempo.
+- A análise Não Linear Geométrica recebeu aprimoramentos de convergência na formulação Corrotacional 3D com opções de Tangente Completa e Busca em Linha (Line Search) para modelos sujeitos a grandes deslocamentos e rotações.
+
+3. Correção de Janelas Filhas ("Janela Fantasma"), Ícones Limpos e Plano Inicial Padrão
+- Corrigido o comportamento ao abrir qualquer janela filha de engenharia ou de auxílio, eliminando a aparição breve por frações de segundo de uma moldura vazia antes da exibição definitiva do diálogo.
+- As setas dos campos numéricos e das listas suspensas agora são desenhadas diretamente na tela conforme o tema visual escolhido (Claro, Escuro ou Alto Contraste), evitando a geração de arquivos de imagem temporários de setas na pasta de ícones do programa.
+- Os três modelos de exemplo pré-definidos do menu Exemplos agora abrem por padrão com o plano de trabalho "XY (Planta)" selecionado, facilitando a visualização e o lançamento em planta logo ao iniciar o estudo.
+
+4. Sessão Guiada Interativa (F2) Ajustada e Atualizada
+- A janela "Sessão Guiada Interativa - OmniFrame 3D" teve suas dimensões e disposição de botões reorganizadas para que todos os textos dos botões, perfis de leitura e painéis informativos apareçam por inteiro, sem cortes ou trechos ocultos.
+- O roteiro guiado foi atualizado para cobrir todas as novidades desta versão, demonstrando na prática o gerador de malha com carregamento integrado, os mapas de tensão de von Mises, a aba de Esforços 2D/3D, a escolha do método de resolução, as opções de flambagem e análise dinâmica e o plano padrão XY (Planta).
+
+5. Tradução Dinâmica e Documentação Completas
+- Todas as novas opções de análise, controles de malha, títulos de tabelas, alertas de validação, menus de linha de comando e mensagens da Sessão Guiada respondem em tempo real à alternância entre Português (Brasil) e Inglês (EUA).
+- O Manual de Operações (F1) foi ampliado em Português e Inglês com um capítulo completo detalhando para que serve, como acessar e como utilizar todos os recursos e comandos da linha de comando no CMD e no PowerShell, além de um botão de atalho rápido na barra superior da janela do manual para ir direto a esse capítulo.
+
+6. Ferramenta de Linha de Comando Integrada ao Aplicativo e ao Windows 10/11 (CMD e PowerShell)
+- A ferramenta de linha de comando sem janelas (omniframe-cli) agora funciona em total integração com o aplicativo principal do Windows 10 e Windows 11, compartilhando exatamente os mesmos modelos de exemplo, cálculos estruturais e verificações normativas da interface gráfica.
+- Foi adicionado o submenu Configurações > CLI Windows (CMD / PowerShell) na barra de menus do programa para permitir registrar ou remover o comando no Windows sem exigir permissões de administrador, verificar o status da configuração e abrir imediatamente uma janela do Prompt de Comando (CMD) ou do PowerShell pronta para uso.
+- Ao abrir o aplicativo principal informando o arquivo de um projeto (.omniframe, .dxf ou .ifc) na linha de comando ou a partir da associação de arquivos no Windows, o modelo é carregado diretamente na tela inicial; ao passar comandos de automação ao aplicativo principal, eles também são encaminhados de forma automática para a ferramenta de linha de comando.
+- O funcionamento completo com arquivos e pastas contendo espaços ou acentuação em português foi aprimorado tanto no CMD quanto no PowerShell, além de incluir opções na linha de comando para consultar os três exemplos embutidos, executar a auditoria normativa ABNT NBR, ajustar o método de integração temporal e convergência não linear e aplicar imperfeições geométricas de flambagem antes de gerar memoriais e exportações.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versão: 2026.11.14.0
 Data: 14 de novembro de 2026
 

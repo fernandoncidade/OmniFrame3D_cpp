@@ -32,6 +32,7 @@ private slots:
     void onFindNext();
     void onFindPrevious();
     void onToggleExpandTree();
+    void onJumpToCliSection();
 
 private:
     void setupUi();
@@ -48,6 +49,7 @@ private:
     QLineEdit* m_searchInput = nullptr;
     QPushButton* m_btnPrev = nullptr;
     QPushButton* m_btnNext = nullptr;
+    QPushButton* m_btnJumpCli = nullptr;
     QPushButton* m_btnToggleTree = nullptr;
     QPushButton* m_btnClose = nullptr;
 

@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — MANUAL COMPLETO DE OPERAÇÃO E ENGENHARIA
-Versão: 2026.11.14.0 | Data: 14 de novembro de 2026 | Autor: Fernando Nillsson Cidade
+Versão: 2026.11.15.0 | Data: 15 de novembro de 2027 | Autor: Fernando Nillsson Cidade
 Idioma do Documento: Português (Brasil) — Correspondência rigorosa linha a linha com en-US
 ================================================================================
 
@@ -18,7 +18,7 @@ A janela principal organiza o fluxo de trabalho em seis regiões integradas e re
 • Barra de Ferramentas 2 (Engenharia, Análises e Resultados): reúne os atalhos de atribuição (Materiais, Seções, Apoios, Rótulas, Roll γ, Carga Nodal, Carga Distr., Térmica ΔT), módulos avançados (Combinações, Malha 2D/3D, Avançadas, Corte/Contornos, Auditoria NBR), botão CALCULAR ESTRUTURA (F5), seletor de Diagrama, Reações e controle deslizante Escala.
 • Viewport 3D OpenGL Central: renderiza a estrutura tridimensional, o Plano Ativo em alta definição, apoios, forças concentradas, cargas distribuídas, malhas 2D/3D, mapas de contorno, planos de corte 3D, deformadas, diagramas de esforços e o painel informativo (HUD) no canto da vista.
 • Painel Lateral Esquerdo (Dock Inspetor e Entrada Rápida): concentra a inserção exata de nós por coordenadas cartesianas (X, Y, Z) e o quadro interativo Elemento / Nó Selecionado com listas suspensas e botões de edição direta.
-• Painel Inferior (Dock Tabelas de Resultados e Diagnóstico Estrutural) e Barra de Status: exibe as abas sincronizadas de Deslocamentos Nodais, Reações de Apoio e Esforços nas Barras, enquanto a barra de status reporta continuamente as coordenadas 3D do cursor, contadores de nós/barras e mensagens de diagnóstico.
+• Painel Inferior (Dock Tabelas de Resultados e Diagnóstico Estrutural) e Barra de Status: exibe quatro abas sincronizadas de Deslocamentos Nodais, Reações de Apoio, Esforços nas Barras e Esforços 2D/3D (Casca/Sólido), enquanto a barra de status reporta continuamente as coordenadas 3D do cursor, contadores de nós/barras/malha e mensagens de diagnóstico.
 
 1.3 Painéis Encaixáveis (Docks) e Personalização do Workspace
 Tanto o painel lateral esquerdo quanto o painel inferior são painéis encaixáveis (QDockWidget) que podem permanecer acoplados às bordas da janela principal ou ser destacados em janelas flutuantes independentes por meio do botão de desencaixe ou arrastando sua barra de título.
@@ -59,6 +59,7 @@ O menu Exemplos oferece três modelos espaciais completos prontos para análise 
 • Exemplo 1: Pórtico Espacial de Edifício (2 Pavimentos, Vento e Sobrecarga): pórtico espacial multiandar com pilares e vigas em concreto submetido a carregamentos verticais e horizontais combinados.
 • Exemplo 2: Balanço Espacial em L Sujeito a Flexo-Torção: viga em balanço dobrada a 90° em planta, demonstrando o acoplamento característico entre momento fletor em um trecho e momento torçor no trecho ortogonal.
 • Exemplo 3: Treliça Espacial / Passarela Metálica 3D: estrutura treliçada tridimensional com rótulas liberadas nas extremidades das barras (Tx, My e Mz liberados), exibindo resposta predominante de esforço axial de tração e compressão.
+Ao carregar qualquer um dos três exemplos pré-definidos, o Plano de Trabalho Ativo é ajustado por padrão para XY (Planta) na cota Z = 0,00 m e a câmera enquadra automaticamente toda a estrutura.
 Todos os três exemplos são totalmente editáveis após o carregamento: você pode selecionar nós ou barras na viewport, alterar materiais e seções nas listas suspensas do inspetor lateral, ajustar coordenadas, apoios, cargas ou combinações, aplicar Desfazer/Refazer (Ctrl+Z / Ctrl+Y) e recalcular imediatamente (F5) como exercício prático antes de trabalhar em projetos reais.
 
 CAPÍTULO 3 — NAVEGAÇÃO 3D, PLANO ATIVO E VISUALIZAÇÃO
@@ -73,7 +74,7 @@ A movimentação no espaço tridimensional combina interação direta com o mous
 3.2 Plano de Trabalho Ativo (XY, XZ, YZ) e Offset
 Para desenhar nós e posicionar pontos no espaço 3D com precisão usando um cursor bidimensional, o OmniFrame 3D projeta o ponteiro do mouse por raycasting sobre o Plano de Trabalho Ativo selecionado.
 • Plano XZ (Frontal): ideal para lançar pórticos planos verticais e elevações em torno da coordenada Y fixa.
-• Plano XY (Planta): ideal para lançar plantas baixas, grelhas horizontais e pavimentos em uma cota Z constante.
+• Plano XY (Planta): ideal para lançar plantas baixas, grelhas horizontais e pavimentos em uma cota Z constante (plano ativo selecionado por padrão ao iniciar o aplicativo e ao carregar os três exemplos).
 • Plano YZ (Lateral): ideal para lançar pórticos transversais e planos perpendiculares ao eixo X global.
 • Cota do Plano Ativo (Cota:): o seletor numérico de cota desloca paralelamente o plano ativo ao longo do seu eixo normal (por exemplo Z = 3,00 m para modelar a laje superior do segundo pavimento).
 
@@ -123,10 +124,11 @@ Ao clicar em um nó ou em uma barra no Viewport 3D (ou selecionar múltiplos ele
 • Seleção Rápida por Critério: os botões Mesmo Material e Mesma Seção selecionam automaticamente todas as barras da estrutura que compartilham o mesmo material ou a mesma seção transversal da barra atual, agilizando alterações globais tanto em modelos novos quanto nos três exemplos pré-definidos.
 
 4.6 Gerador Paramétrico de Malha 1D/2D/3D (Cascas e Sólidos)
-Acesse Estrutura > Gerador de Malha 1D/2D/3D... (ou Malha 2D/3D... na Barra 2) para gerar e acoplar malhas de elementos superficiais ou volumétricos sobre qualquer região do projeto:
-• Tipos de Elemento Suportados: geração estruturada de elementos de casca 2D (Quad4 MITC4, Tri3 MITC3, Tri6 e Quad8 Serendipity) para lajes, paredes e cascas, além de elementos sólidos 3D (Hex8 B-Bar e Tet4) para blocos e fundações volumétricas.
-• Enquadramento Automático nos Limites: o botão de ajuste automático adapta as dimensões da caixa geradora aos limites físicos da estrutura aberta, permitindo definir subdivisões (nx, ny, nz), espessura de casca e engastamento automático das bordas ou base.
-• Diagnóstico de Qualidade e Limpeza: o diálogo exibe contagem de elementos/nós e métricas de razão de aspecto da malha; utilize Limpar Malha para remover apenas a malha paramétrica 2D/3D sem apagar o pórtico de barras principal.
+Acesse Estrutura > Gerador de Malha 1D/2D/3D... (ou Malha 2D/3D... na Barra 2) para gerar e acoplar malhas de elementos superficiais ou volumétricos sobre qualquer região do projeto com fluxo integrado de ponta a ponta (E2E):
+• Tipos de Elemento Suportados (Tipo de Malha:): geração de 1D Linha Refinada (Line2), cascas/placas 2D (Quad4 Estruturada, Quad8 Quadrática, Tri3 Estruturada e Polígono Delaunay Tri3) para lajes, paredes e cascas, blocos sólidos 3D (Hex8 Estruturado, Hex20 Quadrático e Tet4 Estruturado) e Extrusão 2D -> 3D Hex8.
+• Material, Espessura, Apoios e Pressão Direta: escolha o Material da Malha no catálogo do projeto, defina Espessura (Casca 2D) em metros, aplique uma Condição de Contorno pronta (Sem apoios (Livre), Bordas externas engastadas, Bordas externas apoiadas (uX,uY,uZ=0), Base inferior (Zmin) engastada ou Face esquerda (Xmin) engastada) e informe a Pressão / Carga Z (2D/3D) em kPa (por exemplo -5,00 kPa) diretamente antes de gerar a malha.
+• Enquadramento Automático nos Limites e Dimensões: informe Origem (X / Y / Z), Dimensões (Lx / Ly / Lz), Subdivisões (nx / ny / nz) e Tamanho Alvo (Delaunay), ou clique em Ajustar ao Contorno do Modelo para adaptar automaticamente a caixa geradora aos limites físicos da estrutura aberta.
+• Diagnóstico de Qualidade, Acoplamento e Limpeza: o diálogo exibe contagem de nós/elementos e métricas de qualidade (J_min, razão de aspecto Aspect e Skewness máx); ao executar CALCULAR ESTRUTURA (F5), nós coincidentes entre barras 1D e malhas 2D/3D são fundidos automaticamente (enquanto nós sólidos puros recebem apenas os 3 GDL translacionais uX, uY, uZ) e os resultados preenchem a aba Esforços 2D/3D (Casca/Sólido). Utilize Limpar Malha para remover apenas a malha paramétrica 2D/3D mantendo o pórtico de barras principal.
 
 CAPÍTULO 5 — PROPRIEDADES ESTRUTURAIS, VÍNCULOS, TÉRMICA E COMBINAÇÕES
 
@@ -197,11 +199,12 @@ Os resíduos finais de forças (ΔFx, ΔFy, ΔFz) e de momentos em relação à 
 
 6.4 Suíte de Análises Avançadas (Modal, Flambagem, Dinâmica e Não Linear)
 Acesse Estrutura > Suite de Análises Avançadas... (ou Avançadas... na Barra 2) para executar simulações avançadas em segundo plano sobre o mesmo modelo estrutural:
-• Combinações & Envoltória: executa Resolver Casos & Combinações para calcular deslocamentos e esforços de cada caso e combinação NBR configurada, exibindo envoltórias mínimas/máximas e permitindo clicar em Plotar Caso/Combinação no Viewport 3D.
+• Combinações & Envoltória e Seletor de Solver Linear: escolha o método do resolvedor esparsos no seletor Solver: (Auto, SimplicialLDLT (SPD Cholesky), SparseLU (COLAMD) ou ConjugateGradient (PCG)) e execute Resolver Casos & Combinações para calcular deslocamentos e esforços de cada caso e combinação NBR configurada, exibindo envoltórias e permitindo clicar em Plotar Caso/Combinação no Viewport 3D.
 • Análise Modal: extrai frequências naturais (Hz), períodos (s), fatores de participação modal e massa efetiva para o número de modos solicitado, habilitando animação dos modos na viewport 3D.
-• Flambagem Linear (Estabilidade Elástica): calcula fatores críticos de flambagem (λ_cr) e modos críticos de instabilidade de Euler global para os carregamentos aplicados.
-• Harmônica FRF e Espectro de Resposta: realiza varredura em frequência (Amplitude e Fase sob amortecimento modal/Rayleigh) e combinação modal espectral CQC/SRSS (incluindo parâmetros de espectro sísmico e indicação explícita de escopo normativo).
-• Sísmica Transiente (Newmark-β) e Análise Não Linear (P-Delta / Corrotacional / Plasticidade J2): integra acelerogramas/excitações no tempo pelo método de Newmark-β e resolve equilíbrio não linear geométrico (P-Delta ou Corrotacional 3D via Newton-Raphson ou Arc-Length) e elastoplástico J2 por passos incrementais.
+• Flambagem Linear e Imperfeição Geométrica Inicial: calcula fatores críticos de flambagem (λ_cr) e modos críticos de estabilidade global para os carregamentos aplicados; selecione um modo na tabela, informe a amplitude em Imperfeição Inicial (amp) (m) e clique em Aplicar Imperfeição à Geometria para perturbar as coordenadas nodais do modelo antes de análises não lineares/P-Delta.
+• Harmônica FRF e Espectro de Resposta: realiza varredura em frequência (Amplitude e Fase sob amortecimento modal/Rayleigh) e combinação modal espectral CQC/SRSS (incluindo parâmetros de espectro sísmico e indicação explícita de escopo normativo OutOfLocalPdfScope para NBR 15421).
+• Transiente / Sismo (Newmark-Beta e HHT-Alpha): em Tipo de Excitação:, selecione Acelerograma Sísmico (a_g) (direções X, Y ou Z com pico a_g) ou Histórico de Força F(t) (escolhendo Caso Base F(t): entre todas as cargas ativas ou um caso específico com Fator de Escala (A₀):), escolha o Integrador Temporal: entre Newmark-Beta (γ=0,50, β=0,25) e HHT-Alpha (α=-0,05), configure Passo de Tempo (Δt) e Número de Passos e anime no viewport com Reproduzir Histórico no Viewport 3D.
+• Análise Não Linear (P-Delta / Newton-Raphson / Arc-Length): selecione o algoritmo (P-Delta (Iterativo), Newton-Raphson ou Arc-Length (Crisfield)), a cinemática (Pequenas Def., P-Delta 2ª Ordem ou Corrotacional 3D), as opções Tangente Completa (Full Newton) e Line Search, além de passos e fator de carga alvo λ_alvo, acompanhando resíduo ||R||, critério energético e estado de plastificação J2 (Plastificou J2).
 
 6.5 Auditoria Normativa ABNT NBR e Mapa de Calor DCR 3D
 Acesse Estrutura > Auditoria Normativa ABNT NBR (6118 / 8800 / 6122)... (ou Auditoria NBR... na Barra 2) para avaliar automaticamente o modelo estrutural frente às normas técnicas brasileiras verificadas localmente:
@@ -225,14 +228,15 @@ O controle deslizante Escala: na barra de ferramentas varia continuamente de 1 a
 
 7.3 Recuperação Contínua por Polinômios de Hermite e Tabelas
 Internamente, cada barra calcula seus esforços internos e deslocamentos em coordenadas adimensionais contínuas ξ pertencentes a [0, 1] via função Element::evaluateAt(xi), aplicando polinômios cúbicos de Hermite para curvatura exata sob flexão combinada com as cargas distribuídas atuantes.
-No Painel Inferior (Tabelas de Resultados e Diagnóstico Estrutural), três abas sincronizadas resumem os dados numéricos exatos de cada entidade:
-• Aba Deslocamentos Nodais: apresenta ID do nó e os seis componentes calculados (ux, uy, uz em m ou mm conforme tabela, e rotações Rx, Ry, Rz).
+No Painel Inferior (Tabelas de Resultados e Diagnóstico Estrutural), quatro abas sincronizadas resumem os dados numéricos exatos de cada entidade:
+• Aba Deslocamentos Nodais: apresenta ID do nó e os seis componentes calculados (ux, uy, uz em mm, e rotações Rx, Ry, Rz em mrad).
 • Aba Reações de Apoio: apresenta exclusivamente nós vinculados com suas forças reativas (Rx, Ry, Rz em kN) e momentos reativos (Mx, My, Mz em kN·m).
 • Aba Esforços nas Barras: apresenta os valores mínimo e máximo de N, Vy, Vz, Tx, My, Mz e deflexão máxima registrada em cada barra.
+• Aba Esforços 2D/3D (Casca/Sólido): apresenta os elementos da malha contínua 2D/3D com Elemento, Tipo, tensão equivalente de von Mises (σ_vM (kPa)), tensões principais (σ_1 (kPa), σ_3 (kPa)) e esforços/componentes locais (Nxx / σxx, Nyy / σyy, Mxx / τxz).
 
 7.4 Controles Avançados de Pós-Processamento 3D (Contornos, Corte e Animação)
 Acesse Estrutura > Controles 3D (Contornos / Corte / Animação)... (ou Corte/Contornos... na Barra 2) para explorar resultados avançados diretamente no Viewport OpenGL:
-• Mapas de Contorno e Malha Superficial: alterne o gradiente cromático entre Nenhum, Deslocamento |u|, Tensão de von Mises, Esforço Axial e Utilização DCR, além da opção de exibir/ocultar a malha 2D/3D gerada sobre o modelo.
+• Mapas de Contorno e Malha Superficial: no seletor Contorno:, alterne entre Padrão (Cores por Seleção/Tema), Mapa Vetorial de Deslocamentos |u|, Mapa de Calor DCR (ABNT NBR) e Tensão de von Mises (Casca/Sólido), além da caixa Exibir Malha 2D/3D (Superfícies/Sólidos) para mostrar ou ocultar a malha gerada sobre o modelo.
 • Plano de Corte 3D (Clip Plane): escolha o eixo de seccionamento (Desligado, X, Y ou Z), deslize a cota do corte ao longo do modelo e utilize a opção de inversão para inspecionar o interior de sólidos, pórticos densos e armaduras conceituais.
 • Animação Contínua 3D: ative a animação senoidal em tempo real da deformada estática, de modos de vibração naturais, de modos de flambagem ou de passos temporais/harmônicos com controle de velocidade e amplitude.
 
@@ -274,8 +278,8 @@ CAPÍTULO 9 — AJUDA, SESSÃO GUIADA (F2), ATALHOS DE TECLADO E FERRAMENTAS
 O recurso Ajuda > Sessão Guiada... (atalho F2) executa automaticamente uma demonstração guiada em 30 etapas de todas as funcionalidades e diálogos do OmniFrame 3D, simulando passo a passo um engenheiro operando o aplicativo a partir de um dos três exemplos pré-definidos:
 • Escolha do Exemplo e Perfis Científicos de Ritmo de Leitura (PPM): antes de iniciar, escolha qual dos três exemplos deseja acompanhar e selecione o perfil cognitivo em palavras por minuto (PPM) mais confortável para a sua leitura — Leitor Típico — Fluente (250 PPM, faixa 200–300 PPM), Leitura Técnica / Engenharia (150 PPM, padrão recomendado com margem de +10%), Leitura em Voz Alta (155 PPM) ou Dislexia / Acessível (130 PPM, faixa 100–160 PPM com fator +30% para releitura e regressões sem fadiga).
 • Sinalização Visual Unificada em Duas Fases (Sem Sobreposição): cada etapa é apresentada por um destaque luminoso ao redor do botão, menu ou painel correspondente associado a um único cartão explicativo com seta indicadora. Na primeira fase (amarelo), o aplicativo explica o que aquela ferramenta faz e para que serve em tempo proporcional ao total de palavras do texto; na segunda fase (verde), executa a ação correspondente (posicionando eventuais janelas filhas no canto inferior esquerdo enquanto mantém o cartão explicativo livre de sobreposições) pelo mesmo ritmo proporcional ao texto e ao PPM escolhido.
-• Controles Modeless e Z-Order Durante a Sessão: a janela Sessão Guiada é não-modal (você pode clicar livremente em qualquer janela ativa ou alternar o foco a qualquer momento) e oferece barra de progresso, contagem regressiva e os botões Iniciar Sessão Guiada, Pausar / Continuar, Avançar Agora, Interromper e Fechar.
-• Restauração Automática ao Estado Inicial: ao concluir a etapa 30 (ou quando finalizada a demonstração), o aplicativo limpa automaticamente overlays, contornos, planos de corte, animações e diálogos auxiliares abertos e restaura o exemplo selecionado exatamente ao seu estado inicial pronto para cálculo.
+• Controles Modeless, Visual Completo e Z-Order Durante a Sessão: a janela Sessão Guiada foi dimensionada para exibir integralmente todos os rótulos, listas suspensas e cartões de descrição em qualquer tamanho de janela, opera de forma não-modal sem exibir contornos fantasmas e oferece barra de progresso, contagem regressiva e os botões Iniciar Sessão Guiada, Pausar / Continuar, Avançar Agora, Interromper e Fechar, cobrindo ainda malha E2E 1D/2D/3D, aba Esforços 2D/3D (Casca/Sólido), contorno de von Mises, solver linear, imperfeição de flambagem e relatórios HTML/Markdown/PDF.
+• Restauração Automática ao Estado Inicial: ao concluir a etapa 30 (ou quando finalizada a demonstração), o aplicativo limpa automaticamente overlays, contornos, planos de corte, animações e diálogos auxiliares abertos e restaura o exemplo selecionado (já com plano XY (Planta) ativo) exatamente ao seu estado inicial pronto para cálculo.
 
 9.3 Tabela Completa de Atalhos e Controles Rápidos
 Utilize os atalhos abaixo sempre que o viewport principal ou a barra de menus estiver em foco:
@@ -304,8 +308,106 @@ O OmniFrame 3D não coleta telemetria, não abre conexões externas de rede e gr
 Em caso de desinstalação pela Loja da Microsoft ou remoção de distribuição portátil, nenhum driver de kernel ou serviço oculto em segundo plano é mantido no sistema operacional.
 
 9.5 Utilitários Complementares de Distribuição e Linha de Comando (CLI)
-O ecossistema OmniFrame 3D inclui também ferramentas de linha de comando e manutenção compiladas e distribuídas com o projeto:
-• OmniFrame CLI (omniframe-cli.exe): executável em linha de comando distribuído junto com OmniFrame.exe para validar modelos (.omniframe, .dxf, .ifc), executar análises estáticas, modais, de flambagem, harmônicas, espectrais ou não lineares em lote (--analyze) e exportar datasets ou memoriais (.pdf, .html, .md, .dxf, .ifc, .json, .csv, .vtk).
+O ecossistema OmniFrame 3D inclui também ferramentas de linha de comando e manutenção integradas e distribuídas com o projeto:
+• OmniFrame CLI (omniframe-cli.exe): executável nativo de console integrado ao binário principal OmniFrame.exe e ao ecossistema Windows 10/11 (CMD e PowerShell), compartilhando integralmente OmniFrameCore e OmniFrameKernel. Consulte o Capítulo 10 deste Manual (ou clique no botão Comandos CLI (CMD/PowerShell) na barra superior) para a referência completa de instalação, acesso, flags, saída JSON, códigos de retorno e fluxos prontos de uso.
 • VersionEditor (VersionEditor.exe): editor gráfico e CLI para atualização sincronizada de número de versão e datas de revisão nos documentos e manifestos configurados em Português (BR) e Inglês (US).
 • CompileTranslationsGUI (CompileTranslationsGUI.exe): utilitário gráfico para validação, compilação (.ts para .qm) e implantação limpa das traduções Qt do aplicativo.
 • Suíte de Testes Automatizados (CTest): conjunto de 20 suítes independentes de verificação analítica, solvers avançados, malhas, interoperabilidade, conformidade ABNT NBR e fluxos de interface garantindo fidelidade numérica e funcional contínua a cada compilação.
+
+CAPÍTULO 10 — LINHA DE COMANDO NO WINDOWS 10/11 (omniframe-cli.exe — CMD E POWERSHELL)
+
+10.1 Visão Geral, Propósito e Integração com OmniFrame.exe
+O utilitário omniframe-cli.exe é a interface oficial de linha de comando (headless, sem abrir janelas gráficas) do OmniFrame 3D. Ele é compilado juntamente com OmniFrame.exe na mesma pasta de instalação ou distribuição e compartilha diretamente as mesmas bibliotecas OmniFrameCore e OmniFrameKernel — garantindo resultados numéricos, formulações FEA 3D, validações de topologia, auditorias normativas ABNT NBR e exportadores (DXF, IFC4, CSV, VTK, JSON, HTML, Markdown e PDF) rigorosamente idênticos aos da interface gráfica.
+Para que serve a CLI na prática:
+• Automação e processamento em lote: validar e calcular dezenas de modelos (.omniframe, .dxf, .ifc) automaticamente por scripts .bat/.cmd do Prompt de Comando (CMD) ou scripts .ps1 do Windows PowerShell.
+• Estudos paramétricos e regressão: testar variações de fator de carga (--load-factor), imperfeições geométricas de flambagem (--imperfection), integradores dinâmicos (--scheme newmark|hht) ou combinações ABNT (--combo).
+• Auditoria normativa automatizada: gerar verificações consolidadas segundo ABNT NBR 6118:2023, NBR 8800:2024, NBR 6120:2019, NBR 6122:2022, NBR 6123:2023 e NBR 7480:2022 com saída JSON estruturada para integração com planilhas, pipelines ou sistemas corporativos.
+• Integração direta com o executável principal OmniFrame.exe:
+1. Abertura direta de projeto pela linha de comando: executar OmniFrame.exe "caminho\modelo.omniframe" (ou arquivo .dxf/.ifc) abre o modelo diretamente na interface gráfica 3D maximizada.
+2. Delegação transparente de comandos CLI: ao passar qualquer flag headless ao executável principal (--cli, --version, -v, --help, -h, --list-examples, --validate, --analyze, --example, --nbr-audit, --audit-nbr, --check-windows-integration, --install-windows-integration ou --uninstall-windows-integration), OmniFrame.exe localiza o binário irmão omniframe-cli.exe, configura o console em UTF-8 e encaminha os argumentos e o código de saída.
+
+DICA: Como OmniFrame.exe usa subsistema gráfico Windows (/SUBSYSTEM:WINDOWS), para operação síncrona em scripts CMD ou PowerShell prefira invocar omniframe-cli.exe diretamente (ou utilize pipe como "| Out-String" no PowerShell caso invoque OmniFrame.exe em modo CLI).
+
+10.2 Como Acessar e Associar ao Windows 10/11 (CMD, PowerShell, GUI, Instalador, MSIX e Script)
+O OmniFrame 3D oferece seis caminhos oficiais para acessar e registrar o comando omniframe-cli globalmente no Windows 10 e Windows 11 sem necessidade de privilégios de administrador:
+• Via Interface Gráfica (sem usar comandos manuais): abra Configurações > CLI Windows (CMD / PowerShell) na barra de menus do OmniFrame.exe. O submenu disponibiliza cinco ações diretas: Registrar omniframe-cli no Windows (PATH / App Paths), Remover Registro da CLI no Windows, Abrir Terminal CMD com CLI, Abrir PowerShell com CLI e Verificar Status de Integração CLI.
+• Auto-registro via linha de comando (sem administrador): execute omniframe-cli --install-windows-integration (na pasta onde omniframe-cli.exe se encontra). O comando grava automaticamente a pasta no PATH do usuário (HKCU\Environment\Path), cria chaves App Paths para omniframe-cli.exe, OmniFrame.exe e omniframe.exe em HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths, associa a extensão .omniframe ao ProgID OmniFrame3D.Project e notifica o Windows Shell (WM_SETTINGCHANGE e SHChangeNotify).
+• Script PowerShell portátil dedicado: execute ".\register_cli_windows.ps1" (copiado na raiz de toda distribuição limpa ou em cmake\register_cli_windows.ps1) para registrar no Windows, ".\register_cli_windows.ps1 -CheckOnly" para inspecionar o registro ou ".\register_cli_windows.ps1 -Uninstall" para remover de forma limpa.
+• Instalador Desktop (Inno Setup): durante a instalação via instalador tradicional do Windows, marque a opção "Adicionar omniframe-cli ao PATH do usuário (CMD e PowerShell)" e a associação de arquivos ".omniframe" (marcadas por padrão); a desinstalação remove os registros automaticamente.
+• Pacote Microsoft Store / MSIX: ao instalar pela Microsoft Store ou pacote .msix, o manifesto AppxManifest.xml registra AppExecutionAlias oficiais para omniframe.exe (aplicativo principal) e omniframe-cli.exe (alias nativo de console com suporte imediato em qualquer janela nova de CMD ou PowerShell).
+• Execução direta pelo caminho completo: mesmo sem registro no PATH, você sempre pode chamar omniframe-cli.exe diretamente informando o caminho da pasta de instalação ou distribuição (por exemplo C:\Pasta\OmniFrame3D\omniframe-cli.exe).
+
+ATENÇÃO: Após executar o registro no Windows (--install-windows-integration ou register_cli_windows.ps1), abra um novo Prompt de Comando (CMD) ou nova janela do PowerShell para que o novo PATH de usuário entre em vigor (ou utilize Configurações > CLI Windows > Abrir Terminal CMD com CLI / Abrir PowerShell com CLI na própria GUI, onde o ambiente já herda o caminho imediatamente).
+
+10.3 Suporte UTF-8, Caminhos Acentuados e Convenções no CMD vs PowerShell
+• Prompt de Comando (CMD): execute "chcp 65001 >nul" antes de capturar ou redirecionar saídas JSON/texto para arquivo para preservar integralmente acentos em português. Use sempre aspas duplas ao redor de caminhos com espaços ou acentos (ex.: "D:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe").
+• Windows PowerShell / PowerShell 7: defina "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8" quando gravar a saída padrão em arquivo ou consumir JSON via "ConvertFrom-Json". Se o caminho do executável estiver entre aspas, utilize o operador de chamada "&" do PowerShell (ex.: & "C:\OmniFrame3D\omniframe-cli.exe" --version).
+• Caminhos Unicode Nativos: tanto o parser de argumentos (CommandLineToArgvW UTF-16 convertido para UTF-8) quanto os gravadores e leitores de DXF, IFC4, JSON, CSV, VTK, HTML, Markdown e PDF operam com caminhos UTF-8 completos do Windows.
+
+10.4 Comandos de Versão, Ajuda, Exemplos e Integração Windows
+• --version | -v: exibe a identificação de versão ativa da CLI, padrão C++23, Eigen 3.4.0 e versão do schema de projeto (.omniframe 2.1.0), retornando código 0.
+• --help | -h: imprime a ajuda resumida oficial com sintaxe de uso no Windows 10/11 (CMD e PowerShell) e lista completa de opções, retornando código 0.
+• --list-examples: lista os três modelos estruturais oficiais embutidos com suas contagens de nós e barras (1 | building — Pórtico Espacial de Edifício, 2 | cantilever — Balanço Espacial em L, 3 | truss — Treliça Espacial 3D). Combinado com --json ou --output <caminho.json>, emite a lista em JSON estruturado.
+• --example <nome|1|2|3>: seleciona um modelo embutido sem precisar fornecer arquivo em disco. Aceita o número (1, 2, 3) ou aliases em inglês/português (building/portico/edificio/frame; cantilever/balanco/lframe; truss/trelica/passarela).
+• --check-windows-integration: consulta em tempo real as chaves HKCU/HKLM do Windows (PATH do usuário, PATH do sistema, PATH do processo, App Paths de omniframe-cli.exe e OmniFrame.exe, associação .omniframe e flag consolidada readyForCmdAndPowerShell). Combinado com --json, retorna o diagnóstico em JSON.
+• --install-windows-integration: registra a pasta ativa de omniframe-cli.exe e OmniFrame.exe no Windows 10/11 (PATH do usuário + App Paths + .omniframe) sem exigir privilégios administrativos.
+• --uninstall-windows-integration: remove do registro HKCU todas as entradas adicionadas pelo OmniFrame (PATH da pasta da CLI, App Paths e associação .omniframe), retornando saída limpa.
+
+10.5 Comandos de Validação Estrutural, Execução e Auditoria Normativa ABNT NBR
+• --validate [<arquivo.omniframe|dxf|ifc>]: carrega o arquivo (ou utiliza o modelo selecionado via --example) e executa validação offline de topologia, conectividade em grafo (BFS), finitude de coordenadas/propriedades, apoios e qualidade de malhas 2D/3D (quadriláteros, triângulos, tetraedros e hexaedros), preenchendo validationErrors, validationWarnings e validationIssues. Retorna 0 quando válido ou 2 quando inválido.
+• --analyze [<arquivo.omniframe|dxf|ifc>]: executa a análise estrutural configurada sobre o arquivo informado ou sobre o modelo selecionado por --example. Quando combinada com --output, --export ou --report sem especificar --validate isolado, a análise é executada automaticamente.
+• --nbr-audit | --audit-nbr [<arquivo.omniframe|dxf|ifc>]: executa a auditoria normativa consolidada (ABNT NBR 6118:2023, NBR 8800:2024, NBR 6120:2019, NBR 6122:2022, NBR 6123:2023 e NBR 7480:2022), calculando previamente o equilíbrio estático caso o comando seja usado sem outra análise prévia. Popula o bloco nbrAudit (passedAll, maxDcr, governingSummary, contagens de vigas/pilares/barras metálicas/fundações, elsDisplacement, wind6123 e coverageMatrix).
+
+10.6 Opções Completas de Análise, Solvers, Não Linearidade e Dinâmica
+• --analysis <tipo>: escolhe o tipo de análise numérica — valores aceitos: static (padrão), modal, buckling, nonlinear, pdelta, harmonic, spectrum, transient ou seismic.
+• --solver <tipo>: força ou permite seleção automática do solver linear da suíte LinearSolverSuite — auto (padrão, com fallback auditado), ldlt (SimplicialLDLT), llt (SimplicialLLT), sparselu (SparseLU), cg (ConjugateGradient) ou bicgstab (BiCGSTAB).
+• --modes <N>: número de modos próprios ou de flambagem a calcular em modal, buckling ou spectrum (inteiro >= 1; padrão: 6).
+• --steps <N>: número de incrementos de carga em nonlinear/pdelta ou de passos de integração temporal em transient/seismic (inteiro >= 1; padrão: 20).
+• --dt <segundos>: incremento de tempo em segundos para integração transient ou seismic (valor mínimo: 0.00001 s; padrão: 0.02 s).
+• --scheme <newmark|hht>: seleciona o algoritmo integrador temporal em análises transient ou seismic — newmark (Newmark-beta média constante, padrão) ou hht (Hilber-Hughes-Taylor HHT-alpha).
+• --case <id>: seleciona o identificador inteiro do Caso de Carga (LoadCase) utilizado em static ou transient.
+• --combo <id>: seleciona o identificador inteiro da Combinação ABNT (LoadCombination) aplicada na análise static.
+• --method <nr|arclength>: define o método incremental-iterativo para nonlinear — nr (Newton-Raphson, padrão) ou arclength (Arc-Length cilíndrico de Crisfield).
+• --load-factor <fator>: define o fator multiplicador de carga alvo para nonlinear e pdelta (padrão: 1.0).
+• --full-tangent: atualiza a matriz de rigidez tangente global Kt a cada iteração do método de Newton-Raphson (Full Newton-Raphson, comportamento padrão).
+• --modified-newton: mantém a matriz tangente Kt fixa durante as iterações de cada passo incremental (Newton Modificado).
+• --line-search: habilita busca linear com retrocesso (backtracking line search) no Newton-Raphson (comportamento padrão).
+• --no-line-search: desabilita a busca linear no Newton-Raphson para testes de convergência pura.
+• --imperfection <amp_m>: executa previamente uma análise de flambagem linear e aplica uma perturbação geométrica inicial proporcional ao modo escolhido com amplitude máxima especificada em metros (ex.: 0.005 para 5 mm) antes de resolver ou exportar o modelo (requer modelo com modo de flambagem positivo válido).
+• --imperfection-mode <N>: seleciona o modo de flambagem (índice base 1; padrão: 1) usado por --imperfection.
+
+10.7 Exportação, Memoriais Técnicos, Saída JSON e Códigos de Retorno
+• --export <fmt> <caminho>: exporta modelo e/ou resultados para disco (a flag pode ser repetida várias vezes no mesmo comando para múltiplos formatos). Formatos suportados: json (projeto .omniframe serializado com deslocamentos e tensões), csv (deslocamentos nodais e tabela completa de tensões contínuas de casca/sólido), vtk (VTK legado UNSTRUCTURED_GRID 1D/2D/3D com vetor deslocamento e campo escalar von_mises_kPa para ParaView), dxf (CAD 3D compatível) e ifc (BIM IFC4 estrutural).
+• --report <fmt> <caminho>: gera memorial de cálculo completo em md (Markdown), html (HTML5 estilizado) ou pdf (PDF técnico formato A4). Pode ser repetido na mesma chamada e incorpora automaticamente os resultados estáticos, modais, de flambagem, não lineares e auditoria NBR disponíveis.
+• --output <caminho.json>: grava o resumo JSON estruturado completo em arquivo no disco (útil mesmo quando não se imprime o JSON no terminal).
+• --json: imprime o objeto JSON completo e indentado diretamente no stdout (saída padrão).
+• Campos principais do JSON: schemaVersion, inputFile, exampleName, analysisType, valid, nodes, elements, surfaceNodes, surfaceElements, validationErrors, validationWarnings, validationIssues, success e error; além dos blocos específicos do solver executado (maxNodalDisplacement, totalStrainEnergy, relativeResidual, usedFallback, solverMessage, equilibriumBalanced, frequenciesHz, criticalLoadFactors, appliedImperfection, totalSteps, totalIterations, finalLoadFactor, fullNewtonTangent, enableLineSearch, anyYielded, scheme, dt, peakDispNorm, nbrAudit e campos readyForCmdAndPowerShell / registry no diagnóstico Windows).
+• Códigos de retorno do processo (Exit Codes):
+1. Código 0: execução concluída com sucesso (comando de consulta, validação aprovada, análise convergida e todas as exportações/memoriais gravados).
+2. Código 1: erro de sintaxe nos argumentos, arquivo de entrada inexistente ou ilegível, formato desconhecido, falha ao gravar exportação/relatório ou falha de integração com o Registro do Windows.
+3. Código 2: falha na validação do modelo estrutural (--validate) ou falha numérica/física na solução (mecanismo, rigidez singular, ausência de modo de flambagem positivo em --imperfection ou não convergência).
+
+10.8 Exemplos Completos de Uso no Prompt de Comando (CMD)
+Execute os comandos abaixo diretamente no Prompt de Comando (cmd.exe) do Windows 10/11:
+CMD> chcp 65001 >nul
+CMD> omniframe-cli --version
+CMD> omniframe-cli --install-windows-integration --json
+CMD> omniframe-cli --check-windows-integration
+CMD> omniframe-cli --list-examples
+CMD> omniframe-cli --validate "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe" --json
+CMD> omniframe-cli --example building --nbr-audit --report pdf "C:\Projetos\memorial_edificio.pdf" --export vtk "C:\Projetos\edificio.vtk" --json
+CMD> omniframe-cli --analyze "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe" --analysis modal --modes 10 --solver ldlt --output "C:\Projetos\modal.json"
+CMD> omniframe-cli --example building --analysis nonlinear --steps 12 --load-factor 1.25 --method nr --modified-newton --no-line-search --imperfection 0.005 --imperfection-mode 1 --json
+CMD> echo Codigo de saida: %ERRORLEVEL%
+CMD> OmniFrame.exe "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe"
+
+10.9 Exemplos Completos de Uso no Windows PowerShell e Automação em Lote
+Execute os fluxos abaixo diretamente no Windows PowerShell ou em scripts .ps1 de automação:
+PS> [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+PS> omniframe-cli --version
+PS> omniframe-cli --check-windows-integration --json | ConvertFrom-Json
+PS> $res = omniframe-cli --example cantilever --analysis transient --scheme hht --dt 0.01 --steps 50 --export csv ".\saida_hht.csv" --json | ConvertFrom-Json
+PS> if ($LASTEXITCODE -eq 0 -and $res.success) { Write-Host "Deslocamento pico HHT (m):" $res.peakDispNorm }
+PS> Get-ChildItem "C:\Projetos\*.omniframe" | ForEach-Object { $nome = $_.BaseName; omniframe-cli --analyze $_.FullName --nbr-audit --export dxf "$nome.dxf" --export ifc "$nome.ifc" --report md "$nome.md" --output "$nome.json"; Write-Host "$($_.Name) -> ExitCode=$LASTEXITCODE" }
+PS> OmniFrame.exe --example truss --analysis buckling --modes 4 --json | Out-String
+PS> .\register_cli_windows.ps1 -CheckOnly

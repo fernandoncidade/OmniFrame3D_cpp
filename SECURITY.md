@@ -51,6 +51,7 @@ Se você identificou uma potencial vulnerabilidade de segurança (como estouro d
 - **100% Autônomo, Local e Offline:** O software opera com soberania absoluta de dados. Nenhum dado geométrico, propriedade de seção/material, carregamento ou resultado de cálculo estrutural é transmitido pela rede.
 - **Validação Rigorosa de Entrada:** Todos os arquivos `.omniframe` (JSON), bem como modelos CAD/BIM importados (`.dxf` e `.ifc`), passam por verificação estrita de esquema, limites numéricos, coordenadas finitas (`std::isfinite`) e consistência topológica para evitar problemas de segurança de memória.
 - **Isolamento de Renderização Gráfica:** A viewport 3D utiliza shaders OpenGL 3.3 Core Profile validados e compilados internamente no processo, sem carregamento dinâmico de código binário arbitrário ou injeção de shaders não confiáveis na GPU.
+- **Integração Windows sem Elevação:** O registro opcional da CLI no Windows 10/11 (`Configurações > CLI Windows`, `--install-windows-integration` e `register_cli_windows.ps1`) atua estritamente no escopo do usuário atual (`HKCU`, sem privilégios administrativos), tratando argumentos UTF-16 (`CommandLineToArgvW`) e caminhos Unicode (`std::filesystem::path`) de forma segura e integralmente reversível (`--uninstall-windows-integration`).
 
 </details>
 
@@ -100,5 +101,6 @@ If you believe you have discovered a security vulnerability in OmniFrame 3D (suc
 - **100% Autonomous, Local & Offline:** The application operates with complete data sovereignty. No geometric coordinates, section/material properties, load vectors, or FEA calculation results are transmitted over the network.
 - **Strict Input Validation:** All `.omniframe` (JSON) project files, as well as imported CAD/BIM models (`.dxf` and `.ifc`), undergo rigorous schema validation, numeric boundary checks, coordinate finiteness checks (`std::isfinite`), and topological consistency verifications to prevent memory safety issues.
 - **Isolated GPU Rendering:** The 3D viewport utilizes strictly validated OpenGL 3.3 Core Profile shaders compiled in-process, preventing dynamic loading of arbitrary binary code or untrusted GPU shader injection.
+- **Non-Admin Windows CLI Integration:** Optional Windows 10/11 integration (`Settings > Windows CLI`, `--install-windows-integration`, and `register_cli_windows.ps1`) writes strictly to the current user registry hive (`HKCU`, no administrator elevation required), handles UTF-16 command-line arguments (`CommandLineToArgvW`) and Unicode file paths safely, and cleanly reverses every change (`--uninstall-windows-integration`).
 
 </details>

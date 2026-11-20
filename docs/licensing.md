@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Licenciamento, Termos de Código Aberto e Esclarecimento Comercial
 
-**Versão:** `2026.11.14.0`  
-**Data:** `14 de novembro de 2026`  
+**Versão:** `2026.11.15.0`  
+**Data:** `15 de novembro de 2027`  
 **Licença do Código-Fonte:** GNU Affero General Public License v3 (AGPLv3)  
 **Autor e Detentor dos Direitos Autorais:** Fernando Nillsson Cidade  
 
@@ -82,7 +82,7 @@ Este checklist resume o mapeamento documental exigido pelas diretrizes oficiais 
 | **Site (Recomendado)** | `https://github.com/fernandoncidade/OmniFrame_cpp` | Deve apontar para o site próprio do desenvolvedor — nunca para a listagem da Store. |
 | **Suporte ao Cliente (Recomendado)** | `linceu_lighthouse@outlook.com` / GitHub Issues | **A Microsoft não presta suporte ao cliente para este aplicativo**; o autor (desenvolvedor individual) oferece suporte voluntário best-effort. |
 | **Telefone e Endereço** | Desenvolvedor individual (`Fernando Nillsson Cidade`) | Obrigatório apenas para contas comerciais/corporativas que ofertam produtos na França; opcional para contas individuais. |
-| **Capacidades Restritas (`runFullTrust`)** | Declarada em [`repo/AppxManifest.xml`](../repo/AppxManifest.xml) | Justificativa pronta abaixo para *Opções de envio*. |
+| **Capacidades Restritas (`runFullTrust`)** | Declarada em [`repo/AppxManifest.xml`](../repo/AppxManifest.xml) | Declara ainda `AppExecutionAlias` para `omniframe.exe` e `omniframe-cli.exe` (`desktop4:Subsystem="console"`) e associação `.omniframe`, tudo 100% offline. Justificativa pronta abaixo. |
 | **Desinstalação Limpa (Política 10.2.7)** | Declarada em `README.md`, `privacy-policy.md` e `EULA` | Remoção limpa via Configurações do Windows / Menu Iniciar sem serviços em segundo plano. |
 | **Listagens da Store (`pt-BR` e `en-US`)** | Diretórios [`repo/LISTAGEM/pt_BR/`](../repo/LISTAGEM/pt_BR) e [`repo/LISTAGEM/en_US/`](../repo/LISTAGEM/en_US) | Fornecer descrição precisa (Política 10.1), mínimo 1 captura de tela por idioma (4+ recomendadas) e logotipos MSIX. |
 | **Palavras-chave / Termos de Busca** | Máximo **7 termos** exclusivos por idioma | Sem termos de preço e sem nomes de terceiros (Política 10.1.3). |
@@ -109,8 +109,8 @@ Este checklist resume o mapeamento documental exigido pelas diretrizes oficiais 
 
 # OmniFrame 3D — Licensing, Open Source Terms & Commercial Clarification
 
-**Version:** `2026.11.14.0`  
-**Date:** `November 14, 2026`  
+**Version:** `2026.11.15.0`  
+**Date:** `November 15, 2027`  
 **Source Code License:** GNU Affero General Public License v3 (AGPLv3)  
 **Author and Copyright Holder:** Fernando Nillsson Cidade  
 
@@ -177,7 +177,7 @@ This checklist summarizes the documentation mapping required by official Microso
 | **Website (Recommended)** | `https://github.com/fernandoncidade/OmniFrame_cpp` | Must point to the developer's own website — never to the Store listing URL. |
 | **Customer Support (Recommended)** | `linceu_lighthouse@outlook.com` / GitHub Issues | **Microsoft does not provide customer support for this application**; the author (individual developer) offers voluntary best-effort support. |
 | **Phone & Street Address** | Individual Developer (`Fernando Nillsson Cidade`) | Required only for business/company accounts offering products in France; optional for individual accounts. |
-| **Restricted Capabilities (`runFullTrust`)** | Declared in [`repo/AppxManifest.xml`](../repo/AppxManifest.xml) | Ready-to-paste justification below under *Submission options*. |
+| **Restricted Capabilities (`runFullTrust`)** | Declared in [`repo/AppxManifest.xml`](../repo/AppxManifest.xml) | Also registers `AppExecutionAlias` entries for `omniframe.exe` and `omniframe-cli.exe` (`desktop4:Subsystem="console"`) plus `.omniframe` file association, operating 100% offline. Copy-paste justification below. |
 | **Clean Uninstall (Policy 10.2.7)** | Declared in `README.md`, `privacy-policy.md`, and `EULA` | Clean removal via Windows Settings / Start Menu without residual background services. |
 | **Store Listings (`pt-BR` and `en-US`)** | Directories [`repo/LISTAGEM/pt_BR/`](../repo/LISTAGEM/pt_BR) and [`repo/LISTAGEM/en_US/`](../repo/LISTAGEM/en_US) | Provide accurate description (Policy 10.1), minimum 1 screenshot per language (4+ recommended), and MSIX logos. |
 | **Keywords / Search Terms** | Maximum **7 unique terms** per language | Zero pricing claims and zero third-party brand names (Policy 10.1.3). |

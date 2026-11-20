@@ -12,6 +12,7 @@
 #include "io/PdfReportGenerator.hpp"
 #include "io/ProjectSerializer.hpp"
 #include "locale/GerenciadorTraducao.hpp"
+#include "os/WindowsCliIntegration.hpp"
 
 #include <cmath>
 #include <memory>
@@ -451,6 +452,27 @@ void MainWindow::setupMenus() {
     connect(m_actLangPtBr, &QAction::triggered, this, [this]() { onChangeLanguage("pt_BR"); });
     connect(m_actLangEnUs, &QAction::triggered, this, [this]() { onChangeLanguage("en_US"); });
 
+    // Submenu CLI Windows (CMD / PowerShell) dentro de Configurações
+    m_settingsMenu->addSeparator();
+    m_cliWindowsMenu = m_settingsMenu->addMenu("CLI Windows (CMD / PowerShell)");
+    m_actCliInstallWin = m_cliWindowsMenu->addAction(
+        "Registrar omniframe-cli no Windows (PATH e App Paths)...",
+        this, &MainWindow::onInstallWindowsCliIntegration);
+    m_actCliUninstallWin = m_cliWindowsMenu->addAction(
+        "Remover Registro da CLI no Windows...",
+        this, &MainWindow::onUninstallWindowsCliIntegration);
+    m_cliWindowsMenu->addSeparator();
+    m_actCliOpenCmd = m_cliWindowsMenu->addAction(
+        "Abrir Prompt de Comando (CMD) com CLI...",
+        this, &MainWindow::onOpenCliTerminalCmd);
+    m_actCliOpenPowerShell = m_cliWindowsMenu->addAction(
+        "Abrir PowerShell com CLI...",
+        this, &MainWindow::onOpenCliTerminalPowerShell);
+    m_cliWindowsMenu->addSeparator();
+    m_actCliCheckWin = m_cliWindowsMenu->addAction(
+        "Verificar Status da CLI no Windows...",
+        this, &MainWindow::onCheckWindowsCliIntegration);
+
     syncRenderSettingsMenuState();
 
     // Menu Ajuda
@@ -508,6 +530,9 @@ void MainWindow::setupToolbars() {
     m_planeCombo->addItem("XY (Planta)", static_cast<int>(WorkPlane::XY_Top));
     m_planeCombo->addItem("YZ (Lateral)", static_cast<int>(WorkPlane::YZ_Side));
     connect(m_planeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onWorkPlaneChanged);
+    if (const int xyIdx = m_planeCombo->findData(static_cast<int>(WorkPlane::XY_Top)); xyIdx >= 0) {
+        m_planeCombo->setCurrentIndex(xyIdx);
+    }
     m_tb1->addWidget(m_planeCombo);
 
     m_offsetLabel = new QLabel(" Cota: ");
@@ -694,6 +719,23 @@ void MainWindow::setupDocks() {
     m_forcesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_resultsTabs->addTab(m_forcesTable, locale::GerenciadorTraducao::trText("Esforços nas Barras"));
 
+    // Aba 4: Esforços e Tensões 2D/3D (Casca/Sólido)
+    m_continuumTable = new QTableWidget();
+    m_continuumTable->setColumnCount(8);
+    m_continuumTable->setHorizontalHeaderLabels({
+        locale::GerenciadorTraducao::trText("Elemento"),
+        locale::GerenciadorTraducao::trText("Tipo"),
+        QStringLiteral("σ_vM (kPa)"),
+        QStringLiteral("σ_1 (kPa)"),
+        QStringLiteral("σ_3 (kPa)"),
+        QStringLiteral("Nxx / σxx"),
+        QStringLiteral("Nyy / σyy"),
+        QStringLiteral("Mxx / τxz")
+    });
+    m_continuumTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_continuumTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_resultsTabs->addTab(m_continuumTable, locale::GerenciadorTraducao::trText("Esforços 2D/3D (Casca/Sólido)"));
+
     m_resultsDock->setWidget(m_resultsTabs);
     addDockWidget(Qt::BottomDockWidgetArea, m_resultsDock);
 }
@@ -719,10 +761,27 @@ void MainWindow::setupStatusBar() {
     statusBar()->addPermanentWidget(m_statusProgress);
 }
 
+void MainWindow::applyDefaultExampleWorkPlane() {
+    if (m_planeCombo) {
+        const int xyIdx = m_planeCombo->findData(static_cast<int>(WorkPlane::XY_Top));
+        if (xyIdx >= 0) {
+            m_planeCombo->setCurrentIndex(xyIdx);
+        }
+    }
+    if (m_planeOffsetSpin) {
+        m_planeOffsetSpin->setValue(0.0);
+    }
+    if (m_viewport) {
+        m_viewport->setWorkPlane(WorkPlane::XY_Top);
+        m_viewport->setPlaneOffset(0.0);
+    }
+}
+
 // Exemplos Prontos
 void MainWindow::loadExampleBuilding() {
     m_hasSolvedContext = false;
     m_model = StructuralModel::createBuildingFrameExample();
+    applyDefaultExampleWorkPlane();
     m_viewport->setModel(&m_model);
     onModelModified();
     m_viewport->fitAll();
@@ -733,6 +792,7 @@ void MainWindow::loadExampleBuilding() {
 void MainWindow::loadExampleCantilever() {
     m_hasSolvedContext = false;
     m_model = StructuralModel::createCantileverLFrameExample();
+    applyDefaultExampleWorkPlane();
     m_viewport->setModel(&m_model);
     onModelModified();
     m_viewport->fitAll();
@@ -743,11 +803,73 @@ void MainWindow::loadExampleCantilever() {
 void MainWindow::loadExampleSpaceTruss() {
     m_hasSolvedContext = false;
     m_model = StructuralModel::createSpaceTrussExample();
+    applyDefaultExampleWorkPlane();
     m_viewport->setModel(&m_model);
     onModelModified();
     m_viewport->fitAll();
     onSolveStructure();
     showStatusMessage(locale::GerenciadorTraducao::trText("Exemplo 3 carregado: Passarela Treliçada Espacial 3D."));
+}
+
+bool MainWindow::openProjectFileFromCommandLine(const QString& filePath) {
+    if (filePath.trimmed().isEmpty()) {
+        return false;
+    }
+    const QString lower = filePath.toLower();
+    if (lower.endsWith(QStringLiteral(".dxf"))) {
+        StructuralModel importedModel;
+        kernel::MeshContainer importedMesh;
+        io::DxfInteropReport rep;
+        if (!io::DxfInterop::importFromFile(filePath.toUtf8().toStdString(), importedModel, &importedMesh, io::DxfImportOptions{}, &rep) || !rep.success) {
+            showStatusMessage(locale::GerenciadorTraducao::trText("Falha ao importar arquivo DXF: %1")
+                .arg(QString::fromStdString(rep.errorMessage)));
+            return false;
+        }
+        if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
+            importedModel.surfaceMesh() = std::move(importedMesh);
+        }
+        m_hasSolvedContext = false;
+        m_model = std::move(importedModel);
+        m_viewport->setModel(&m_model);
+        onModelModified();
+        m_viewport->fitAll();
+        showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(filePath));
+        return true;
+    }
+    if (lower.endsWith(QStringLiteral(".ifc"))) {
+        StructuralModel importedModel;
+        kernel::MeshContainer importedMesh;
+        io::IfcGuidMap guidMap;
+        io::IfcInteropReport rep;
+        if (!io::IfcInterop::importFromFile(filePath.toUtf8().toStdString(), importedModel, &importedMesh, &guidMap, &rep) || !rep.success) {
+            showStatusMessage(locale::GerenciadorTraducao::trText("Não foi possível carregar o arquivo especificado."));
+            return false;
+        }
+        if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
+            importedModel.surfaceMesh() = std::move(importedMesh);
+        }
+        m_hasSolvedContext = false;
+        m_model = std::move(importedModel);
+        m_viewport->setModel(&m_model);
+        onModelModified();
+        m_viewport->fitAll();
+        showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(filePath));
+        return true;
+    }
+
+    StructuralModel loadedModel;
+    if (!ProjectSerializer::loadFromFile(filePath, loadedModel)) {
+        showStatusMessage(locale::GerenciadorTraducao::trText("Não foi possível carregar o arquivo especificado."));
+        return false;
+    }
+    m_hasSolvedContext = false;
+    m_model = std::move(loadedModel);
+    m_viewport->setModel(&m_model);
+    m_lastSolverResult = SolverResult();
+    onModelModified();
+    m_viewport->fitAll();
+    showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(filePath));
+    return true;
 }
 
 // Ações de Arquivo
@@ -1004,10 +1126,11 @@ void MainWindow::onExportIfc() {
 }
 
 bool MainWindow::ensureStaticSolvedSync() {
-    if (m_lastSolverResult.success && !m_model.getElements().empty()) {
+    const bool hasAnyElements = !m_model.getElements().empty() || !m_model.surfaceMesh().elements.empty();
+    if (m_lastSolverResult.success && hasAnyElements) {
         return true;
     }
-    if (m_solveInProgress || m_model.getElements().empty()) {
+    if (m_solveInProgress || !hasAnyElements) {
         return false;
     }
     const ModelValidation val = m_model.validate();
@@ -1029,7 +1152,7 @@ bool MainWindow::ensureStaticSolvedSync() {
 
 std::unordered_map<ElementId, double> MainWindow::computeModelDcrMap() const {
     std::unordered_map<ElementId, double> dcrMap;
-    if (m_model.getElements().empty()) {
+    if (m_model.getElements().empty() && m_model.surfaceMesh().elements.empty()) {
         return dcrMap;
     }
     io::PdfReportOptions opts;
@@ -1153,7 +1276,8 @@ void MainWindow::onOpenAnalysisSuite() {
             if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
             if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
         },
-        [this](const QString& msg) { showStatusMessage(msg); });
+        [this](const QString& msg) { showStatusMessage(msg); },
+        [this]() { onModelModified(); });
     m_analysisSuiteDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
     m_windowManager->showAndRaise(dlg);
@@ -1304,9 +1428,14 @@ bool MainWindow::runSolver(bool interactive) {
 
         const auto& srcNodes = payload->snapshot.getNodes();
         const auto& srcElems = payload->snapshot.getElements();
+        const auto& srcMesh = payload->snapshot.surfaceMesh();
         auto& dstNodes = m_model.getNodes();
         auto& dstElems = m_model.getElements();
-        bool sameTopology = (srcNodes.size() == dstNodes.size()) && (srcElems.size() == dstElems.size());
+        auto& dstMesh = m_model.surfaceMesh();
+        bool sameTopology = (srcNodes.size() == dstNodes.size())
+                         && (srcElems.size() == dstElems.size())
+                         && (srcMesh.nodes.size() == dstMesh.nodes.size())
+                         && (srcMesh.elements.size() == dstMesh.elements.size());
         if (sameTopology) {
             for (size_t i = 0; i < srcNodes.size(); ++i) {
                 if (srcNodes[i].id != dstNodes[i].id ||
@@ -1321,6 +1450,15 @@ bool MainWindow::runSolver(bool interactive) {
                 if (srcElems[i].id != dstElems[i].id ||
                     srcElems[i].nodeStart != dstElems[i].nodeStart ||
                     srcElems[i].nodeEnd != dstElems[i].nodeEnd) {
+                    sameTopology = false;
+                    break;
+                }
+            }
+        }
+        if (sameTopology) {
+            for (size_t i = 0; i < srcMesh.nodes.size(); ++i) {
+                if (srcMesh.nodes[i].id != dstMesh.nodes[i].id ||
+                    (srcMesh.nodes[i].position - dstMesh.nodes[i].position).norm() > 1e-9) {
                     sameTopology = false;
                     break;
                 }
@@ -1345,6 +1483,21 @@ bool MainWindow::runSolver(bool interactive) {
             dstElems[i].localEndForces = srcElems[i].localEndForces;
             dstElems[i].hasResults = srcElems[i].hasResults;
         }
+        for (size_t i = 0; i < srcMesh.nodes.size(); ++i) {
+            dstMesh.nodes[i].hasResults = srcMesh.nodes[i].hasResults;
+            dstMesh.nodes[i].displacement = srcMesh.nodes[i].displacement;
+            dstMesh.nodes[i].reaction = srcMesh.nodes[i].reaction;
+        }
+        for (size_t i = 0; i < srcMesh.elements.size(); ++i) {
+            dstMesh.elements[i].hasResults = srcMesh.elements[i].hasResults;
+            dstMesh.elements[i].vonMisesStress = srcMesh.elements[i].vonMisesStress;
+            dstMesh.elements[i].maxPrincipalStress = srcMesh.elements[i].maxPrincipalStress;
+            dstMesh.elements[i].minPrincipalStress = srcMesh.elements[i].minPrincipalStress;
+            dstMesh.elements[i].membraneResultants = srcMesh.elements[i].membraneResultants;
+            dstMesh.elements[i].bendingResultants = srcMesh.elements[i].bendingResultants;
+            dstMesh.elements[i].transverseShear = srcMesh.elements[i].transverseShear;
+            dstMesh.elements[i].stressVoigt = srcMesh.elements[i].stressVoigt;
+        }
         m_lastSolverResult = payload->result;
 
         if (m_lastSolverResult.success) {
@@ -1356,6 +1509,11 @@ bool MainWindow::runSolver(bool interactive) {
                           .arg(m_lastSolverResult.equilibrium.isBalanced
                               ? locale::GerenciadorTraducao::trText("OK (ΣF=0)")
                               : locale::GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
+            if (m_lastSolverResult.totalSurfaceElements > 0) {
+                msg += QStringLiteral(" | 2D/3D: +%1n / +%2e")
+                           .arg(m_lastSolverResult.totalSurfaceNodes)
+                           .arg(m_lastSolverResult.totalSurfaceElements);
+            }
 
             m_solverStatusLabel->setText(msg);
             showStatusMessage(msg);
@@ -1682,9 +1840,15 @@ void MainWindow::onModelModified() {
         m_viewport->clearPostAnimation();
     }
 
-    m_modelStatsLabel->setText(locale::GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
-                               .arg(m_model.getNodes().size())
-                               .arg(m_model.getElements().size()));
+    QString statsMsg = locale::GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
+                           .arg(m_model.getNodes().size())
+                           .arg(m_model.getElements().size());
+    if (!m_model.surfaceMesh().elements.empty()) {
+        statsMsg += QStringLiteral(" | 2D/3D: %1n / %2e")
+                        .arg(m_model.surfaceMesh().nodes.size())
+                        .arg(m_model.surfaceMesh().elements.size());
+    }
+    m_modelStatsLabel->setText(statsMsg);
     updateUndoRedoActions();
     m_model.syncAutoCapturedViewportLoadCase();
     if (m_materialCatalogDialog) m_materialCatalogDialog->refreshList();
@@ -2269,14 +2433,38 @@ void MainWindow::updateResultsTables() {
     m_dispTable->setRowCount(0);
     m_reacTable->setRowCount(0);
     m_forcesTable->setRowCount(0);
+    if (m_continuumTable) {
+        m_continuumTable->setRowCount(0);
+    }
 
     if (!m_lastSolverResult.success) {
         return;
     }
 
-    // 1. Tabela de Deslocamentos Nodais
     const auto& nodes = m_model.getNodes();
-    m_dispTable->setRowCount(static_cast<int>(nodes.size()));
+    const auto& mesh = m_model.surfaceMesh();
+
+    // Evita duplicar linhas de nós coincidentes entre barras 1D e malha 2D/3D acoplada
+    std::vector<const kernel::MeshNode*> uniqueMeshNodes;
+    uniqueMeshNodes.reserve(mesh.nodes.size());
+    for (const auto& mn : mesh.nodes) {
+        bool coincidesWithFrame = false;
+        for (const auto& fn : nodes) {
+            const double dx = fn.x() - mn.position.x();
+            const double dy = fn.y() - mn.position.y();
+            const double dz = fn.z() - mn.position.z();
+            if ((dx * dx + dy * dy + dz * dz) <= 1e-12) {
+                coincidesWithFrame = true;
+                break;
+            }
+        }
+        if (!coincidesWithFrame) {
+            uniqueMeshNodes.push_back(&mn);
+        }
+    }
+
+    // 1. Tabela de Deslocamentos Nodais
+    m_dispTable->setRowCount(static_cast<int>(nodes.size() + uniqueMeshNodes.size()));
 
     for (int r = 0; r < static_cast<int>(nodes.size()); ++r) {
         const auto& n = nodes[r];
@@ -2288,12 +2476,24 @@ void MainWindow::updateResultsTables() {
         m_dispTable->setItem(r, 5, new QTableWidgetItem(QString::number(n.displacement[4] * 1000.0, 'f', 3)));
         m_dispTable->setItem(r, 6, new QTableWidgetItem(QString::number(n.displacement[5] * 1000.0, 'f', 3)));
     }
+    for (int m = 0; m < static_cast<int>(uniqueMeshNodes.size()); ++m) {
+        const int r = static_cast<int>(nodes.size()) + m;
+        const auto* mn = uniqueMeshNodes[static_cast<std::size_t>(m)];
+        const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+        m_dispTable->setItem(r, 0, new QTableWidgetItem(idLabel));
+        for (int d = 0; d < 6; ++d) {
+            m_dispTable->setItem(r, d + 1, new QTableWidgetItem(QString::number(mn->displacement[d] * 1000.0, 'f', 3)));
+        }
+    }
 
     // 2. Tabela de Reações de Apoio
     m_reacTable->setRowCount(0);
     int supportedCount = 0;
     for (const auto& n : nodes) {
         if (n.isSupported()) supportedCount++;
+    }
+    for (const auto* mn : uniqueMeshNodes) {
+        if (mn->isSupported()) supportedCount++;
     }
 
     m_reacTable->setRowCount(supportedCount + 1); // +1 para linha de soma de equilíbrio
@@ -2307,6 +2507,15 @@ void MainWindow::updateResultsTables() {
         m_reacTable->setItem(row, 4, new QTableWidgetItem(QString::number(n.reaction[3], 'f', 2)));
         m_reacTable->setItem(row, 5, new QTableWidgetItem(QString::number(n.reaction[4], 'f', 2)));
         m_reacTable->setItem(row, 6, new QTableWidgetItem(QString::number(n.reaction[5], 'f', 2)));
+        row++;
+    }
+    for (const auto* mn : uniqueMeshNodes) {
+        if (!mn->isSupported()) continue;
+        const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+        m_reacTable->setItem(row, 0, new QTableWidgetItem(idLabel));
+        for (int d = 0; d < 6; ++d) {
+            m_reacTable->setItem(row, d + 1, new QTableWidgetItem(QString::number(mn->reaction[d], 'f', 2)));
+        }
         row++;
     }
 
@@ -2335,6 +2544,29 @@ void MainWindow::updateResultsTables() {
         m_forcesTable->setItem(r, 6, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Mz_min, 0, 'f', 1).arg(ext.Mz_max, 0, 'f', 1)));
         m_forcesTable->setItem(r, 7, new QTableWidgetItem(QString::number(ext.maxDeflection * 1000.0, 'f', 2)));
     }
+
+    // 4. Tabela de Esforços e Tensões 2D/3D (Casca / Sólido)
+    if (m_continuumTable) {
+        const auto& cont = m_lastSolverResult.continuumElementResults;
+        m_continuumTable->setRowCount(static_cast<int>(cont.size()));
+        for (int r = 0; r < static_cast<int>(cont.size()); ++r) {
+            const auto& ce = cont[static_cast<std::size_t>(r)];
+            m_continuumTable->setItem(r, 0, new QTableWidgetItem(QString::number(ce.elementId)));
+            m_continuumTable->setItem(r, 1, new QTableWidgetItem(QString::fromStdString(ce.cellTypeName)));
+            m_continuumTable->setItem(r, 2, new QTableWidgetItem(QString::number(ce.vonMisesStress, 'f', 2)));
+            m_continuumTable->setItem(r, 3, new QTableWidgetItem(QString::number(ce.maxPrincipalStress, 'f', 2)));
+            m_continuumTable->setItem(r, 4, new QTableWidgetItem(QString::number(ce.minPrincipalStress, 'f', 2)));
+            if (ce.isShell) {
+                m_continuumTable->setItem(r, 5, new QTableWidgetItem(QString::number(ce.membraneResultants[0], 'f', 2) + QStringLiteral(" kN/m")));
+                m_continuumTable->setItem(r, 6, new QTableWidgetItem(QString::number(ce.membraneResultants[1], 'f', 2) + QStringLiteral(" kN/m")));
+                m_continuumTable->setItem(r, 7, new QTableWidgetItem(QString::number(ce.bendingResultants[0], 'f', 3) + QStringLiteral(" kNm/m")));
+            } else {
+                m_continuumTable->setItem(r, 5, new QTableWidgetItem(QString::number(ce.stressVoigt[0], 'f', 2) + QStringLiteral(" kPa")));
+                m_continuumTable->setItem(r, 6, new QTableWidgetItem(QString::number(ce.stressVoigt[1], 'f', 2) + QStringLiteral(" kPa")));
+                m_continuumTable->setItem(r, 7, new QTableWidgetItem(QString::number(ce.stressVoigt[4], 'f', 2) + QStringLiteral(" kPa")));
+            }
+        }
+    }
 }
 
 void MainWindow::updateCursorCoordinates(double x, double y, double z) {
@@ -2360,14 +2592,15 @@ GuidedSessionDialog* MainWindow::guidedSessionDialog() const {
 }
 
 void MainWindow::onGuidedSession() {
-    const bool firstCreate = m_guidedSessionDialog.isNull();
-    openManagedInfoDialog(
-        m_windowManager, m_guidedSessionDialog, true,
-        [this]() { return new GuidedSessionDialog(this, nullptr); }
-    );
-    if (firstCreate && m_guidedSessionDialog) {
-        m_guidedSessionDialog->positionHudNearMainWindow();
+    if (m_guidedSessionDialog) {
+        m_windowManager->showAndRaise(m_guidedSessionDialog.data());
+        return;
     }
+    auto* dlg = new GuidedSessionDialog(this, nullptr);
+    m_guidedSessionDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    dlg->positionHudNearMainWindow();
+    m_windowManager->showAndRaise(dlg);
 }
 
 void MainWindow::onAbout() {
@@ -2375,6 +2608,93 @@ void MainWindow::onAbout() {
         m_windowManager, m_aboutDialog, true,
         []() { return new AboutDialog(nullptr); }
     );
+}
+
+void MainWindow::onInstallWindowsCliIntegration() {
+    using locale::GerenciadorTraducao;
+    QString details;
+    const bool ok = os::installWindowsCliIntegration(QString(), &details);
+    const os::CliIntegrationStatus st = os::queryWindowsCliIntegration();
+    if (ok) {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Information,
+            GerenciadorTraducao::trText("Integração CLI Windows Concluída"),
+            GerenciadorTraducao::trText("O binário omniframe-cli.exe foi registrado no Windows 10/11 (HKCU Environment PATH, App Paths e extensão .omniframe).\n\nDiretório: %1\n\nNovos terminais CMD e PowerShell já podem executar 'omniframe-cli --help' diretamente.")
+                .arg(st.installDirectory));
+        showStatusMessage(GerenciadorTraducao::trText("CLI integrada ao PATH do Windows (CMD e PowerShell)."));
+    } else {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Warning,
+            GerenciadorTraducao::trText("Falha na Integração CLI Windows"),
+            GerenciadorTraducao::trText("Não foi possível concluir o registro completo da CLI no Windows.\n\nDetalhes: %1")
+                .arg(details));
+    }
+}
+
+void MainWindow::onUninstallWindowsCliIntegration() {
+    using locale::GerenciadorTraducao;
+    QString details;
+    os::uninstallWindowsCliIntegration(QString(), &details);
+    m_windowManager->showModelessMessage(
+        QMessageBox::Information,
+        GerenciadorTraducao::trText("Integração CLI Removida"),
+        GerenciadorTraducao::trText("As entradas de usuário (HKCU PATH, App Paths e associação .omniframe) deste diretório foram removidas com segurança.\n\n%1")
+            .arg(details));
+    showStatusMessage(GerenciadorTraducao::trText("Registro HKCU da CLI removido."));
+}
+
+void MainWindow::onCheckWindowsCliIntegration() {
+    using locale::GerenciadorTraducao;
+    const os::CliIntegrationStatus st = os::queryWindowsCliIntegration();
+    const QString yesStr = GerenciadorTraducao::trText("Sim");
+    const QString noStr = GerenciadorTraducao::trText("Não");
+    const QString summary = GerenciadorTraducao::trText(
+        "Status da Integração omniframe-cli.exe no Windows 10/11:\n\n"
+        "• Diretório ativo: %1\n"
+        "• omniframe-cli.exe encontrado: %2\n"
+        "• PATH do Usuário (HKCU): %3\n"
+        "• PATH do Sistema (HKLM): %4\n"
+        "• App Paths (omniframe-cli.exe): %5\n"
+        "• Associação .omniframe: %6\n"
+        "• Pronto para CMD e PowerShell: %7")
+        .arg(st.installDirectory)
+        .arg(st.cliBinaryExists ? yesStr : noStr)
+        .arg(st.installDirInUserPath ? yesStr : noStr)
+        .arg(st.installDirInSystemPath ? yesStr : noStr)
+        .arg(st.appPathsCliRegistered ? yesStr : noStr)
+        .arg(st.fileAssocRegistered ? yesStr : noStr)
+        .arg(st.isReadyForCmdAndPowerShell() ? yesStr : noStr);
+
+    m_windowManager->showModelessMessage(
+        QMessageBox::Information,
+        GerenciadorTraducao::trText("Status da CLI Windows (CMD / PowerShell)"),
+        summary);
+}
+
+void MainWindow::onOpenCliTerminalCmd() {
+    using locale::GerenciadorTraducao;
+    QString err;
+    if (!os::openInteractiveCliTerminal(false, QString(), QString(), &err)) {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Warning,
+            GerenciadorTraducao::trText("Erro ao Abrir CMD"),
+            GerenciadorTraducao::trText("Não foi possível iniciar o Prompt de Comando com a CLI.\n\nDetalhes: %1").arg(err));
+        return;
+    }
+    showStatusMessage(GerenciadorTraducao::trText("Prompt de Comando (CMD) iniciado com omniframe-cli ativo."));
+}
+
+void MainWindow::onOpenCliTerminalPowerShell() {
+    using locale::GerenciadorTraducao;
+    QString err;
+    if (!os::openInteractiveCliTerminal(true, QString(), QString(), &err)) {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Warning,
+            GerenciadorTraducao::trText("Erro ao Abrir PowerShell"),
+            GerenciadorTraducao::trText("Não foi possível iniciar o PowerShell com a CLI.\n\nDetalhes: %1").arg(err));
+        return;
+    }
+    showStatusMessage(GerenciadorTraducao::trText("PowerShell iniciado com omniframe-cli ativo."));
 }
 
 void MainWindow::applyAndSaveRenderSettings(const RenderQualitySettings& settings) {
@@ -2730,6 +3050,13 @@ void MainWindow::retranslateUi() {
     if (m_actLangPtBr) m_actLangPtBr->setChecked(!isEn);
     if (m_actLangEnUs) m_actLangEnUs->setChecked(isEn);
 
+    if (m_cliWindowsMenu) m_cliWindowsMenu->setTitle(GerenciadorTraducao::trText("CLI Windows (CMD / PowerShell)"));
+    if (m_actCliInstallWin) m_actCliInstallWin->setText(GerenciadorTraducao::trText("Registrar omniframe-cli no Windows (PATH e App Paths)..."));
+    if (m_actCliUninstallWin) m_actCliUninstallWin->setText(GerenciadorTraducao::trText("Remover Registro da CLI no Windows..."));
+    if (m_actCliOpenCmd) m_actCliOpenCmd->setText(GerenciadorTraducao::trText("Abrir Prompt de Comando (CMD) com CLI..."));
+    if (m_actCliOpenPowerShell) m_actCliOpenPowerShell->setText(GerenciadorTraducao::trText("Abrir PowerShell com CLI..."));
+    if (m_actCliCheckWin) m_actCliCheckWin->setText(GerenciadorTraducao::trText("Verificar Status da CLI no Windows..."));
+
     if (m_helpMenu) m_helpMenu->setTitle(GerenciadorTraducao::trText("&Ajuda"));
     if (m_actManual) m_actManual->setText(GerenciadorTraducao::trText("Manual"));
     if (m_actGuidedSession) m_actGuidedSession->setText(GerenciadorTraducao::trText("Sessão Guiada..."));
@@ -2785,6 +3112,9 @@ void MainWindow::retranslateUi() {
         m_resultsTabs->setTabText(0, GerenciadorTraducao::trText("Deslocamentos Nodais"));
         m_resultsTabs->setTabText(1, GerenciadorTraducao::trText("Reações de Apoio"));
         m_resultsTabs->setTabText(2, GerenciadorTraducao::trText("Esforços nas Barras"));
+        if (m_resultsTabs->count() > 3) {
+            m_resultsTabs->setTabText(3, GerenciadorTraducao::trText("Esforços 2D/3D (Casca/Sólido)"));
+        }
     }
     if (m_dispTable) {
         m_dispTable->setHorizontalHeaderLabels({GerenciadorTraducao::trText("Nó"), "uX (mm)", "uY (mm)", "uZ (mm)", "θX (mrad)", "θY (mrad)", "θZ (mrad)"});
@@ -2795,15 +3125,33 @@ void MainWindow::retranslateUi() {
     if (m_forcesTable) {
         m_forcesTable->setHorizontalHeaderLabels({GerenciadorTraducao::trText("Barra"), "N min/max (kN)", "Vy min/max (kN)", "Vz min/max (kN)", "Tx min/max (kNm)", "My min/max (kNm)", "Mz min/max (kNm)", GerenciadorTraducao::trText("Flecha (mm)")});
     }
+    if (m_continuumTable) {
+        m_continuumTable->setHorizontalHeaderLabels({
+            GerenciadorTraducao::trText("Elemento"),
+            GerenciadorTraducao::trText("Tipo"),
+            QStringLiteral("σ_vM (kPa)"),
+            QStringLiteral("σ_1 (kPa)"),
+            QStringLiteral("σ_3 (kPa)"),
+            QStringLiteral("Nxx / σxx"),
+            QStringLiteral("Nyy / σyy"),
+            QStringLiteral("Mxx / τxz")
+        });
+    }
 
     if (m_modelStatsLabel) {
-        m_modelStatsLabel->setText(GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
-                                   .arg(m_model.getNodes().size())
-                                   .arg(m_model.getElements().size()));
+        QString statsMsg = GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
+                               .arg(m_model.getNodes().size())
+                               .arg(m_model.getElements().size());
+        if (!m_model.surfaceMesh().elements.empty()) {
+            statsMsg += QStringLiteral(" | 2D/3D: %1n / %2e")
+                            .arg(m_model.surfaceMesh().nodes.size())
+                            .arg(m_model.surfaceMesh().elements.size());
+        }
+        m_modelStatsLabel->setText(statsMsg);
     }
     if (m_solverStatusLabel) {
         if (m_lastSolverResult.success) {
-            m_solverStatusLabel->setText(
+            QString okMsg =
                 GerenciadorTraducao::trText("Cálculo MEF concluído com sucesso em %1 ms (%2 nós, %3 barras, %4 DOFs). Equilíbrio: %5")
                 .arg(m_lastSolverResult.executionTimeMs, 0, 'f', 1)
                 .arg(m_lastSolverResult.totalNodes)
@@ -2811,7 +3159,13 @@ void MainWindow::retranslateUi() {
                 .arg(m_lastSolverResult.totalDofs)
                 .arg(m_lastSolverResult.equilibrium.isBalanced
                     ? GerenciadorTraducao::trText("OK (ΣF=0)")
-                    : GerenciadorTraducao::trText("Alerta de Desequilíbrio")));
+                    : GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
+            if (m_lastSolverResult.totalSurfaceElements > 0) {
+                okMsg += QStringLiteral(" | 2D/3D: +%1n / +%2e")
+                             .arg(m_lastSolverResult.totalSurfaceNodes)
+                             .arg(m_lastSolverResult.totalSurfaceElements);
+            }
+            m_solverStatusLabel->setText(okMsg);
         } else if (!m_lastSolverResult.errorMessage.empty()) {
             m_solverStatusLabel->setText(
                 GerenciadorTraducao::trText("Erro no cálculo: %1")

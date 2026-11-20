@@ -26,7 +26,7 @@
 namespace omniframe {
 
 namespace {
-inline constexpr const char* kFallbackAppVersion = "2026.11.14.0";
+inline constexpr const char* kFallbackAppVersion = "2026.11.15.0";
 }
 
 AboutDialog::AboutDialog(QWidget* parent)

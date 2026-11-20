@@ -116,11 +116,13 @@ void ManualDialog::setupUi() {
     m_searchInput->setClearButtonEnabled(true);
     m_btnPrev = new QPushButton(this);
     m_btnNext = new QPushButton(this);
+    m_btnJumpCli = new QPushButton(this);
     m_searchStatusLabel = new QLabel(this);
     m_searchStatusLabel->setObjectName(QStringLiteral("SearchStatus"));
     searchLayout->addWidget(m_searchInput, 1);
     searchLayout->addWidget(m_btnPrev);
     searchLayout->addWidget(m_btnNext);
+    searchLayout->addWidget(m_btnJumpCli);
     searchLayout->addWidget(m_searchStatusLabel);
     mainLayout->addLayout(searchLayout);
 
@@ -173,6 +175,7 @@ void ManualDialog::setupUi() {
     connect(m_searchInput, &QLineEdit::returnPressed, this, &ManualDialog::onFindNext);
     connect(m_btnNext, &QPushButton::clicked, this, &ManualDialog::onFindNext);
     connect(m_btnPrev, &QPushButton::clicked, this, &ManualDialog::onFindPrevious);
+    connect(m_btnJumpCli, &QPushButton::clicked, this, &ManualDialog::onJumpToCliSection);
     connect(m_btnToggleTree, &QPushButton::clicked, this, &ManualDialog::onToggleExpandTree);
     connect(m_btnClose, &QPushButton::clicked, this, &QDialog::close);
 
@@ -240,11 +243,13 @@ void ManualDialog::applyTheme() {
 void ManualDialog::retranslateUi() {
     setWindowTitle(GerenciadorTraducao::trText("Manual de Operação e Engenharia — OmniFrame 3D"));
     m_titleLabel->setText(GerenciadorTraducao::trText("Manual Completo de Operação — OmniFrame 3D"));
-    m_subtitleLabel->setText(GerenciadorTraducao::trText("Instruções detalhadas de modelagem 3D, análise FEM, interface modeless e configurações."));
+    m_subtitleLabel->setText(GerenciadorTraducao::trText("Instruções detalhadas de modelagem 3D, análise FEM, CLI (CMD/PowerShell), interface modeless e configurações."));
     m_indexHeaderLabel->setText(GerenciadorTraducao::trText("Capítulos e Subcapítulos"));
     m_searchInput->setPlaceholderText(GerenciadorTraducao::trText("Pesquisar no manual (Ctrl+F)..."));
     m_btnPrev->setText(GerenciadorTraducao::trText("Anterior"));
     m_btnNext->setText(GerenciadorTraducao::trText("Próxima"));
+    m_btnJumpCli->setText(GerenciadorTraducao::trText("Comandos CLI (CMD/PowerShell)"));
+    m_btnJumpCli->setToolTip(GerenciadorTraducao::trText("Ir diretamente ao capítulo completo de Linha de Comando (omniframe-cli.exe) no Windows 10/11."));
     m_btnToggleTree->setText(
         m_treeExpanded ? GerenciadorTraducao::trText("Recolher")
                        : GerenciadorTraducao::trText("Expandir"));
@@ -324,6 +329,9 @@ QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* index
             "                margin: 7px 0; border-radius: 4px; color: #075985; font-size: 9.6pt; line-height: 142%; }"
             ".callout-tip  { background-color: #ecfdf5; border-left: 4px solid #059669; padding: 7px 11px; "
             "                margin: 7px 0; border-radius: 4px; color: #065f46; font-size: 9.6pt; line-height: 142%; }"
+            ".cli-cmd      { background-color: #f1f5f9; border: 1px solid #cbd5e1; border-left: 3px solid #2563eb; "
+            "                padding: 5px 10px; margin: 4px 0; border-radius: 4px; color: #0f172a; "
+            "                font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 9.2pt; }"
             "</style></head><body>");
     } else {
         html += QStringLiteral(
@@ -345,6 +353,9 @@ QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* index
             "                margin: 7px 0; border-radius: 4px; color: #bae6fd; font-size: 9.6pt; line-height: 142%; }"
             ".callout-tip  { background-color: #162922; border-left: 4px solid #34d399; padding: 7px 11px; "
             "                margin: 7px 0; border-radius: 4px; color: #bbf7d0; font-size: 9.6pt; line-height: 142%; }"
+            ".cli-cmd      { background-color: #0b0f17; border: 1px solid #263145; border-left: 3px solid #38bdf8; "
+            "                padding: 5px 10px; margin: 4px 0; border-radius: 4px; color: #e2e8f0; "
+            "                font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 9.2pt; }"
             "</style></head><body>");
     }
 
@@ -473,6 +484,11 @@ QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* index
             html += QStringLiteral("<div class='callout-note'>%1</div>").arg(formatRichInlineText(line, isLight));
         } else if (line.startsWith(QStringLiteral("DICA:")) || line.startsWith(QStringLiteral("TIP:"))) {
             html += QStringLiteral("<div class='callout-tip'>%1</div>").arg(formatRichInlineText(line, isLight));
+        } else if (line.startsWith(QStringLiteral("CMD> ")) ||
+                   line.startsWith(QStringLiteral("PS> ")) ||
+                   line.startsWith(QStringLiteral("omniframe-cli ")) ||
+                   line.startsWith(QStringLiteral("OmniFrame.exe "))) {
+            html += QStringLiteral("<div class='cli-cmd'>%1</div>").arg(line.toHtmlEscaped());
         } else {
             html += QStringLiteral("<p>%1</p>").arg(line.toHtmlEscaped());
         }
@@ -537,6 +553,25 @@ void ManualDialog::onToggleExpandTree() {
     m_btnToggleTree->setText(
         m_treeExpanded ? GerenciadorTraducao::trText("Recolher")
                        : GerenciadorTraducao::trText("Expandir"));
+}
+
+void ManualDialog::onJumpToCliSection() {
+    for (int i = 0; i < m_indexTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = m_indexTree->topLevelItem(i);
+        const QString title = item->text(0);
+        if (title.contains(QStringLiteral("CLI"), Qt::CaseInsensitive) ||
+            title.contains(QStringLiteral("omniframe-cli"), Qt::CaseInsensitive) ||
+            title.contains(QStringLiteral("Linha de Comando"), Qt::CaseInsensitive) ||
+            title.contains(QStringLiteral("Command-Line"), Qt::CaseInsensitive)) {
+            m_indexTree->setCurrentItem(item);
+            m_indexTree->expandItem(item);
+            const QString anchor = item->data(0, Qt::UserRole).toString();
+            if (!anchor.isEmpty()) {
+                m_manualViewer->scrollToAnchor(anchor);
+            }
+            return;
+        }
+    }
 }
 
 } // namespace omniframe::ui

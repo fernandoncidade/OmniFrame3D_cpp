@@ -23,6 +23,48 @@ namespace omniframe
             return QCoreApplication::translate("InterfaceGrafica", text);
         }
 
+        inline QString solverTypeDisplayName(kernel::LinearSolverType t)
+        {
+            switch (t)
+            {
+                case kernel::LinearSolverType::Auto: return QStringLiteral("Auto (LDLT/LU)");
+                case kernel::LinearSolverType::SimplicialLDLT: return QStringLiteral("SimplicialLDLT (Cholesky)");
+                case kernel::LinearSolverType::SimplicialLLT: return QStringLiteral("SimplicialLLT (Cholesky SPD)");
+                case kernel::LinearSolverType::SparseLU: return QStringLiteral("SparseLU (COLAMD)");
+                case kernel::LinearSolverType::ConjugateGradient: return QStringLiteral("ConjugateGradient (PCG)");
+                case kernel::LinearSolverType::BiCGSTAB: return QStringLiteral("BiCGSTAB (ILUT)");
+            }
+            return QStringLiteral("Auto");
+        }
+
+        std::vector<const kernel::MeshNode *> collectUniqueMeshNodes(const StructuralModel &model)
+        {
+            std::vector<const kernel::MeshNode *> unique;
+            const auto &nodes = model.getNodes();
+            const auto &mNodes = model.surfaceMesh().nodes;
+            unique.reserve(mNodes.size());
+            for (const auto &mn : mNodes)
+            {
+                bool coincides = false;
+                for (const auto &fn : nodes)
+                {
+                    const double dx = fn.x() - mn.position.x();
+                    const double dy = fn.y() - mn.position.y();
+                    const double dz = fn.z() - mn.position.z();
+                    if ((dx * dx + dy * dy + dz * dz) <= 1e-12)
+                    {
+                        coincides = true;
+                        break;
+                    }
+                }
+                if (!coincides)
+                {
+                    unique.push_back(&mn);
+                }
+            }
+            return unique;
+        }
+
         bool readFiniteDouble(const QJsonObject &obj, const char *key, double defaultVal, bool required, double &out)
         {
             if (!obj.contains(key))
@@ -396,11 +438,22 @@ namespace omniframe
         soObj["refinementSteps"] = so.refinementSteps;
         rootObj["solverOptions"] = soObj;
 
-        // 10. Malha Superficial / Solida (Schema 2.1.0)
+        // 10. Malha Superficial / Solida (Schema 2.1.0+)
         const auto &sm = model.surfaceMesh();
         if (!sm.nodes.empty() || !sm.elements.empty())
         {
             QJsonObject smObj;
+            auto toBoolArr6 = [](const std::array<bool, 6> &arr) {
+                QJsonArray out;
+                for (bool v : arr) out.append(v);
+                return out;
+            };
+            auto toDoubleArr = [](const double *ptr, int count) {
+                QJsonArray out;
+                for (int i = 0; i < count; ++i) out.append(ptr[i]);
+                return out;
+            };
+
             QJsonArray smNodes;
             for (const auto &mn : sm.nodes)
             {
@@ -412,6 +465,22 @@ namespace omniframe
                 nObj["isBoundary"] = mn.isBoundary;
                 if (!mn.tag.empty())
                     nObj["tag"] = QString::fromStdString(mn.tag);
+                if (mn.hasFixedDofs())
+                    nObj["fixed"] = toBoolArr6(mn.fixed);
+                if (mn.hasSprings())
+                    nObj["springStiffness"] = toDoubleArr(mn.springStiffness.data(), 6);
+                if (mn.hasPrescribedDisplacements())
+                    nObj["prescribedDisplacement"] = toDoubleArr(mn.prescribedDisplacement.data(), 6);
+                if (mn.nodalForce.squaredNorm() > 1e-24)
+                    nObj["nodalForce"] = toDoubleArr(mn.nodalForce.data(), 3);
+                if (mn.nodalMoment.squaredNorm() > 1e-24)
+                    nObj["nodalMoment"] = toDoubleArr(mn.nodalMoment.data(), 3);
+                if (mn.hasResults)
+                {
+                    nObj["hasResults"] = true;
+                    nObj["displacement"] = toDoubleArr(mn.displacement.data(), 6);
+                    nObj["reaction"] = toDoubleArr(mn.reaction.data(), 6);
+                }
                 smNodes.append(nObj);
             }
             smObj["nodes"] = smNodes;
@@ -428,9 +497,53 @@ namespace omniframe
                 for (int nid : me.nodeIds)
                     nidArr.append(nid);
                 eObj["nodeIds"] = nidArr;
+                eObj["materialId"] = me.materialId;
+                eObj["sectionId"] = me.sectionId;
+                eObj["thickness"] = me.thickness;
+                eObj["normalPressure"] = me.normalPressure;
+                if (me.distributedLoad.squaredNorm() > 1e-24)
+                    eObj["distributedLoad"] = toDoubleArr(me.distributedLoad.data(), 3);
+                if (std::abs(me.deltaT) > 1e-12)
+                    eObj["deltaT"] = me.deltaT;
+                if (me.includeSelfWeight)
+                    eObj["includeSelfWeight"] = true;
+                if (me.hasResults)
+                {
+                    eObj["hasResults"] = true;
+                    eObj["vonMisesStress"] = me.vonMisesStress;
+                    eObj["maxPrincipalStress"] = me.maxPrincipalStress;
+                    eObj["minPrincipalStress"] = me.minPrincipalStress;
+                    eObj["membraneResultants"] = toDoubleArr(me.membraneResultants.data(), 3);
+                    eObj["bendingResultants"] = toDoubleArr(me.bendingResultants.data(), 3);
+                    eObj["transverseShear"] = toDoubleArr(me.transverseShear.data(), 2);
+                    eObj["stressVoigt"] = toDoubleArr(me.stressVoigt.data(), 6);
+                }
                 smElems.append(eObj);
             }
             smObj["elements"] = smElems;
+
+            if (!sm.nodeSets.empty())
+            {
+                QJsonObject nsObj;
+                for (const auto &[k, vec] : sm.nodeSets)
+                {
+                    QJsonArray arr;
+                    for (int id : vec) arr.append(id);
+                    nsObj[QString::fromStdString(k)] = arr;
+                }
+                smObj["nodeSets"] = nsObj;
+            }
+            if (!sm.elementGroups.empty())
+            {
+                QJsonObject egObj;
+                for (const auto &[k, vec] : sm.elementGroups)
+                {
+                    QJsonArray arr;
+                    for (int id : vec) arr.append(id);
+                    egObj[QString::fromStdString(k)] = arr;
+                }
+                smObj["elementGroups"] = egObj;
+            }
             rootObj["surfaceMesh"] = smObj;
         }
 
@@ -976,11 +1089,26 @@ namespace omniframe
             loaded.solverOptions().iterativeRefinement = soObj["iterativeRefinement"].toBool(true);
         }
 
-        // 10. Malha Superficial / Solida (Schema 2.1.0)
+        // 10. Malha Superficial / Solida (Schema 2.1.0+, retrocompativel)
         if (rootObj.contains("surfaceMesh") && rootObj["surfaceMesh"].isObject())
         {
             const QJsonObject smObj = rootObj["surfaceMesh"].toObject();
             kernel::MeshContainer sm;
+            auto readFixedDoubleArr = [](const QJsonObject &obj, const char *key, double *dst, int count) -> bool {
+                if (!obj.contains(key)) return true;
+                if (!obj[key].isArray()) return false;
+                const QJsonArray arr = obj[key].toArray();
+                const int n = std::min<int>(count, static_cast<int>(arr.size()));
+                for (int i = 0; i < n; ++i)
+                {
+                    if (!arr[i].isDouble()) return false;
+                    const double v = arr[i].toDouble();
+                    if (!std::isfinite(v)) return false;
+                    dst[i] = v;
+                }
+                return true;
+            };
+
             if (smObj.contains("nodes") && smObj["nodes"].isArray())
             {
                 for (const auto &nv : smObj["nodes"].toArray())
@@ -997,6 +1125,25 @@ namespace omniframe
                     mn.position = kernel::Vec3(x, y, z);
                     mn.isBoundary = nObj["isBoundary"].toBool(false);
                     mn.tag = nObj["tag"].toString().toStdString();
+                    if (nObj.contains("fixed"))
+                    {
+                        if (!nObj["fixed"].isArray()) return false;
+                        const QJsonArray fa = nObj["fixed"].toArray();
+                        for (int d = 0; d < std::min<int>(6, static_cast<int>(fa.size())); ++d)
+                            mn.fixed[static_cast<std::size_t>(d)] = fa[d].toBool(false);
+                    }
+                    if (!readFixedDoubleArr(nObj, "springStiffness", mn.springStiffness.data(), 6) ||
+                        !readFixedDoubleArr(nObj, "prescribedDisplacement", mn.prescribedDisplacement.data(), 6) ||
+                        !readFixedDoubleArr(nObj, "nodalForce", mn.nodalForce.data(), 3) ||
+                        !readFixedDoubleArr(nObj, "nodalMoment", mn.nodalMoment.data(), 3))
+                        return false;
+                    mn.hasResults = nObj["hasResults"].toBool(false);
+                    if (mn.hasResults)
+                    {
+                        if (!readFixedDoubleArr(nObj, "displacement", mn.displacement.data(), 6) ||
+                            !readFixedDoubleArr(nObj, "reaction", mn.reaction.data(), 6))
+                            return false;
+                    }
                     sm.nodes.push_back(std::move(mn));
                 }
             }
@@ -1021,7 +1168,49 @@ namespace omniframe
                             me.nodeIds.push_back(nidVal.toInt());
                         }
                     }
+                    if (!readValidInt(eObj, "materialId", 1, false, me.materialId) ||
+                        !readValidInt(eObj, "sectionId", 0, false, me.sectionId) ||
+                        !readFiniteDouble(eObj, "thickness", 0.15, false, me.thickness) ||
+                        !readFiniteDouble(eObj, "normalPressure", 0.0, false, me.normalPressure) ||
+                        !readFiniteDouble(eObj, "deltaT", 0.0, false, me.deltaT) ||
+                        !readFixedDoubleArr(eObj, "distributedLoad", me.distributedLoad.data(), 3))
+                        return false;
+                    me.includeSelfWeight = eObj["includeSelfWeight"].toBool(false);
+                    me.hasResults = eObj["hasResults"].toBool(false);
+                    if (me.hasResults)
+                    {
+                        if (!readFiniteDouble(eObj, "vonMisesStress", 0.0, false, me.vonMisesStress) ||
+                            !readFiniteDouble(eObj, "maxPrincipalStress", 0.0, false, me.maxPrincipalStress) ||
+                            !readFiniteDouble(eObj, "minPrincipalStress", 0.0, false, me.minPrincipalStress) ||
+                            !readFixedDoubleArr(eObj, "membraneResultants", me.membraneResultants.data(), 3) ||
+                            !readFixedDoubleArr(eObj, "bendingResultants", me.bendingResultants.data(), 3) ||
+                            !readFixedDoubleArr(eObj, "transverseShear", me.transverseShear.data(), 2) ||
+                            !readFixedDoubleArr(eObj, "stressVoigt", me.stressVoigt.data(), 6))
+                            return false;
+                    }
                     sm.elements.push_back(std::move(me));
+                }
+            }
+            if (smObj.contains("nodeSets") && smObj["nodeSets"].isObject())
+            {
+                const QJsonObject nsObj = smObj["nodeSets"].toObject();
+                for (auto it = nsObj.constBegin(); it != nsObj.constEnd(); ++it)
+                {
+                    if (!it.value().isArray()) continue;
+                    std::vector<kernel::NodeId> ids;
+                    for (const auto &v : it.value().toArray()) ids.push_back(v.toInt());
+                    sm.nodeSets[it.key().toStdString()] = std::move(ids);
+                }
+            }
+            if (smObj.contains("elementGroups") && smObj["elementGroups"].isObject())
+            {
+                const QJsonObject egObj = smObj["elementGroups"].toObject();
+                for (auto it = egObj.constBegin(); it != egObj.constEnd(); ++it)
+                {
+                    if (!it.value().isArray()) continue;
+                    std::vector<kernel::ElementId> ids;
+                    for (const auto &v : it.value().toArray()) ids.push_back(v.toInt());
+                    sm.elementGroups[it.key().toStdString()] = std::move(ids);
                 }
             }
             loaded.surfaceMesh() = std::move(sm);
@@ -1044,6 +1233,18 @@ namespace omniframe
         QTextStream out(&file);
 
         const bool isEn = (QCoreApplication::translate("InterfaceGrafica", "pt_BR_LANG_TAG") == QStringLiteral("en_US_LANG_TAG"));
+        const auto &meta = model.metadata();
+        const auto &so = model.solverOptions();
+        const ModelValidation val = model.validate();
+        const auto uniqueMeshNodes = collectUniqueMeshNodes(model);
+        const QString softwareVer = QCoreApplication::applicationVersion().isEmpty()
+            ? QStringLiteral("OmniFrame 3D Kernel C++23 / Schema 2.1.0")
+            : QCoreApplication::applicationVersion();
+        const QString execStamp = QDateTime::currentDateTime().toString(Qt::ISODate);
+        const auto meshQuality = !model.surfaceMesh().elements.empty()
+            ? kernel::MeshGenerator::evaluateQuality(model.surfaceMesh())
+            : kernel::MeshQualityMetrics{};
+
         out << "<!DOCTYPE html>\n<html lang=\"" << (isEn ? "en-US" : "pt-BR") << "\">\n<head>\n"
             << "<meta charset=\"UTF-8\">\n"
             << "<title>" << trUi("Relatório Técnico de Análise Estrutural 3D - OmniFrame") << "</title>\n"
@@ -1054,26 +1255,134 @@ namespace omniframe
             << "th, td { border: 1px solid #cbd5e0; padding: 8px 12px; text-align: right; }\n"
             << "th { background-color: #2b6cb0; color: white; text-align: center; }\n"
             << "tr:nth-child(even) { background-color: #edf2f7; }\n"
-            << ".metric-box { display: flex; gap: 20px; margin: 20px 0; }\n"
-            << ".metric-card { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 15px; border-radius: 4px; flex: 1; }\n"
+            << ".metric-box { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0; }\n"
+            << ".metric-card { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 15px; border-radius: 4px; flex: 1 1 180px; }\n"
             << ".metric-card b { font-size: 18px; color: #2b6cb0; }\n"
             << ".balanced { color: #276749; font-weight: bold; }\n"
             << ".unbalanced { color: #c53030; font-weight: bold; }\n"
+            << ".info-list li { margin-bottom: 4px; }\n"
             << "</style>\n</head>\n<body>\n";
 
         out << "<h1>" << trUi("Relatório de Análise Estrutural 3D - OmniFrame") << "</h1>\n";
-        out << "<p>" << trUi("Gerado em:") << " " << QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm:ss") << "</p>\n";
 
-        // Resumo
+        // Itens 1, 2, 3, 16, 20: Identificação do Projeto, Software, Modelo, Unidades e Execução
+        out << "<h2>1. Identificação do Projeto, Modelo, Software e Execução</h2>\n<ul class=\"info-list\">\n"
+            << "<li><b>1. Projeto:</b> " << QString::fromStdString(meta.projectName).toHtmlEscaped()
+            << " | <b>Cliente:</b> " << QString::fromStdString(meta.clientName).toHtmlEscaped()
+            << " | <b>Local:</b> " << QString::fromStdString(meta.siteLocation).toHtmlEscaped()
+            << " | <b>Engenheiro:</b> " << QString::fromStdString(meta.engineerName).toHtmlEscaped() << "</li>\n"
+            << "<li><b>2. Versão do Software:</b> " << softwareVer.toHtmlEscaped() << "</li>\n"
+            << "<li><b>3. Identificação do Modelo:</b> " << model.getNodes().size() << " nós 1D, "
+            << model.getElements().size() << " barras 1D, "
+            << model.surfaceMesh().nodes.size() << " nós 2D/3D, "
+            << model.surfaceMesh().elements.size() << " elementos 2D/3D, "
+            << result.totalDofs << " DOFs (" << result.restrainedDofs << " restringidos)</li>\n"
+            << "<li><b>16. Unidades Adotadas:</b> SI Estrutural [m, kN, kNm, kPa, kg/m³, s, rad | exibidos mm, mrad]</li>\n"
+            << "<li><b>20. Identificação da Execução:</b> Timestamp ISO-8601 " << execStamp << " | Modo Offline Eigen3/C++23 | Tempo Solver: "
+            << QString::number(result.executionTimeMs, 'f', 2) << " ms</li>\n"
+            << "</ul>\n";
+
         out << "<div class=\"metric-box\">\n"
-            << "<div class=\"metric-card\">" << trUi("Total de Nós:") << " <b>" << model.getNodes().size() << "</b></div>\n"
+            << "<div class=\"metric-card\">" << trUi("Total de Nós:") << " <b>" << (model.getNodes().size() + uniqueMeshNodes.size()) << "</b></div>\n"
             << "<div class=\"metric-card\">" << trUi("Total de Barras:") << " <b>" << model.getElements().size() << "</b></div>\n"
-            << "<div class=\"metric-card\">" << trUi("Graus de Liberdade:") << " <b>" << (model.getNodes().size() * 6) << "</b></div>\n"
+            << "<div class=\"metric-card\">Elementos 2D/3D: <b>" << model.surfaceMesh().elements.size() << "</b></div>\n"
+            << "<div class=\"metric-card\">" << trUi("Graus de Liberdade:") << " <b>" << result.totalDofs << "</b></div>\n"
             << "<div class=\"metric-card\">" << trUi("Tempo de Solver:") << " <b>" << QString::number(result.executionTimeMs, 'f', 2) << " ms</b></div>\n"
             << "</div>\n";
 
-        // Verificação de Equilíbrio
-        out << "<h2>" << trUi("Verificação de Equilíbrio Estático Global") << "</h2>\n";
+        // Itens 4, 12, 13, 14, 19: Hipóteses, Método, Solver, Convergência, Limitações
+        out << "<h2>2. Hipóteses, Método de Análise, Parâmetros do Solver e Limitações</h2>\n<ul class=\"info-list\">\n"
+            << "<li><b>4. Hipóteses e Simplificações:</b> Regime elástico-linear, pequenas deformações e deslocamentos; barras 1D (Euler-Bernoulli/Timoshenko 3D); cascas 2D (Mindlin/Reissner/DKT com massa/rigidez consistente); sólidos 3D (isoparamétrico linear/quadrático com estado triaxial).</li>\n"
+            << "<li><b>7. Elementos Utilizados:</b> Barras 1D (" << model.getElements().size() << ") e Malha Contínua 2D/3D (" << model.surfaceMesh().elements.size() << ").</li>\n"
+            << "<li><b>12. Método de Análise:</b> Estática Linear Global MEF 3D Unificada (sistema K_ff · u_f = rhs_f com condensação de MPCs e molas).</li>\n"
+            << "<li><b>13. Parâmetros do Solver:</b> Solicitado: " << solverTypeDisplayName(so.type)
+            << " | Utilizado: " << solverTypeDisplayName(result.solverStats.solverUsed)
+            << " | Fallback permitido: " << (so.allowFallback ? "Sim" : "Não")
+            << " (Fallback ativado: " << (QString::fromStdString(result.solverStats.message).contains(QStringLiteral("Fallback"), Qt::CaseInsensitive) ? "Sim" : "Não") << ")"
+            << " | Tol. Iterativa: " << QString::number(so.tolerance, 'e', 2)
+            << " | Máx. Iterações: " << so.maxIterations << "</li>\n"
+            << "<li><b>14. Critérios de Convergência:</b> Resíduo Relativo = " << QString::number(result.solverStats.relativeResidual, 'e', 3)
+            << " | Iterações = " << result.solverStats.iterations
+            << " | Energia de Deformação Total = " << QString::number(result.totalStrainEnergy, 'f', 4) << " kNm</li>\n"
+            << "<li><b>19. Limitações Conhecidas:</b> A análise estática linear não modela plastificação J2, flambagem nem efeitos de 2ª ordem geométrica (utilize a Suíte Não Linear/Flambagem quando aplicável). Normas fora da biblioteca local NBR têm cobertura auditada separadamente.</li>\n"
+            << "</ul>\n";
+
+        // Itens 5 e 6: Materiais e Seções
+        out << "<h2>3. Materiais e Seções Transversais (Itens 5 e 6)</h2>\n";
+        out << "<table><tr><th>Mat ID</th><th>Nome</th><th>E (kPa)</th><th>ν</th><th>ρ (kg/m³)</th><th>γ (kN/m³)</th><th>Modelo Constitutivo</th></tr>\n";
+        for (const auto &mat : model.getMaterials())
+        {
+            out << "<tr><td>" << mat.id << "</td><td style=\"text-align:left\">" << QString::fromStdString(mat.name).toHtmlEscaped() << "</td>"
+                << "<td>" << QString::number(mat.E, 'e', 3) << "</td>"
+                << "<td>" << QString::number(mat.nu, 'f', 2) << "</td>"
+                << "<td>" << QString::number(mat.rho, 'f', 1) << "</td>"
+                << "<td>" << QString::number(mat.gamma, 'f', 2) << "</td>"
+                << "<td>" << (mat.isPlastic ? "Von Mises J2" : "Elástico Isotrópico") << "</td></tr>\n";
+        }
+        out << "</table>\n";
+        if (!model.getCrossSections().empty())
+        {
+            out << "<table><tr><th>Seção ID</th><th>Nome</th><th>A (m²)</th><th>Iy (m⁴)</th><th>Iz (m⁴)</th><th>J (m⁴)</th></tr>\n";
+            for (const auto &sec : model.getCrossSections())
+            {
+                out << "<tr><td>" << sec.id << "</td><td style=\"text-align:left\">" << QString::fromStdString(sec.name).toHtmlEscaped() << "</td>"
+                    << "<td>" << QString::number(sec.A, 'e', 3) << "</td>"
+                    << "<td>" << QString::number(sec.Iy, 'e', 3) << "</td>"
+                    << "<td>" << QString::number(sec.Iz, 'e', 3) << "</td>"
+                    << "<td>" << QString::number(sec.J, 'e', 3) << "</td></tr>\n";
+            }
+            out << "</table>\n";
+        }
+
+        // Itens 8, 9, 10, 11: Malha, Contorno, Carregamentos, Combinações
+        out << "<h2>4. Malha, Condições de Contorno, Carregamentos e Combinações (Itens 8 a 11)</h2>\n<ul class=\"info-list\">\n";
+        if (!model.surfaceMesh().elements.empty())
+        {
+            out << "<li><b>8. Malha e Discretização:</b> Elementos: " << meshQuality.totalElements
+                << " | Válidos: " << meshQuality.validElements
+                << " | Degenerados: " << meshQuality.invertedOrDegenerateCount
+                << " | J_min: " << QString::number(meshQuality.minJacobian, 'f', 4)
+                << " | Aspect: [" << QString::number(meshQuality.minAspectRatio, 'f', 2)
+                << "; " << QString::number(meshQuality.maxAspectRatio, 'f', 2)
+                << "] | Skewness máx: " << QString::number(meshQuality.maxSkewness, 'f', 3) << "</li>\n";
+        }
+        else
+        {
+            out << "<li><b>8. Malha e Discretização:</b> Modelo exclusivamente reticulado 1D (0 elementos 2D/3D).</li>\n";
+        }
+        int sup1D = 0, supMesh = 0;
+        for (const auto &n : model.getNodes()) if (n.isSupported()) ++sup1D;
+        for (const auto *mn : uniqueMeshNodes) if (mn->isSupported()) ++supMesh;
+        out << "<li><b>9. Condições de Contorno:</b> Apoios 1D = " << sup1D
+            << " | Apoios Malha 2D/3D = " << supMesh
+            << " | Rigid Links = " << model.getRigidLinks().size()
+            << " | Diafragmas Rígidos = " << model.getRigidDiaphragms().size() << "</li>\n";
+        out << "<li><b>10. Carregamentos:</b> Casos de Carga = " << model.getLoadCases().size()
+            << " | Resultante Aplicada Global: Fx = " << QString::number(result.equilibrium.sumAppliedForces.x, 'f', 3)
+            << " kN, Fy = " << QString::number(result.equilibrium.sumAppliedForces.y, 'f', 3)
+            << " kN, Fz = " << QString::number(result.equilibrium.sumAppliedForces.z, 'f', 3) << " kN</li>\n";
+        out << "<li><b>11. Combinações Cadastradas:</b> " << model.getLoadCombinations().size() << "</li>\n</ul>\n";
+
+        // Item 17: Advertências e Validação Estruturada
+        if (!val.issues.empty() || !model.serializationWarnings().empty())
+        {
+            out << "<h2>5. Advertências e Diagnóstico de Validação (Item 17)</h2>\n<ul>\n";
+            for (const auto &iss : val.issues)
+            {
+                const QString sev = (iss.severity == IssueSeverity::Error) ? "ERRO"
+                                  : ((iss.severity == IssueSeverity::Warning) ? "AVISO" : "INFO");
+                out << "<li>[" << sev << " " << QString::fromStdString(iss.code).toHtmlEscaped() << "] "
+                    << QString::fromStdString(iss.message).toHtmlEscaped() << "</li>\n";
+            }
+            for (const auto &sw : model.serializationWarnings())
+            {
+                out << "<li>[SERIALIZAÇÃO] " << QString::fromStdString(sw).toHtmlEscaped() << "</li>\n";
+            }
+            out << "</ul>\n";
+        }
+
+        // Item 18: Verificação de Equilíbrio
+        out << "<h2>" << trUi("Verificação de Equilíbrio Estático Global") << " (Item 18)</h2>\n";
         out << "<p>" << trUi("Status:") << " " << (result.equilibrium.isBalanced ? QString("<span class=\"balanced\">%1</span>").arg(trUi("EQUILÍBRIO SATISFEITO (ΣF = 0, ΣM = 0)")) : QString("<span class=\"unbalanced\">%1</span>").arg(trUi("DESEQUILÍBRIO DETECTADO"))) << "</p>\n";
         out << "<table>\n<tr><th>" << trUi("Componente") << "</th><th>" << trUi("Cargas Aplicadas (kN ou kNm)")
             << "</th><th>" << trUi("Reações de Apoio (kN ou kNm)") << "</th><th>" << trUi("Residual (Erro)") << "</th></tr>\n";
@@ -1085,8 +1394,8 @@ namespace omniframe
         out << "<tr><td>Mz</td><td>" << QString::number(result.equilibrium.sumAppliedMoments.z, 'f', 4) << "</td><td>" << QString::number(result.equilibrium.sumReactionMoments.z, 'f', 4) << "</td><td>" << QString::number(result.equilibrium.residualMoments.z, 'e', 2) << "</td></tr>\n";
         out << "</table>\n";
 
-        // Tabela de Deslocamentos Nodais
-        out << "<h2>" << trUi("Deslocamentos Nodais") << "</h2>\n";
+        // Item 15: Deslocamentos Nodais (1D + Malha 2D/3D)
+        out << "<h2>" << trUi("Deslocamentos Nodais") << " (Item 15)</h2>\n";
         out << "<table>\n<tr><th>" << trUi("Nó") << "</th><th>uX (mm)</th><th>uY (mm)</th><th>uZ (mm)</th><th>θX (mrad)</th><th>θY (mrad)</th><th>θZ (mrad)</th></tr>\n";
         for (const auto &n : model.getNodes())
         {
@@ -1098,9 +1407,20 @@ namespace omniframe
                 << "<td>" << QString::number(n.displacement[4] * 1000.0, 'f', 3) << "</td>"
                 << "<td>" << QString::number(n.displacement[5] * 1000.0, 'f', 3) << "</td></tr>\n";
         }
+        for (const auto *mn : uniqueMeshNodes)
+        {
+            const QString idLbl = model.getNodes().empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+            out << "<tr><td>" << idLbl << "</td>"
+                << "<td>" << QString::number(mn->displacement[0] * 1000.0, 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->displacement[1] * 1000.0, 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->displacement[2] * 1000.0, 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->displacement[3] * 1000.0, 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->displacement[4] * 1000.0, 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->displacement[5] * 1000.0, 'f', 3) << "</td></tr>\n";
+        }
         out << "</table>\n";
 
-        // Tabela de Reações de Apoio
+        // Tabela de Reações de Apoio (1D + Malha 2D/3D)
         out << "<h2>" << trUi("Reações de Apoio") << "</h2>\n";
         out << "<table>\n<tr><th>" << trUi("Nó") << "</th><th>Rx (kN)</th><th>Ry (kN)</th><th>Rz (kN)</th><th>Mx (kNm)</th><th>My (kNm)</th><th>Mz (kNm)</th></tr>\n";
         for (const auto &n : model.getNodes())
@@ -1114,6 +1434,19 @@ namespace omniframe
                 << "<td>" << QString::number(n.reaction[3], 'f', 3) << "</td>"
                 << "<td>" << QString::number(n.reaction[4], 'f', 3) << "</td>"
                 << "<td>" << QString::number(n.reaction[5], 'f', 3) << "</td></tr>\n";
+        }
+        for (const auto *mn : uniqueMeshNodes)
+        {
+            if (!mn->isSupported())
+                continue;
+            const QString idLbl = model.getNodes().empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+            out << "<tr><td>" << idLbl << "</td>"
+                << "<td>" << QString::number(mn->reaction[0], 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->reaction[1], 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->reaction[2], 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->reaction[3], 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->reaction[4], 'f', 3) << "</td>"
+                << "<td>" << QString::number(mn->reaction[5], 'f', 3) << "</td></tr>\n";
         }
         out << "</table>\n";
 
@@ -1132,6 +1465,30 @@ namespace omniframe
                 << "<td>" << QString::number(ext.maxDeflection * 1000.0, 'f', 2) << "</td></tr>\n";
         }
         out << "</table>\n";
+
+        // Tabela de Tensões e Esforços 2D/3D (Casca / Sólido)
+        if (!result.continuumElementResults.empty())
+        {
+            out << "<h2>Esforços e Tensões no Contínuo 2D/3D (Casca / Sólido)</h2>\n";
+            out << "<p>Pico von Mises Casca: <b>" << QString::number(result.maxShellVonMises, 'f', 2)
+                << " kPa</b> | Pico von Mises Sólido: <b>" << QString::number(result.maxSolidVonMises, 'f', 2) << " kPa</b></p>\n";
+            out << "<table>\n<tr><th>Elemento</th><th>Tipo</th><th>σ_vM (kPa)</th><th>σ_1 (kPa)</th><th>σ_3 (kPa)</th><th>Nxx / σxx</th><th>Nyy / σyy</th><th>Mxx / τxz</th></tr>\n";
+            for (const auto &ce : result.continuumElementResults)
+            {
+                const QString c5 = ce.isShell ? (QString::number(ce.membraneResultants[0], 'f', 2) + " kN/m")
+                                              : (QString::number(ce.stressVoigt[0], 'f', 2) + " kPa");
+                const QString c6 = ce.isShell ? (QString::number(ce.membraneResultants[1], 'f', 2) + " kN/m")
+                                              : (QString::number(ce.stressVoigt[1], 'f', 2) + " kPa");
+                const QString c7 = ce.isShell ? (QString::number(ce.bendingResultants[0], 'f', 3) + " kNm/m")
+                                              : (QString::number(ce.stressVoigt[4], 'f', 2) + " kPa");
+                out << "<tr><td>" << ce.elementId << "</td><td>" << QString::fromStdString(ce.cellTypeName).toHtmlEscaped() << "</td>"
+                    << "<td>" << QString::number(ce.vonMisesStress, 'f', 2) << "</td>"
+                    << "<td>" << QString::number(ce.maxPrincipalStress, 'f', 2) << "</td>"
+                    << "<td>" << QString::number(ce.minPrincipalStress, 'f', 2) << "</td>"
+                    << "<td>" << c5 << "</td><td>" << c6 << "</td><td>" << c7 << "</td></tr>\n";
+            }
+            out << "</table>\n";
+        }
 
         out << "</body>\n</html>\n";
         out.flush();
@@ -1152,15 +1509,101 @@ namespace omniframe
         }
 
         QTextStream out(&file);
+        const auto &meta = model.metadata();
+        const auto &so = model.solverOptions();
+        const ModelValidation val = model.validate();
+        const auto uniqueMeshNodes = collectUniqueMeshNodes(model);
+        const QString softwareVer = QCoreApplication::applicationVersion().isEmpty()
+            ? QStringLiteral("OmniFrame 3D Kernel C++23 / Schema 2.1.0")
+            : QCoreApplication::applicationVersion();
+        const QString execStamp = QDateTime::currentDateTime().toString(Qt::ISODate);
+        const auto meshQuality = !model.surfaceMesh().elements.empty()
+            ? kernel::MeshGenerator::evaluateQuality(model.surfaceMesh())
+            : kernel::MeshQualityMetrics{};
 
         out << "# " << trUi("Relatório de Análise Estrutural 3D - OmniFrame") << "\n\n";
-        out << "**" << trUi("Data:") << "** " << QDateTime::currentDateTime().toString("dd/MM/yyyy hh:mm:ss") << "\n\n";
-        out << "- **" << trUi("Total de Nós:") << "** " << model.getNodes().size() << "\n";
-        out << "- **" << trUi("Total de Barras:") << "** " << model.getElements().size() << "\n";
-        out << "- **" << trUi("Graus de Liberdade:") << "** " << (model.getNodes().size() * 6) << "\n";
-        out << "- **" << trUi("Tempo de Solução:") << "** " << QString::number(result.executionTimeMs, 'f', 2) << " ms\n\n";
+        out << "## 1. Identificação do Projeto, Software, Modelo, Unidades e Execução (Itens 1, 2, 3, 16, 20)\n\n";
+        out << "- **1. Projeto:** " << QString::fromStdString(meta.projectName)
+            << " | **Cliente:** " << QString::fromStdString(meta.clientName)
+            << " | **Local:** " << QString::fromStdString(meta.siteLocation)
+            << " | **Engenheiro:** " << QString::fromStdString(meta.engineerName) << "\n";
+        out << "- **2. Versão do Software:** " << softwareVer << "\n";
+        out << "- **3. Identificação do Modelo:** " << model.getNodes().size() << " nós 1D, "
+            << model.getElements().size() << " barras 1D, "
+            << model.surfaceMesh().nodes.size() << " nós 2D/3D, "
+            << model.surfaceMesh().elements.size() << " elementos 2D/3D, "
+            << result.totalDofs << " DOFs (" << result.restrainedDofs << " restringidos)\n";
+        out << "- **16. Unidades Adotadas:** SI Estrutural [m, kN, kNm, kPa, kg/m³, s, rad | exibidos mm, mrad]\n";
+        out << "- **20. Identificação da Execução:** Timestamp ISO-8601 `" << execStamp << "` | Tempo de solver: " << QString::number(result.executionTimeMs, 'f', 2) << " ms\n\n";
 
-        out << "## " << trUi("Verificação de Equilíbrio Estático") << "\n\n";
+        out << "## 2. Hipóteses, Método, Solver, Convergência e Limitações (Itens 4, 7, 12, 13, 14, 19)\n\n";
+        out << "- **4. Hipóteses e Simplificações:** Elasticidade linear, pequenas deformações; 1D Euler-Bernoulli/Timoshenko 3D; 2D Mindlin/Reissner/DKT; 3D Tetra/Hexa isoparamétrico.\n";
+        out << "- **7. Elementos Utilizados:** " << model.getElements().size() << " barras 1D e " << model.surfaceMesh().elements.size() << " elementos 2D/3D.\n";
+        out << "- **12. Método de Análise:** Estática Linear Global MEF 3D Unificada.\n";
+        out << "- **13. Parâmetros do Solver:** Solicitado `" << solverTypeDisplayName(so.type) << "` | Utilizado `"
+            << solverTypeDisplayName(result.solverStats.solverUsed) << "` | Fallback permitido: " << (so.allowFallback ? "Sim" : "Não")
+            << " (Fallback ativado: " << (QString::fromStdString(result.solverStats.message).contains(QStringLiteral("Fallback"), Qt::CaseInsensitive) ? "Sim" : "Não") << ") | Tol: "
+            << QString::number(so.tolerance, 'e', 2) << " | Máx. Iter: " << so.maxIterations << "\n";
+        out << "- **14. Critérios de Convergência:** Resíduo Relativo = " << QString::number(result.solverStats.relativeResidual, 'e', 3)
+            << " | Iterações = " << result.solverStats.iterations
+            << " | Energia de Deformação = " << QString::number(result.totalStrainEnergy, 'f', 4) << " kNm\n";
+        out << "- **19. Limitações Conhecidas:** Análise estática linear não considera plasticidade J2 nem efeitos geométricos de 2ª ordem.\n\n";
+
+        out << "## 3. Materiais, Seções, Malha, Contorno, Cargas e Combinações (Itens 5, 6, 8, 9, 10, 11)\n\n";
+        out << "| Mat ID | Nome | E (kPa) | ν | ρ (kg/m³) | γ (kN/m³) |\n| :---: | :--- | :---: | :---: | :---: | :---: |\n";
+        for (const auto &mat : model.getMaterials())
+        {
+            out << "| " << mat.id << " | " << QString::fromStdString(mat.name) << " | " << QString::number(mat.E, 'e', 3)
+                << " | " << mat.nu << " | " << mat.rho << " | " << mat.gamma << " |\n";
+        }
+        out << "\n";
+        if (!model.getCrossSections().empty())
+        {
+            out << "| Seção ID | Nome | A (m²) | Iy (m⁴) | Iz (m⁴) | J (m⁴) |\n| :---: | :--- | :---: | :---: | :---: | :---: |\n";
+            for (const auto &sec : model.getCrossSections())
+            {
+                out << "| " << sec.id << " | " << QString::fromStdString(sec.name) << " | "
+                    << QString::number(sec.A, 'e', 3) << " | " << QString::number(sec.Iy, 'e', 3)
+                    << " | " << QString::number(sec.Iz, 'e', 3) << " | " << QString::number(sec.J, 'e', 3) << " |\n";
+            }
+            out << "\n";
+        }
+        if (!model.surfaceMesh().elements.empty())
+        {
+            out << "- **8. Malha 2D/3D:** " << meshQuality.totalElements << " elem. (Válidos: " << meshQuality.validElements
+                << ", Degenerados: " << meshQuality.invertedOrDegenerateCount << ", J_min: " << QString::number(meshQuality.minJacobian, 'f', 4)
+                << ", Aspect: [" << QString::number(meshQuality.minAspectRatio, 'f', 2) << "; " << QString::number(meshQuality.maxAspectRatio, 'f', 2)
+                << "], Skewness máx: " << QString::number(meshQuality.maxSkewness, 'f', 3) << ")\n";
+        }
+        else
+        {
+            out << "- **8. Malha 2D/3D:** Sem elementos contínuos.\n";
+        }
+        int sup1D = 0, supMesh = 0;
+        for (const auto &n : model.getNodes()) if (n.isSupported()) ++sup1D;
+        for (const auto *mn : uniqueMeshNodes) if (mn->isSupported()) ++supMesh;
+        out << "- **9. Condições de Contorno:** Apoios 1D = " << sup1D << " | Apoios Malha 2D/3D = " << supMesh
+            << " | Links = " << model.getRigidLinks().size() << " | Diafragmas = " << model.getRigidDiaphragms().size() << "\n";
+        out << "- **10. Carregamentos:** " << model.getLoadCases().size() << " casos de carga.\n";
+        out << "- **11. Combinações:** " << model.getLoadCombinations().size() << " combinações.\n\n";
+
+        if (!val.issues.empty() || !model.serializationWarnings().empty())
+        {
+            out << "## 4. Advertências e Diagnóstico (Item 17)\n\n";
+            for (const auto &iss : val.issues)
+            {
+                const char *sev = (iss.severity == IssueSeverity::Error) ? "ERRO"
+                                : ((iss.severity == IssueSeverity::Warning) ? "AVISO" : "INFO");
+                out << "- **[" << sev << " " << QString::fromStdString(iss.code) << "]** " << QString::fromStdString(iss.message) << "\n";
+            }
+            for (const auto &sw : model.serializationWarnings())
+            {
+                out << "- **[SERIALIZAÇÃO]** " << QString::fromStdString(sw) << "\n";
+            }
+            out << "\n";
+        }
+
+        out << "## " << trUi("Verificação de Equilíbrio Estático") << " (Item 18)\n\n";
         out << "**" << trUi("Status:") << "** " << (result.equilibrium.isBalanced ? trUi("EQUILÍBRIO SATISFEITO (ΣF = 0, ΣM = 0)") : trUi("DESEQUILÍBRIO DETECTADO")) << "\n\n";
         out << "| " << trUi("Componente") << " | " << trUi("Cargas Aplicadas") << " | " << trUi("Reações") << " | " << trUi("Residual") << " |\n";
         out << "| :--- | :---: | :---: | :---: |\n";
@@ -1171,7 +1614,7 @@ namespace omniframe
         out << "| My (kNm) | " << result.equilibrium.sumAppliedMoments.y << " | " << result.equilibrium.sumReactionMoments.y << " | " << result.equilibrium.residualMoments.y << " |\n";
         out << "| Mz (kNm) | " << result.equilibrium.sumAppliedMoments.z << " | " << result.equilibrium.sumReactionMoments.z << " | " << result.equilibrium.residualMoments.z << " |\n\n";
 
-        out << "## " << trUi("Deslocamentos Nodais") << "\n\n";
+        out << "## " << trUi("Deslocamentos Nodais") << " (Item 15)\n\n";
         out << "| " << trUi("Nó") << " | uX (mm) | uY (mm) | uZ (mm) | θX (mrad) | θY (mrad) | θZ (mrad) |\n";
         out << "| :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n";
         for (const auto &n : model.getNodes())
@@ -1183,6 +1626,17 @@ namespace omniframe
                 << (n.displacement[3] * 1000.0) << " | "
                 << (n.displacement[4] * 1000.0) << " | "
                 << (n.displacement[5] * 1000.0) << " |\n";
+        }
+        for (const auto *mn : uniqueMeshNodes)
+        {
+            const QString idLbl = model.getNodes().empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+            out << "| " << idLbl << " | "
+                << (mn->displacement[0] * 1000.0) << " | "
+                << (mn->displacement[1] * 1000.0) << " | "
+                << (mn->displacement[2] * 1000.0) << " | "
+                << (mn->displacement[3] * 1000.0) << " | "
+                << (mn->displacement[4] * 1000.0) << " | "
+                << (mn->displacement[5] * 1000.0) << " |\n";
         }
         out << "\n";
 
@@ -1201,6 +1655,19 @@ namespace omniframe
                 << n.reaction[4] << " | "
                 << n.reaction[5] << " |\n";
         }
+        for (const auto *mn : uniqueMeshNodes)
+        {
+            if (!mn->isSupported())
+                continue;
+            const QString idLbl = model.getNodes().empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+            out << "| " << idLbl << " | "
+                << mn->reaction[0] << " | "
+                << mn->reaction[1] << " | "
+                << mn->reaction[2] << " | "
+                << mn->reaction[3] << " | "
+                << mn->reaction[4] << " | "
+                << mn->reaction[5] << " |\n";
+        }
         out << "\n";
 
         out << "## " << trUi("Extremos de Esforços Internos nas Barras") << "\n\n";
@@ -1218,6 +1685,31 @@ namespace omniframe
                 << " | " << QString::number(ext.maxDeflection * 1000.0, 'f', 2) << " |\n";
         }
         out << "\n";
+
+        if (!result.continuumElementResults.empty())
+        {
+            out << "## Esforços e Tensões no Contínuo 2D/3D (Casca / Sólido)\n\n";
+            out << "- **Pico von Mises Casca:** " << QString::number(result.maxShellVonMises, 'f', 2) << " kPa\n";
+            out << "- **Pico von Mises Sólido:** " << QString::number(result.maxSolidVonMises, 'f', 2) << " kPa\n\n";
+            out << "| Elemento | Tipo | σ_vM (kPa) | σ_1 (kPa) | σ_3 (kPa) | Nxx / σxx | Nyy / σyy | Mxx / τxz |\n";
+            out << "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n";
+            for (const auto &ce : result.continuumElementResults)
+            {
+                const QString c5 = ce.isShell ? (QString::number(ce.membraneResultants[0], 'f', 2) + " kN/m")
+                                              : (QString::number(ce.stressVoigt[0], 'f', 2) + " kPa");
+                const QString c6 = ce.isShell ? (QString::number(ce.membraneResultants[1], 'f', 2) + " kN/m")
+                                              : (QString::number(ce.stressVoigt[1], 'f', 2) + " kPa");
+                const QString c7 = ce.isShell ? (QString::number(ce.bendingResultants[0], 'f', 3) + " kNm/m")
+                                              : (QString::number(ce.stressVoigt[4], 'f', 2) + " kPa");
+                out << "| " << ce.elementId << " | " << QString::fromStdString(ce.cellTypeName)
+                    << " | " << QString::number(ce.vonMisesStress, 'f', 2)
+                    << " | " << QString::number(ce.maxPrincipalStress, 'f', 2)
+                    << " | " << QString::number(ce.minPrincipalStress, 'f', 2)
+                    << " | " << c5 << " | " << c6 << " | " << c7 << " |\n";
+            }
+            out << "\n";
+        }
+
         out.flush();
         if (out.status() != QTextStream::Ok)
         {

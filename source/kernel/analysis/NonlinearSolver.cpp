@@ -264,24 +264,35 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
         SpMat Kt_full;
         VecX Fint_full;
         bool yielded = false;
+        double refEnergy = -1.0;
+        VecX prevDU_free = VecX::Zero(nFree);
+        double lastEnergyRatio = 0.0;
+        double lastRelRes = 0.0;
 
         for (int iter = 1; iter <= std::max(5, opts.maxIterationsPerStep); ++iter) {
             out.totalIterations = iter;
             if (!model.evaluateTrial(U_full, dU_zero, Kt_full, Fint_full, yielded, &out.errorMessage)) {
+                out.convergenceDiagnostic = "P-Delta falhou na avaliacao do elemento: " + out.errorMessage;
                 return out;
             }
             const VecX R_f = Pt * (lambda * Fref_full - Fint_full);
             const SpMat Kt_ff = Pt * Kt_full * P_free;
             const double relR = R_f.norm() / refForceNorm;
+            lastRelRes = relR;
+            if (iter > 1 && refEnergy > 0.0) {
+                lastEnergyRatio = std::abs(prevDU_free.dot(R_f)) / refEnergy;
+            }
 
-            if (iter > 1 && relR <= opts.forceTol) {
+            if (iter > 1 && relR <= opts.forceTol && (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol)) {
                 model.commitStep();
                 out.success = true;
                 out.achievedLoadFactor = lambda;
                 out.totalSteps = 1;
                 out.finalU_full = U_full;
                 out.finalReactionsFull = computeReactionsFull(baseSys, Fint_full, lambda, Fref_full);
-                out.history.push_back({1, lambda, iter, R_f.norm(), U_full, out.finalReactionsFull, yielded});
+                out.history.push_back({1, lambda, iter, R_f.norm(), U_full, out.finalReactionsFull, yielded, lastEnergyRatio});
+                out.convergenceDiagnostic = "P-Delta convergiu (iter=" + std::to_string(iter)
+                    + ", relR=" + std::to_string(relR) + ", relE=" + std::to_string(lastEnergyRatio) + ").";
                 return out;
             }
 
@@ -289,8 +300,14 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
             VecX dU_free = solveLinearTangent(Kt_ff, R_f, st);
             if (!st.success || !dU_free.allFinite()) {
                 out.errorMessage = "Falha ou instabilidade (flambagem/singularidade) na análise P-Delta: " + st.message;
+                out.convergenceDiagnostic = out.errorMessage;
                 return out;
             }
+
+            if (iter == 1 || refEnergy <= 0.0) {
+                refEnergy = std::max(1e-12, std::abs(dU_free.dot(R_f)));
+            }
+            prevDU_free = dU_free;
 
             const double relDisp = dU_free.norm() / std::max(1.0, U_free.norm());
             U_free += dU_free;
@@ -298,22 +315,29 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
 
             if (relDisp <= opts.dispTol && relR <= std::sqrt(opts.forceTol)) {
                 if (!model.evaluateTrial(U_full, dU_zero, Kt_full, Fint_full, yielded, &out.errorMessage)) {
+                    out.convergenceDiagnostic = out.errorMessage;
                     return out;
                 }
                 const VecX R2 = Pt * (lambda * Fref_full - Fint_full);
-                if (R2.norm() / refForceNorm <= opts.forceTol * 10.0) {
+                const double relR2 = R2.norm() / refForceNorm;
+                const double relE2 = (refEnergy > 0.0) ? (std::abs(dU_free.dot(R2)) / refEnergy) : 0.0;
+                if (relR2 <= opts.forceTol * 10.0 && (opts.energyTol <= 0.0 || relE2 <= opts.energyTol * 10.0)) {
                     model.commitStep();
                     out.success = true;
                     out.achievedLoadFactor = lambda;
                     out.totalSteps = 1;
                     out.finalU_full = U_full;
                     out.finalReactionsFull = computeReactionsFull(baseSys, Fint_full, lambda, Fref_full);
-                    out.history.push_back({1, lambda, iter, R2.norm(), U_full, out.finalReactionsFull, yielded});
+                    out.history.push_back({1, lambda, iter, R2.norm(), U_full, out.finalReactionsFull, yielded, relE2});
+                    out.convergenceDiagnostic = "P-Delta convergiu (relDisp=" + std::to_string(relDisp)
+                        + ", relR=" + std::to_string(relR2) + ", relE=" + std::to_string(relE2) + ").";
                     return out;
                 }
             }
         }
         out.errorMessage = "Análise P-Delta não convergiu no número máximo de iterações (possível carga próxima à crítica).";
+        out.convergenceDiagnostic = out.errorMessage + " Ultimo relR=" + std::to_string(lastRelRes)
+            + ", relE=" + std::to_string(lastEnergyRatio) + ".";
         return out;
     }
 
@@ -355,6 +379,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
             bool stepConverged = false;
             int stepIters = 0;
             double lastResNorm = 0.0;
+            double refEnergy = -1.0;
+            VecX prevDU_free = VecX::Zero(nFree);
+            double lastEnergyRatio = 0.0;
             bool stepYielded = false;
             VecX Fint_final;
 
@@ -371,8 +398,11 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 const VecX R_f = Pt * (lambdaTarget * Fref_full - Fint_full);
                 lastResNorm = R_f.norm();
                 const double relRes = lastResNorm / refForceNorm;
+                if (iter > 1 && refEnergy > 0.0) {
+                    lastEnergyRatio = std::abs(prevDU_free.dot(R_f)) / refEnergy;
+                }
 
-                if (iter > 1 && relRes <= opts.forceTol) {
+                if (iter > 1 && relRes <= opts.forceTol && (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol)) {
                     stepConverged = true;
                     break;
                 }
@@ -386,6 +416,11 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 if (!st.success || !dU_free.allFinite()) {
                     break;
                 }
+
+                if (iter == 1 || refEnergy <= 0.0) {
+                    refEnergy = std::max(1e-12, std::abs(dU_free.dot(R_f)));
+                }
+                prevDU_free = dU_free;
 
                 double alpha = 1.0;
                 const double rNormBefore = R_f.norm();
@@ -410,8 +445,11 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                     VecX Fint_chk;
                     if (model.evaluateTrial(U_full, deltaU_iter, Kt_chk, Fint_chk, stepYielded, &out.errorMessage)) {
                         Fint_final = Fint_chk;
-                        lastResNorm = (Pt * (lambdaTarget * Fref_full - Fint_chk)).norm();
-                        stepConverged = (lastResNorm / refForceNorm <= opts.forceTol * 10.0);
+                        const VecX R_chk = Pt * (lambdaTarget * Fref_full - Fint_chk);
+                        lastResNorm = R_chk.norm();
+                        lastEnergyRatio = (refEnergy > 0.0) ? (std::abs(dU_free.dot(R_chk)) / refEnergy) : 0.0;
+                        stepConverged = (lastResNorm / refForceNorm <= opts.forceTol * 10.0)
+                                     && (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol * 10.0);
                         break;
                     }
                 }
@@ -426,7 +464,7 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 cutbacks = 0;
 
                 VecX reac = computeReactionsFull(baseSys, Fint_final, lambdaConv, Fref_full);
-                out.history.push_back({stepIdx, lambdaConv, stepIters, lastResNorm, U_full_conv, reac, stepYielded});
+                out.history.push_back({stepIdx, lambdaConv, stepIters, lastResNorm, U_full_conv, reac, stepYielded, lastEnergyRatio});
 
                 if (stepIters <= 4 && std::abs(dLambdaCurr) < std::abs(dLambdaBase)) {
                     dLambdaCurr *= 1.5;
@@ -438,6 +476,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 dLambdaCurr *= 0.5;
                 if (cutbacks > 10 || std::abs(dLambdaCurr) < 1e-5 * std::abs(dLambdaBase)) {
                     out.errorMessage = "Newton-Raphson não convergiu mesmo após subdivisão de passo (possível ponto limite / flambagem).";
+                    out.convergenceDiagnostic = out.errorMessage + " Passo=" + std::to_string(stepIdx)
+                        + ", lambda=" + std::to_string(lambdaConv)
+                        + ", relE=" + std::to_string(lastEnergyRatio) + ".";
                     out.achievedLoadFactor = lambdaConv;
                     out.totalSteps = stepIdx;
                     out.finalU_full = U_full_conv;
@@ -455,6 +496,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
         if (!out.success && out.errorMessage.empty()) {
             out.errorMessage = "Número máximo de passos atingido antes do fator de carga alvo.";
         }
+        out.convergenceDiagnostic = out.success
+            ? ("Newton-Raphson convergiu em " + std::to_string(stepIdx) + " passos (" + std::to_string(out.totalIterations) + " iters total).")
+            : out.errorMessage;
         return out;
     }
 
@@ -546,6 +590,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
             bool stepConverged = false;
             int stepIters = 0;
             double lastResNorm = 0.0;
+            double refEnergy = -1.0;
+            VecX prevDU_free = VecX::Zero(nFree);
+            double lastEnergyRatio = 0.0;
             VecX Fint_final;
 
             for (int iter = 1; iter <= opts.maxIterationsPerStep; ++iter) {
@@ -558,7 +605,10 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 Fint_final = Fint_full;
                 const VecX R_f = Pt * (lambdaCurr * Fref_full - Fint_full);
                 lastResNorm = R_f.norm();
-                if (lastResNorm / refForceNorm <= opts.forceTol) {
+                if (iter > 1 && refEnergy > 0.0) {
+                    lastEnergyRatio = std::abs(prevDU_free.dot(R_f)) / refEnergy;
+                }
+                if (lastResNorm / refForceNorm <= opts.forceTol && (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol || iter == 1)) {
                     stepConverged = true;
                     break;
                 }
@@ -603,6 +653,10 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 }
 
                 const VecX ddU_free = dU_I + ddLam * dU_F;
+                if (iter == 1 || refEnergy <= 0.0) {
+                    refEnergy = std::max(1e-12, std::abs(ddU_free.dot(R_f)));
+                }
+                prevDU_free = ddU_free;
                 dU_step += ddU_free;
                 dLamStep += ddLam;
                 U_free = U_free_conv + dU_step;
@@ -623,7 +677,7 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 cutbacks = 0;
 
                 VecX reac = computeReactionsFull(baseSys, Fint_final, lambdaConv, Fref_full);
-                out.history.push_back({stepIdx, lambdaConv, stepIters, lastResNorm, U_full_conv, reac, stepYielded});
+                out.history.push_back({stepIdx, lambdaConv, stepIters, lastResNorm, U_full_conv, reac, stepYielded, lastEnergyRatio});
 
                 // Adaptação suave do raio do arco
                 const double ratio = std::sqrt(static_cast<double>(std::max(1, opts.desiredIterations))
@@ -646,6 +700,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
         if (!out.history.empty()) out.finalReactionsFull = out.history.back().reactionsFull;
         // Arc-length é considerado bem-sucedido se percorreu passos e atingiu alvo ou completou histórico solicitado
         out.success = (stepIdx > 0 && out.errorMessage.empty());
+        out.convergenceDiagnostic = out.success
+            ? ("Arc-Length convergiu em " + std::to_string(stepIdx) + " passos (lambda=" + std::to_string(lambdaConv) + ").")
+            : out.errorMessage;
         return out;
     }
 }

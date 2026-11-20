@@ -4,6 +4,7 @@
 #include "locale/GerenciadorTraducao.hpp"
 #include "render/Viewport3D.hpp"
 #include "solver/FemSolver3D.hpp"
+#include "ui/AboutDialog.hpp"
 #include "ui/Dialogs.hpp"
 #include "ui/EngineeringDialogs.hpp"
 #include "ui/GuidedSessionDialog.hpp"
@@ -19,11 +20,13 @@
 #include <QToolTip>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QImage>
 #include <QLabel>
 #include <QMetaObject>
 #include <QPointer>
@@ -35,6 +38,7 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QVBoxLayout>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -190,6 +194,18 @@ void testSingleClickDialogsAndZOrder() {
     pumpEvents(60);
     TEST_ASSERT(isAboveInOsZOrder(matCat, &mw),
                 "Ao fechar MaterialDialog, MaterialCatalogDialog deve permanecer acima do MainWindow");
+
+    // 5) Diálogos sem resize explícito no construtor devem abrir pré-dimensionados com chrome nativo pronto
+    TEST_ASSERT(QMetaObject::invokeMethod(&mw, "onAbout", Qt::DirectConnection), "Abrir AboutDialog");
+    pumpEvents(40);
+    auto* aboutDlg = findVisibleTopLevel<AboutDialog>();
+    TEST_ASSERT(aboutDlg != nullptr, "AboutDialog deve abrir visível sem flash fantasma");
+    TEST_ASSERT(aboutDlg->testAttribute(Qt::WA_Resized) &&
+                    aboutDlg->width() >= aboutDlg->minimumSizeHint().width() &&
+                    aboutDlg->height() >= aboutDlg->minimumSizeHint().height(),
+                "AboutDialog deve ser dimensionado pelo WindowZOrderManager antes da exibição");
+    TEST_ASSERT(aboutDlg->internalWinId() != 0, "Dialog filho visível deve possuir HWND/WinId nativo inicializado");
+    aboutDlg->close();
 
     matCat->close();
     comboDlg->close();
@@ -440,14 +456,19 @@ void testPostProcessNbrAndPdfWorkflow() {
     QComboBox* contourCombo = nullptr;
     QComboBox* clipCombo = nullptr;
     for (auto* cb : postDlg->findChildren<QComboBox*>()) {
-        if (cb->count() == 3 && cb->findData(static_cast<int>(Viewport3D::PostContourMode::NbrComplianceDcr)) >= 0) {
+        if (cb->objectName() == QStringLiteral("postContourCombo") &&
+            cb->count() == 4 &&
+            cb->findData(static_cast<int>(Viewport3D::PostContourMode::NbrComplianceDcr)) >= 0 &&
+            cb->findData(static_cast<int>(Viewport3D::PostContourMode::VonMisesStress)) >= 0) {
             contourCombo = cb;
-        } else if (cb->count() == 4 && cb->findData(static_cast<int>(Viewport3D::ClipAxis::Z)) >= 0) {
+        } else if (cb->objectName() == QStringLiteral("clipAxisCombo") &&
+                   cb->count() == 4 &&
+                   cb->findData(static_cast<int>(Viewport3D::ClipAxis::Z)) >= 0) {
             clipCombo = cb;
         }
     }
     TEST_ASSERT(contourCombo != nullptr && clipCombo != nullptr,
-                "PostProcessControlDialog deve conter combos de contorno e plano de corte");
+                "PostProcessControlDialog deve conter combos de contorno (4 modos incl. von Mises) e plano de corte");
     TEST_ASSERT(contourCombo->currentData().toInt() == static_cast<int>(Viewport3D::PostContourMode::NbrComplianceDcr),
                 "Combo de contorno deve refletir modo NbrComplianceDcr ativo");
 
@@ -455,6 +476,11 @@ void testPostProcessNbrAndPdfWorkflow() {
     pumpEvents(30);
     TEST_ASSERT(vp->postContourMode() == Viewport3D::PostContourMode::Displacement,
                 "Contorno Displacement deve ser aplicado ao Viewport3D");
+
+    contourCombo->setCurrentIndex(3); // VonMisesStress
+    pumpEvents(30);
+    TEST_ASSERT(vp->postContourMode() == Viewport3D::PostContourMode::VonMisesStress,
+                "Contorno VonMisesStress deve ser aplicado ao Viewport3D");
 
     contourCombo->setCurrentIndex(2); // NbrComplianceDcr
     pumpEvents(30);
@@ -530,6 +556,8 @@ void testExamplesCatalogComboAndReeditingWorkflow() {
 
     auto* vp = mw.findChild<Viewport3D*>();
     TEST_ASSERT(vp != nullptr && vp->model() != nullptr, "MainWindow deve expor Viewport3D com StructuralModel");
+    TEST_ASSERT(vp->workPlane() == WorkPlane::XY_Top,
+                "Exemplo inicial carregado ao abrir o software deve usar o plano XY (Planta) por padrão");
     StructuralModel* model = vp->model();
 
     auto findInspectorGroup = [&]() -> QGroupBox* {
@@ -601,8 +629,11 @@ void testExamplesCatalogComboAndReeditingWorkflow() {
     };
 
     for (const auto& ex : examples) {
+        vp->setWorkPlane(WorkPlane::XZ_Frontal);
         (mw.*(ex.loader))();
         waitSolved();
+        TEST_ASSERT(vp->workPlane() == WorkPlane::XY_Top,
+                    "Cada um dos 3 exemplos pré-definidos deve ativar o plano XY (Planta) por padrão");
         TEST_ASSERT(model->getMaterials().size() >= 7 && model->getCrossSections().size() >= 11,
                     "Modelo carregado no MainWindow deve manter catálogo padrão completo");
 
@@ -867,6 +898,26 @@ void testGuidedSessionWalkthroughAndTranslations() {
                 "Cartão moderno inicial deve identificar Status, Controle em Foco e Como funciona");
     TEST_ASSERT(dlg->totalSteps() == 30, "Sessão Guiada deve possuir 30 etapas de reconstrução completa do zero");
 
+    auto verifyGuidedHudNoClipping = [&](const QString& langTag) {
+        pumpEvents(30);
+        TEST_ASSERT(dlg->width() >= 540,
+                    "Sessão Guiada deve possuir largura suficiente (>= 540 px) sem limite restritivo de 500 px");
+        TEST_ASSERT(exCombo->width() >= 420 && profileCombo->width() >= 420,
+                    "Combos da Sessão Guiada devem ocupar largura ampla sem truncar descrições");
+        for (QPushButton* btn : dlg->findChildren<QPushButton*>()) {
+            const QSize sh = btn->sizeHint();
+            TEST_ASSERT(btn->width() >= sh.width() - 2 && btn->height() >= sh.height() - 2,
+                        std::string("Botão da Sessão Guiada sem truncamento (") + langTag.toStdString() +
+                            "): " + btn->text().toStdString());
+        }
+        if (qEnvironmentVariableIsSet("OMNIFRAME_CAPTURE_DIR")) {
+            const QString dir = qEnvironmentVariable("OMNIFRAME_CAPTURE_DIR");
+            QDir().mkpath(dir);
+            dlg->grab().save(QDir(dir).filePath(QStringLiteral("guided_%1.png").arg(langTag)));
+        }
+    };
+    verifyGuidedHudNoClipping(QStringLiteral("pt_BR"));
+
     // Adaptação dinâmica de tema antes da execução (Claro <-> Escuro)
     const UiTheme originalTheme = ThemeManager::instance().currentTheme();
     ThemeManager::instance().setTheme(UiTheme::Light);
@@ -912,10 +963,16 @@ void testGuidedSessionWalkthroughAndTranslations() {
                 "Lista dos 3 exemplos deve traduzir dinamicamente para inglês");
     TEST_ASSERT(profileCombo->itemText(3).contains(QStringLiteral("Dyslexia")),
                 "Perfil cognitivo de leitura deve traduzir dinamicamente para inglês");
+    for (QGroupBox* gb : dlg->findChildren<QGroupBox*>()) {
+        TEST_ASSERT(!gb->title().contains(QLatin1Char('&')),
+                    std::string("GroupBox não deve conter '&' simples interpretado como mnemonic: ") +
+                        gb->title().toStdString());
+    }
     TEST_ASSERT(targetBanner->text().contains(QStringLiteral("Status:")) &&
                     targetBanner->text().contains(QStringLiteral("Control in Focus:")) &&
                     targetBanner->text().contains(QStringLiteral("How it works:")),
                 "Cartão moderno inicial deve traduzir todos os identificadores unificados para inglês");
+    verifyGuidedHudNoClipping(QStringLiteral("en_US"));
 
     TEST_ASSERT(i18n.definir_idioma(QStringLiteral("pt_BR")), "Deve retornar para pt_BR em tempo de execução");
     pumpEvents(40);
@@ -1113,13 +1170,33 @@ void testGuidedSessionWalkthroughAndTranslations() {
             } else if (step == 24) {
                 TEST_ASSERT(!vp->model()->surfaceMesh().elements.empty(),
                             "Etapa 24 da Sessão Guiada deve gerar malha 2D durante a demonstração");
+                bool foundContinuumRows = false;
+                for (auto* tw : mw.findChildren<QTabWidget*>()) {
+                    if (tw->count() >= 4) {
+                        if (auto* tbl = qobject_cast<QTableWidget*>(tw->widget(3))) {
+                            foundContinuumRows = (tbl->rowCount() > 0);
+                        }
+                    }
+                }
+                TEST_ASSERT(foundContinuumRows,
+                            "Etapa 24 deve resolver E2E e preencher a aba Esforços 2D/3D (Casca/Sólido)");
             } else if (step == 25 || step == 26 || step == 27) {
-                TEST_ASSERT(findVisibleTopLevel<AnalysisSuiteDialog>() != nullptr,
+                auto* suite = findVisibleTopLevel<AnalysisSuiteDialog>();
+                TEST_ASSERT(suite != nullptr,
                             "Etapas 25-27 devem reutilizar continuamente a Suíte de Análises sem fechar/reabrir janelas fantasmas");
+                if (step == 27) {
+                    auto* tabs = suite->findChild<QTabWidget*>();
+                    auto* nlTbl = (tabs && tabs->count() >= 7) ? tabs->widget(6)->findChild<QTableWidget*>() : nullptr;
+                    TEST_ASSERT(nlTbl != nullptr && nlTbl->rowCount() > 0,
+                                "Etapa 27 deve concluir o solver não linear corrotacional 3D com passos convergidos");
+                }
             } else if (step == 28) {
                 TEST_ASSERT(findVisibleTopLevel<AnalysisSuiteDialog>() == nullptr &&
                                 findVisibleTopLevel<PostProcessControlDialog>() != nullptr,
                             "Etapa 28 deve ocultar Suíte e manter Pós-Processamento 3D aberto");
+                TEST_ASSERT(vp->postContourMode() == Viewport3D::PostContourMode::VonMisesStress &&
+                                vp->showSurfaceMesh(),
+                            "Etapa 28 deve exibir malha e contorno de Tensão de von Mises após solução 2D/3D da Etapa 24");
             } else if (step == 29) {
                 TEST_ASSERT(findVisibleTopLevel<PostProcessControlDialog>() == nullptr &&
                                 findVisibleTopLevel<NbrComplianceDialog>() != nullptr,
@@ -1145,8 +1222,9 @@ void testGuidedSessionWalkthroughAndTranslations() {
                     "Após concluir, combinações e malha auxiliares da demonstração devem ser limpas restaurando o estado inicial do exemplo");
         TEST_ASSERT(vp->postContourMode() == Viewport3D::PostContourMode::None &&
                         !vp->showSurfaceMesh() &&
-                        vp->clipAxis() == Viewport3D::ClipAxis::None,
-                    "Após concluir, contornos DCR, malha e plano de corte devem ser restaurados ao estado inicial no Viewport 3D");
+                        vp->clipAxis() == Viewport3D::ClipAxis::None &&
+                        vp->workPlane() == WorkPlane::XY_Top,
+                    "Após concluir, contornos, malha, plano de corte e plano XY (Planta) devem ser restaurados ao estado inicial");
         TEST_ASSERT(findVisibleTopLevel<NbrComplianceDialog>() == nullptr,
                     "Após etapa 30, diálogo NBR deve fechar limpo deixando o exemplo selecionado restaurado no Viewport 3D");
         TEST_ASSERT(!dlg->isTargetHighlightVisible(),
@@ -1169,31 +1247,172 @@ void testGuidedSessionWalkthroughAndTranslations() {
     pumpEvents(60);
 }
 
+void testThemedComboAndSpinArrowsRenderWithoutPngAssets() {
+    for (const char* resPath : {
+             ":/omniframe/assets/icons/spin_up_dark.png",
+             ":/omniframe/assets/icons/spin_down_dark.png",
+             ":/omniframe/assets/icons/spin_up_light.png",
+             ":/omniframe/assets/icons/spin_down_light.png",
+             ":/omniframe/assets/icons/spin_up_disabled_dark.png",
+             ":/omniframe/assets/icons/spin_down_disabled_dark.png",
+             ":/omniframe/assets/icons/spin_up_disabled_light.png",
+             ":/omniframe/assets/icons/spin_down_disabled_light.png",
+         }) {
+        TEST_ASSERT(!QFile::exists(QString::fromLatin1(resPath)),
+                    std::string("Recurso legado nao deve estar embutido: ") + resPath);
+    }
+
+    auto hasDistinctArrowTriangle = [](const QImage& img, const QRect& box, const QColor& expectedArrow, bool expectUp) {
+        if (img.isNull() || box.isEmpty()) return false;
+        const QRect clipped = box.intersected(img.rect()).adjusted(2, 2, -2, -2);
+        if (!clipped.isValid()) return false;
+        std::vector<int> rowWidths;
+        int totalMatching = 0;
+        for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
+            int rowCount = 0;
+            for (int x = clipped.left(); x <= clipped.right(); ++x) {
+                const QColor px = img.pixelColor(x, y);
+                const int dr = std::abs(px.red() - expectedArrow.red());
+                const int dg = std::abs(px.green() - expectedArrow.green());
+                const int db = std::abs(px.blue() - expectedArrow.blue());
+                if (dr <= 65 && dg <= 65 && db <= 65) {
+                    ++rowCount;
+                    ++totalMatching;
+                }
+            }
+            if (rowCount > 0) {
+                rowWidths.push_back(rowCount);
+            }
+        }
+        if (totalMatching < 8 || rowWidths.size() < 3) return false;
+        return expectUp ? (rowWidths.back() > rowWidths.front()) : (rowWidths.front() > rowWidths.back());
+    };
+
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const QString shotDir = qEnvironmentVariable("OMNIFRAME_UI_SHOT_DIR");
+
+    for (const UiTheme theme : {UiTheme::Dark, UiTheme::Light}) {
+        ThemeManager::instance().setTheme(theme);
+
+        QWidget host;
+        host.setAttribute(Qt::WA_DontShowOnScreen, true);
+        auto* layout = new QVBoxLayout(&host);
+        auto* combo = new QComboBox(&host);
+        combo->addItems({QStringLiteral("Item A"), QStringLiteral("Item B")});
+        combo->setMinimumSize(180, 28);
+        auto* comboDis = new QComboBox(&host);
+        comboDis->addItem(QStringLiteral("Disabled"));
+        comboDis->setEnabled(false);
+        comboDis->setMinimumSize(180, 28);
+
+        auto* spin = new QSpinBox(&host);
+        spin->setValue(12);
+        spin->setMinimumSize(180, 28);
+        auto* dspinDis = new QDoubleSpinBox(&host);
+        dspinDis->setValue(3.14);
+        dspinDis->setEnabled(false);
+        dspinDis->setMinimumSize(180, 28);
+
+        layout->addWidget(combo);
+        layout->addWidget(comboDis);
+        layout->addWidget(spin);
+        layout->addWidget(dspinDis);
+        host.resize(220, 160);
+        host.show();
+        pumpEvents(30);
+
+        if (!shotDir.isEmpty()) {
+            const QString tag = (theme == UiTheme::Light) ? QStringLiteral("light") : QStringLiteral("dark");
+            host.grab().save(shotDir + QStringLiteral("/widgets_") + tag + QStringLiteral(".png"));
+        }
+
+        const QColor normalArrow = (theme == UiTheme::Light) ? QColor(0x1e, 0x29, 0x3b) : QColor(0xe2, 0xe8, 0xf0);
+        const QColor disabledArrow = (theme == UiTheme::Light) ? QColor(0x94, 0xa3, 0xb8) : QColor(0x64, 0x74, 0x8b);
+
+        const QImage comboImg = combo->grab().toImage();
+        const QRect comboArrowRect(comboImg.width() - 22, 2, 20, comboImg.height() - 4);
+        TEST_ASSERT(hasDistinctArrowTriangle(comboImg, comboArrowRect, normalArrow, false),
+                    "QComboBox deve renderizar triangulo inferior nitido sem PNGs externos");
+
+        const QImage comboDisImg = comboDis->grab().toImage();
+        const QRect comboDisRect(comboDisImg.width() - 22, 2, 20, comboDisImg.height() - 4);
+        TEST_ASSERT(hasDistinctArrowTriangle(comboDisImg, comboDisRect, disabledArrow, false),
+                    "QComboBox desabilitado deve renderizar triangulo inferior atenuado sem PNGs externos");
+
+        const QImage spinImg = spin->grab().toImage();
+        const int spinMidY = spinImg.height() / 2;
+        const QRect spinUpRect(spinImg.width() - 20, 1, 18, spinMidY - 1);
+        const QRect spinDownRect(spinImg.width() - 20, spinMidY, 18, spinImg.height() - spinMidY - 1);
+        TEST_ASSERT(hasDistinctArrowTriangle(spinImg, spinUpRect, normalArrow, true),
+                    "QSpinBox deve renderizar triangulo superior nitido sem PNGs externos");
+        TEST_ASSERT(hasDistinctArrowTriangle(spinImg, spinDownRect, normalArrow, false),
+                    "QSpinBox deve renderizar triangulo inferior nitido sem PNGs externos");
+
+        const QImage dspinDisImg = dspinDis->grab().toImage();
+        const int dspinMidY = dspinDisImg.height() / 2;
+        TEST_ASSERT(hasDistinctArrowTriangle(dspinDisImg,
+                                             QRect(dspinDisImg.width() - 20, 1, 18, dspinMidY - 1),
+                                             disabledArrow,
+                                             true),
+                    "QDoubleSpinBox desabilitado deve renderizar triangulo superior sem PNGs externos");
+        TEST_ASSERT(hasDistinctArrowTriangle(dspinDisImg,
+                                             QRect(dspinDisImg.width() - 20, dspinMidY, 18, dspinDisImg.height() - dspinMidY - 1),
+                                             disabledArrow,
+                                             false),
+                    "QDoubleSpinBox desabilitado deve renderizar triangulo inferior sem PNGs externos");
+
+        AboutDialog about;
+        about.setAttribute(Qt::WA_DontShowOnScreen, true);
+        about.show();
+        if (auto* aboutCombo = about.findChild<QComboBox*>()) {
+            if (auto* tabs = about.findChild<QTabWidget*>()) {
+                tabs->setCurrentWidget(aboutCombo->parentWidget());
+            }
+            pumpEvents(30);
+            if (!shotDir.isEmpty()) {
+                const QString tag = (theme == UiTheme::Light) ? QStringLiteral("light") : QStringLiteral("dark");
+                aboutCombo->grab().save(shotDir + QStringLiteral("/about_combo_") + tag + QStringLiteral(".png"));
+            }
+            const QImage aboutComboImg = aboutCombo->grab().toImage();
+            const QRect aboutArrowRect(aboutComboImg.width() - 23, 2, 21, aboutComboImg.height() - 4);
+            TEST_ASSERT(hasDistinctArrowTriangle(aboutComboImg, aboutArrowRect, normalArrow, false),
+                        "Combo do AboutDialog deve renderizar triangulo inferior sem PNGs externos");
+        }
+        about.close();
+        host.close();
+    }
+
+    ThemeManager::instance().setTheme(originalTheme);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
 
-    std::cout << "[Test Phase 9] 1/7 Janelas UI (1-clique), resize e Z-Order...\n";
+    std::cout << "[Test Phase 9] 1/8 Janelas UI (1-clique), resize e Z-Order...\n";
     testSingleClickDialogsAndZOrder();
 
-    std::cout << "[Test Phase 9] 2/7 Malha 2D/3D e BoundingBox...\n";
+    std::cout << "[Test Phase 9] 2/8 Malha 2D/3D e BoundingBox...\n";
     testMeshBoundingBoxAndUiEnablement();
 
-    std::cout << "[Test Phase 9] 3/7 Casos & Combinacoes NBR e preservacao de selecao...\n";
+    std::cout << "[Test Phase 9] 3/8 Casos & Combinacoes NBR e preservacao de selecao...\n";
     testLoadCombinationsAutoCaptureAndSelection();
 
-    std::cout << "[Test Phase 9] 4/7 AnalysisSuiteDialog (Combos/Modal/Flamb/Harm/Espec/Sism/NL)...\n";
+    std::cout << "[Test Phase 9] 4/8 AnalysisSuiteDialog (Combos/Modal/Flamb/Harm/Espec/Sism/NL)...\n";
     testAnalysisSuiteEndToEnd();
 
-    std::cout << "[Test Phase 9] 5/7 PostProcess, Auditoria ABNT NBR, DCR e PDF...\n";
+    std::cout << "[Test Phase 9] 5/8 PostProcess, Auditoria ABNT NBR, DCR e PDF...\n";
     testPostProcessNbrAndPdfWorkflow();
 
-    std::cout << "[Test Phase 9] 6/7 Catalogos dos 3 Exemplos, Comboboxes do Inspetor e Reedicao Completa...\n";
+    std::cout << "[Test Phase 9] 6/8 Catalogos dos 3 Exemplos, Comboboxes do Inspetor e Reedicao Completa...\n";
     testExamplesCatalogComboAndReeditingWorkflow();
 
-    std::cout << "[Test Phase 9] 7/7 Sessao Guiada (Ajuda > Sessao Guiada) nos 3 Exemplos e Traducao Dinamica...\n";
+    std::cout << "[Test Phase 9] 7/8 Sessao Guiada (Ajuda > Sessao Guiada) nos 3 Exemplos e Traducao Dinamica...\n";
     testGuidedSessionWalkthroughAndTranslations();
+
+    std::cout << "[Test Phase 9] 8/8 Renderizacao de setas QComboBox/QSpinBox sem spin_*.png...\n";
+    testThemedComboAndSpinArrowsRenderWithoutPngAssets();
 
     std::cout << "[OK] Todos os testes de UI e workflows passaram com sucesso!\n";
     return 0;

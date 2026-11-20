@@ -43,7 +43,8 @@ public:
         Viewport3D* viewport,
         const SolverResult* lastStaticResult,
         std::function<void(const SolverResult&)> onStaticOrNonlinearCompleted,
-        std::function<void(const QString&)> onStatusMsg);
+        std::function<void(const QString&)> onStatusMsg,
+        std::function<void()> onModelMutated = {});
 
     const kernel::ModalResult* latestModalResult() const { return m_hasModal ? &m_modalRes : nullptr; }
     const kernel::BucklingResult* latestBucklingResult() const { return m_hasBuckling ? &m_bucklingRes : nullptr; }
@@ -62,6 +63,7 @@ private slots:
     void onPlotSelectedMode();
     void onRunBucklingAsync();
     void onPlotSelectedBucklingMode();
+    void onApplyBucklingImperfection();
     void onRunHarmonicAsync();
     void onPlotSelectedHarmonicStep();
     void onRunSpectrumAsync();
@@ -74,12 +76,14 @@ private slots:
 private:
     void retranslateUi();
     void setBusyState(bool busy, const QString& statusText = QString());
+    void refreshSeismicLoadCases();
 
     StructuralModel* m_model = nullptr;
     Viewport3D* m_viewport = nullptr;
     const SolverResult* m_lastStatic = nullptr;
     std::function<void(const SolverResult&)> m_onCompleted;
     std::function<void(const QString&)> m_onStatus;
+    std::function<void()> m_onModelMutated;
 
     QTabWidget* m_tabs = nullptr;
     QProgressBar* m_progressBar = nullptr;
@@ -107,8 +111,10 @@ private:
     // Aba 3: Flambagem
     QSpinBox* m_bucklingModesSpin = nullptr;
     QCheckBox* m_bucklingNegCheck = nullptr;
+    QDoubleSpinBox* m_impAmpSpin = nullptr;
     QPushButton* m_btnRunBuckling = nullptr;
     QPushButton* m_btnPlotBuckling = nullptr;
+    QPushButton* m_btnApplyImperfection = nullptr;
     QTableWidget* m_bucklingTable = nullptr;
     kernel::BucklingResult m_bucklingRes;
     bool m_hasBuckling = false;
@@ -141,9 +147,12 @@ private:
     bool m_hasSpec = false;
 
     // Aba 6: Sísmica / Transiente
+    QComboBox* m_seisModeCombo = nullptr;
+    QComboBox* m_seisLoadCaseCombo = nullptr;
     QComboBox* m_seisSchemeCombo = nullptr;
     QDoubleSpinBox* m_seisDtSpin = nullptr;
     QSpinBox* m_seisStepsSpin = nullptr;
+    QLabel* m_seisAmpLabel = nullptr;
     QDoubleSpinBox* m_seisAmpSpin = nullptr;
     QDoubleSpinBox* m_seisFreqSpin = nullptr;
     QComboBox* m_seisDirCombo = nullptr;
@@ -284,12 +293,17 @@ private:
     void retranslateUi();
     void updateQualityReport();
     void updateParameterEnablement();
+    void refreshMaterialCombo();
 
     StructuralModel* m_model = nullptr;
     Viewport3D* m_viewport = nullptr;
     std::function<void()> m_onModelUpdated;
 
     QComboBox* m_meshTypeCombo = nullptr;
+    QComboBox* m_matCombo = nullptr;
+    QComboBox* m_bcPresetCombo = nullptr;
+    QDoubleSpinBox* m_thicknessSpin = nullptr;
+    QDoubleSpinBox* m_pressureSpin = nullptr;
     QDoubleSpinBox* m_origXSpin = nullptr;
     QDoubleSpinBox* m_origYSpin = nullptr;
     QDoubleSpinBox* m_origZSpin = nullptr;

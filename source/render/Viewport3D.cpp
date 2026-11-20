@@ -46,16 +46,10 @@ QVector4D dcrRatioToColor(double dcr) {
 
 double computeModelVisualDiagonal(const StructuralModel* model) {
     if (!model) return 10.0;
-    const auto& nodes = model->getNodes();
-    if (nodes.empty()) return 10.0;
-    double minX = 1e18, minY = 1e18, minZ = 1e18;
-    double maxX = -1e18, maxY = -1e18, maxZ = -1e18;
-    for (const auto& n : nodes) {
-        minX = std::min(minX, n.x()); maxX = std::max(maxX, n.x());
-        minY = std::min(minY, n.y()); maxY = std::max(maxY, n.y());
-        minZ = std::min(minZ, n.z()); maxZ = std::max(maxZ, n.z());
-    }
-    return std::max(1.0, std::hypot(maxX - minX, std::hypot(maxY - minY, maxZ - minZ)));
+    if (model->getNodes().empty() && model->surfaceMesh().nodes.empty()) return 10.0;
+    Vec3 minPt, maxPt;
+    model->getBoundingBox(minPt, maxPt);
+    return std::max(1.0, (maxPt - minPt).norm());
 }
 
 } // namespace
@@ -894,6 +888,11 @@ void Viewport3D::renderElements(const QMatrix4x4& mvp) {
         for (const auto& n : m_model->getNodes()) {
             maxNodeDisp = std::max(maxNodeDisp, n.displacementNorm());
         }
+        for (const auto& mn : m_model->surfaceMesh().nodes) {
+            if (mn.hasResults) {
+                maxNodeDisp = std::max(maxNodeDisp, mn.displacementNorm());
+            }
+        }
         if (maxNodeDisp > 1e-12) {
             m_legendVisible = true;
             m_legendIsDcr = false;
@@ -1038,6 +1037,37 @@ void Viewport3D::renderSupports(const QMatrix4x4& mvp, const QMatrix4x4& view) {
         } else {
             // Apoio Móvel (Rolete): Pirâmide com cilindro/base
             buildPyramid(meshVertices, 0.32f, 0.30f, pos, pal.supportRollerColor);
+        }
+    }
+
+    for (const auto& mn : m_model->surfaceMesh().nodes) {
+        if (!mn.isSupported()) continue;
+        // Evita duplicar apoio se já existe nó de barra suportado exatamente na mesma coordenada
+        bool overlapsFrameSupport = false;
+        for (const auto& node : m_model->getNodes()) {
+            if (!node.isSupported()) continue;
+            const double dx = node.x() - mn.position.x();
+            const double dy = node.y() - mn.position.y();
+            const double dz = node.z() - mn.position.z();
+            if ((dx * dx + dy * dy + dz * dz) <= 1e-12) {
+                overlapsFrameSupport = true;
+                break;
+            }
+        }
+        if (overlapsFrameSupport) continue;
+
+        const QVector3D pos(static_cast<float>(mn.position.x()),
+                            static_cast<float>(mn.position.y()),
+                            static_cast<float>(mn.position.z()));
+        const bool isFixed = mn.fixed[0] && mn.fixed[1] && mn.fixed[2]
+                          && mn.fixed[3] && mn.fixed[4] && mn.fixed[5];
+        const bool isPinned = mn.fixed[0] && mn.fixed[1] && mn.fixed[2];
+        if (isFixed) {
+            buildCube(meshVertices, 0.24f, pos - QVector3D(0.0f, 0.0f, 0.12f), pal.supportFixedColor);
+        } else if (isPinned) {
+            buildPyramid(meshVertices, 0.28f, 0.28f, pos, pal.supportPinnedColor);
+        } else {
+            buildPyramid(meshVertices, 0.25f, 0.24f, pos, pal.supportRollerColor);
         }
     }
 
@@ -1187,16 +1217,32 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
     const ActivePlanePalette pal = activePlanePaletteForTheme(m_renderSettings.planeTheme, m_renderSettings.planeGridContrast);
     std::vector<float> lines;
 
-    if (!m_nonlinearFrames.empty()) {
-        const int idx = std::clamp(m_nonlinearStepIdx, 0, static_cast<int>(m_nonlinearFrames.size()) - 1);
-        const auto& dispMap = m_nonlinearFrames[static_cast<std::size_t>(idx)].second;
+    if (!m_nonlinearFrames.empty() || !m_nonlinearMeshFrames.empty()) {
+        const int totalFrames = nonlinearStepCount();
+        const int idx = std::clamp(m_nonlinearStepIdx, 0, std::max(0, totalFrames - 1));
+        const std::unordered_map<NodeId, Vec3> emptyMap;
+        const auto& dispMap = (idx < static_cast<int>(m_nonlinearFrames.size()))
+            ? m_nonlinearFrames[static_cast<std::size_t>(idx)].second
+            : emptyMap;
         double maxDisp = 1e-9;
         for (const auto& [nid, u] : dispMap) {
             Q_UNUSED(nid);
             maxDisp = std::max(maxDisp, u.norm());
         }
+        if (idx < static_cast<int>(m_nonlinearMeshFrames.size())) {
+            for (const auto& [nid, u] : m_nonlinearMeshFrames[static_cast<std::size_t>(idx)].second) {
+                Q_UNUSED(nid);
+                maxDisp = std::max(maxDisp, u.norm());
+            }
+        }
         double maxPeakAcrossFrames = maxDisp;
         for (const auto& frame : m_nonlinearFrames) {
+            for (const auto& [nid, u] : frame.second) {
+                Q_UNUSED(nid);
+                maxPeakAcrossFrames = std::max(maxPeakAcrossFrames, u.norm());
+            }
+        }
+        for (const auto& frame : m_nonlinearMeshFrames) {
             for (const auto& [nid, u] : frame.second) {
                 Q_UNUSED(nid);
                 maxPeakAcrossFrames = std::max(maxPeakAcrossFrames, u.norm());
@@ -1246,13 +1292,19 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
         m_legendMin = 0.0;
         m_legendMax = maxDisp * 1000.0;
 
-        drawLinesAA(mvp, lines, 2.95f, true, true);
+        if (!lines.empty()) {
+            drawLinesAA(mvp, lines, 2.95f, true, true);
+        }
         return;
     }
 
-    if (!m_postAnimNodeDispl.empty()) {
+    if (!m_postAnimNodeDispl.empty() || !m_postAnimMeshDispl.empty()) {
         double maxPeak = 1e-9;
         for (const auto& [nid, u] : m_postAnimNodeDispl) {
+            Q_UNUSED(nid);
+            maxPeak = std::max(maxPeak, u.norm());
+        }
+        for (const auto& [nid, u] : m_postAnimMeshDispl) {
             Q_UNUSED(nid);
             maxPeak = std::max(maxPeak, u.norm());
         }
@@ -1306,7 +1358,9 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
         m_legendMin = 0.0;
         m_legendMax = (m_animBaseScale <= 0.0) ? 1.0 : (maxPeak * 1000.0);
 
-        drawLinesAA(mvp, lines, 2.95f, true, true);
+        if (!lines.empty()) {
+            drawLinesAA(mvp, lines, 2.95f, true, true);
+        }
         return;
     }
 
@@ -1316,7 +1370,12 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
     for (const auto& n : m_model->getNodes()) {
         maxDisp = std::max(maxDisp, n.displacementNorm());
     }
-    if (!showDcrContour && maxDisp > 1e-8) {
+    for (const auto& mn : m_model->surfaceMesh().nodes) {
+        if (mn.hasResults) {
+            maxDisp = std::max(maxDisp, mn.displacementNorm());
+        }
+    }
+    if (!showDcrContour && m_postContourMode != PostContourMode::VonMisesStress && maxDisp > 1e-8) {
         m_legendVisible = true;
         m_legendIsDcr = false;
         m_legendTitle = locale::GerenciadorTraducao::trText("Deslocamento |u|");
@@ -2220,9 +2279,11 @@ void Viewport3D::setPostAnimationField(const QString& label,
                                        double baseScale,
                                        bool oscillating) {
     m_nonlinearFrames.clear();
+    m_nonlinearMeshFrames.clear();
     m_nonlinearStepIdx = 0;
     m_postAnimLabel = label;
     m_postAnimNodeDispl = modeDisplByNode;
+    m_postAnimMeshDispl.clear();
     m_animBaseScale = baseScale;
     m_animOscillating = oscillating;
     m_animPhase = std::numbers::pi * 0.5;
@@ -2231,13 +2292,21 @@ void Viewport3D::setPostAnimationField(const QString& label,
     update();
 }
 
+void Viewport3D::setPostMeshAnimationField(const std::unordered_map<NodeId, Vec3>& meshDisplByNode) {
+    m_postAnimMeshDispl = meshDisplByNode;
+    emit postAnimationStateChanged();
+    update();
+}
+
 void Viewport3D::setNonlinearStepFrames(
     const QString& label,
     const std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>>& stepFrames) {
     m_postAnimNodeDispl.clear();
+    m_postAnimMeshDispl.clear();
     m_postAnimLabel = label;
     m_animBaseScale = -1.0;
     m_nonlinearFrames = stepFrames;
+    m_nonlinearMeshFrames.clear();
     m_nonlinearStepIdx = m_nonlinearFrames.empty() ? 0 : static_cast<int>(m_nonlinearFrames.size()) - 1;
     const double fac = m_nonlinearFrames.empty()
         ? 0.0
@@ -2247,13 +2316,31 @@ void Viewport3D::setNonlinearStepFrames(
     update();
 }
 
+void Viewport3D::setNonlinearMeshStepFrames(
+    const std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>>& meshStepFrames) {
+    m_nonlinearMeshFrames = meshStepFrames;
+    const int total = nonlinearStepCount();
+    if (total > 0) {
+        m_nonlinearStepIdx = total - 1;
+        const double fac = (m_nonlinearStepIdx < static_cast<int>(m_nonlinearFrames.size()))
+            ? m_nonlinearFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first
+            : m_nonlinearMeshFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first;
+        emit animationFrameChanged(m_nonlinearStepIdx, total, fac);
+    }
+    emit postAnimationStateChanged();
+    update();
+}
+
 void Viewport3D::setNonlinearStepIndex(int idx) {
-    if (m_nonlinearFrames.empty()) return;
-    m_nonlinearStepIdx = std::clamp(idx, 0, static_cast<int>(m_nonlinearFrames.size()) - 1);
-    emit animationFrameChanged(
-        m_nonlinearStepIdx,
-        static_cast<int>(m_nonlinearFrames.size()),
-        m_nonlinearFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first);
+    const int total = nonlinearStepCount();
+    if (total <= 0) return;
+    m_nonlinearStepIdx = std::clamp(idx, 0, total - 1);
+    const double fac = (m_nonlinearStepIdx < static_cast<int>(m_nonlinearFrames.size()))
+        ? m_nonlinearFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first
+        : ((m_nonlinearStepIdx < static_cast<int>(m_nonlinearMeshFrames.size()))
+            ? m_nonlinearMeshFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first
+            : 0.0);
+    emit animationFrameChanged(m_nonlinearStepIdx, total, fac);
     update();
 }
 
@@ -2291,7 +2378,9 @@ void Viewport3D::clearPostAnimation() {
     }
     m_postAnimLabel.clear();
     m_postAnimNodeDispl.clear();
+    m_postAnimMeshDispl.clear();
     m_nonlinearFrames.clear();
+    m_nonlinearMeshFrames.clear();
     m_nonlinearStepIdx = 0;
     m_animPhase = std::numbers::pi * 0.5;
     emit postAnimationStateChanged();
@@ -2337,27 +2426,140 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
 
     std::unordered_map<NodeId, QVector3D> nodePosMap;
     nodePosMap.reserve(mesh.nodes.size());
-    std::unordered_map<NodeId, double> nodeDispMap;
-    double maxDisp = 1e-9;
+    std::unordered_map<NodeId, double> nodeColorRatioMap;
+    nodeColorRatioMap.reserve(mesh.nodes.size());
 
-    const bool useDispContour = (m_postContourMode == PostContourMode::Displacement);
-    if (useDispContour) {
+    const bool hasStepFrames = !m_nonlinearFrames.empty() || !m_nonlinearMeshFrames.empty();
+    const bool hasModeAnim = !hasStepFrames && (!m_postAnimNodeDispl.empty() || !m_postAnimMeshDispl.empty());
+    const bool isDeformedView = hasStepFrames || hasModeAnim || (m_activeDiagram == DiagramType::Deformed);
+
+    const bool useVonMisesContour = (!hasStepFrames && !hasModeAnim && m_postContourMode == PostContourMode::VonMisesStress);
+    const bool useDispContour = !useVonMisesContour && (hasStepFrames || hasModeAnim || m_postContourMode == PostContourMode::Displacement || m_activeDiagram == DiagramType::Deformed);
+
+    double maxVonMises = 0.0;
+    if (useVonMisesContour) {
+        for (const auto& el : mesh.elements) {
+            if (el.hasResults) {
+                maxVonMises = std::max(maxVonMises, el.vonMisesStress);
+            }
+        }
+        if (maxVonMises > 1e-8) {
+            m_legendVisible = true;
+            m_legendIsDcr = false;
+            m_legendTitle = locale::GerenciadorTraducao::trText("Tensão de von Mises");
+            m_legendUnit = QStringLiteral("kPa");
+            m_legendMin = 0.0;
+            m_legendMax = maxVonMises;
+        }
+    }
+
+    double maxDisp = 1e-9;
+    double colorNormDenom = 1e-9;
+    double animColorFactor = 1.0;
+    double effScale = isDeformedView ? m_deformedScale : 0.0;
+    const std::unordered_map<NodeId, Vec3>* animSourceMap = nullptr;
+
+    if (hasStepFrames) {
+        const int totalFrames = nonlinearStepCount();
+        const int idx = std::clamp(m_nonlinearStepIdx, 0, std::max(0, totalFrames - 1));
+        if (idx < static_cast<int>(m_nonlinearMeshFrames.size())) {
+            animSourceMap = &m_nonlinearMeshFrames[static_cast<std::size_t>(idx)].second;
+        } else if (idx < static_cast<int>(m_nonlinearFrames.size())) {
+            animSourceMap = &m_nonlinearFrames[static_cast<std::size_t>(idx)].second;
+        }
+        if (animSourceMap) {
+            for (const auto& [nid, u] : *animSourceMap) {
+                Q_UNUSED(nid);
+                maxDisp = std::max(maxDisp, u.norm());
+            }
+        }
+        double maxPeakAcrossFrames = maxDisp;
+        for (const auto& frame : m_nonlinearFrames) {
+            for (const auto& [nid, u] : frame.second) {
+                Q_UNUSED(nid);
+                maxPeakAcrossFrames = std::max(maxPeakAcrossFrames, u.norm());
+            }
+        }
+        for (const auto& frame : m_nonlinearMeshFrames) {
+            for (const auto& [nid, u] : frame.second) {
+                Q_UNUSED(nid);
+                maxPeakAcrossFrames = std::max(maxPeakAcrossFrames, u.norm());
+            }
+        }
+        const double diag = computeModelVisualDiagonal(m_model);
+        effScale = (m_animBaseScale <= 0.0)
+            ? ((diag * 0.09) / maxPeakAcrossFrames) * (m_deformedScale / 50.0) * m_animAmplitude
+            : (m_animBaseScale * m_deformedScale * m_animAmplitude);
+        colorNormDenom = std::max(1e-9, maxDisp);
+    } else if (hasModeAnim) {
+        animSourceMap = !m_postAnimMeshDispl.empty() ? &m_postAnimMeshDispl : &m_postAnimNodeDispl;
+        double maxPeak = 1e-9;
+        for (const auto& [nid, u] : m_postAnimNodeDispl) {
+            Q_UNUSED(nid);
+            maxPeak = std::max(maxPeak, u.norm());
+        }
+        for (const auto& [nid, u] : m_postAnimMeshDispl) {
+            Q_UNUSED(nid);
+            maxPeak = std::max(maxPeak, u.norm());
+        }
+        const double diag = computeModelVisualDiagonal(m_model);
+        const double phaseFactor = m_animOscillating
+            ? std::sin(m_animPhase)
+            : (0.5 - 0.5 * std::cos(m_animPhase));
+        effScale = (m_animBaseScale <= 0.0)
+            ? ((diag * 0.09) / maxPeak) * (m_deformedScale / 50.0) * m_animAmplitude * phaseFactor
+            : (m_animBaseScale * m_deformedScale * m_animAmplitude * phaseFactor);
+        colorNormDenom = std::max(1e-9, maxPeak);
+        animColorFactor = std::abs(phaseFactor);
+    } else if (useDispContour) {
         for (const auto& sn : m_model->getNodes()) {
             maxDisp = std::max(maxDisp, sn.displacementNorm());
+        }
+        for (const auto& mn : mesh.nodes) {
+            if (mn.hasResults) {
+                maxDisp = std::max(maxDisp, mn.displacementNorm());
+            }
+        }
+        colorNormDenom = std::max(1e-9, maxDisp);
+        if (maxDisp > 1e-8) {
+            m_legendVisible = true;
+            m_legendIsDcr = false;
+            m_legendTitle = locale::GerenciadorTraducao::trText("Deslocamento |u|");
+            m_legendUnit = QStringLiteral("mm");
+            m_legendMin = 0.0;
+            m_legendMax = maxDisp * 1000.0;
         }
     }
 
     for (const auto& mn : mesh.nodes) {
-        const QVector3D pt(static_cast<float>(mn.position.x()),
-                           static_cast<float>(mn.position.y()),
-                           static_cast<float>(mn.position.z()));
-        nodePosMap[mn.id] = pt;
-        if (useDispContour && maxDisp > 1e-8) {
-            if (const Node* sn = m_model->findNode(mn.id)) {
-                nodeDispMap[mn.id] = sn->displacementNorm();
-            } else {
-                nodeDispMap[mn.id] = 0.0;
+        kernel::Vec3 uNode = kernel::Vec3::Zero();
+        if (animSourceMap) {
+            if (const auto it = animSourceMap->find(mn.id); it != animSourceMap->end()) {
+                uNode = kernel::Vec3(it->second.x, it->second.y, it->second.z);
+            } else if (!m_postAnimMeshDispl.empty()) {
+                // Nó acoplado sem duplicação em m_postAnimMeshDispl
+                if (const auto itF = m_postAnimNodeDispl.find(mn.id); itF != m_postAnimNodeDispl.end()) {
+                    uNode = kernel::Vec3(itF->second.x, itF->second.y, itF->second.z);
+                }
             }
+        } else if (mn.hasResults) {
+            uNode = kernel::Vec3(mn.displacement[0], mn.displacement[1], mn.displacement[2]);
+        } else if (const Node* sn = m_model->findNode(mn.id)) {
+            const double dx = sn->x() - mn.position.x();
+            const double dy = sn->y() - mn.position.y();
+            const double dz = sn->z() - mn.position.z();
+            if ((dx * dx + dy * dy + dz * dz) <= 1e-12) {
+                uNode = kernel::Vec3(sn->displacement[0], sn->displacement[1], sn->displacement[2]);
+            }
+        }
+
+        const QVector3D pt(
+            static_cast<float>(mn.position.x() + (isDeformedView ? uNode.x() * effScale : 0.0)),
+            static_cast<float>(mn.position.y() + (isDeformedView ? uNode.y() * effScale : 0.0)),
+            static_cast<float>(mn.position.z() + (isDeformedView ? uNode.z() * effScale : 0.0)));
+        nodePosMap[mn.id] = pt;
+        if (useDispContour && colorNormDenom > 1e-8) {
+            nodeColorRatioMap[mn.id] = std::clamp((uNode.norm() / colorNormDenom) * animColorFactor, 0.0, 1.0);
         }
     }
 
@@ -2373,17 +2575,20 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
     triVerts.reserve(mesh.elements.size() * 60);
     edgeLines.reserve(mesh.elements.size() * 56);
 
-    auto colorForNode = [&](NodeId nid) -> QVector4D {
-        if (useDispContour && maxDisp > 1e-8) {
-            const auto it = nodeDispMap.find(nid);
-            const double d = (it != nodeDispMap.end()) ? it->second : 0.0;
-            const ColorRGB c = ColorRGB::jetThemed(d / maxDisp, pal.isLight);
-            return QVector4D(c.r, c.g, c.b, 0.82f);
+    auto colorForNode = [&](NodeId nid, const QVector4D* faceOverride) -> QVector4D {
+        if (faceOverride != nullptr) {
+            return *faceOverride;
+        }
+        if (useDispContour && colorNormDenom > 1e-8) {
+            const auto it = nodeColorRatioMap.find(nid);
+            const double r = (it != nodeColorRatioMap.end()) ? it->second : 0.0;
+            const ColorRGB c = ColorRGB::jetThemed(r, pal.isLight);
+            return QVector4D(c.r, c.g, c.b, 0.84f);
         }
         return baseFillCol;
     };
 
-    auto pushTri = [&](NodeId a, NodeId b, NodeId c) {
+    auto pushTri = [&](NodeId a, NodeId b, NodeId c, const QVector4D* faceOverride) {
         const auto ita = nodePosMap.find(a);
         const auto itb = nodePosMap.find(b);
         const auto itc = nodePosMap.find(c);
@@ -2395,9 +2600,9 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
         if (n.lengthSquared() < 1e-12f) n = QVector3D(0.0f, 0.0f, 1.0f);
         else n.normalize();
 
-        const auto ca = colorForNode(a);
-        const auto cb = colorForNode(b);
-        const auto cc = colorForNode(c);
+        const auto ca = colorForNode(a, faceOverride);
+        const auto cb = colorForNode(b, faceOverride);
+        const auto cc = colorForNode(c, faceOverride);
         auto emitV = [&](const QVector3D& p, const QVector4D& col) {
             triVerts.insert(triVerts.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(), col.x(), col.y(), col.z(), col.w()});
         };
@@ -2419,6 +2624,14 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
     };
 
     for (const auto& el : mesh.elements) {
+        QVector4D vmCol;
+        const QVector4D* faceColorPtr = nullptr;
+        if (useVonMisesContour && maxVonMises > 1e-8 && el.hasResults) {
+            const double ratio = std::clamp(el.vonMisesStress / maxVonMises, 0.0, 1.0);
+            const ColorRGB c = ColorRGB::jetThemed(ratio, pal.isLight);
+            vmCol = QVector4D(c.r, c.g, c.b, 0.86f);
+            faceColorPtr = &vmCol;
+        }
         const auto& ids = el.nodeIds;
         switch (el.type) {
             case kernel::MeshCellType::Line2:
@@ -2426,7 +2639,7 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
                 break;
             case kernel::MeshCellType::Tri3:
                 if (ids.size() >= 3) {
-                    pushTri(ids[0], ids[1], ids[2]);
+                    pushTri(ids[0], ids[1], ids[2], faceColorPtr);
                     pushEdge(ids[0], ids[1]);
                     pushEdge(ids[1], ids[2]);
                     pushEdge(ids[2], ids[0]);
@@ -2435,8 +2648,8 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
             case kernel::MeshCellType::Quad4:
             case kernel::MeshCellType::Quad8:
                 if (ids.size() >= 4) {
-                    pushTri(ids[0], ids[1], ids[2]);
-                    pushTri(ids[0], ids[2], ids[3]);
+                    pushTri(ids[0], ids[1], ids[2], faceColorPtr);
+                    pushTri(ids[0], ids[2], ids[3], faceColorPtr);
                     pushEdge(ids[0], ids[1]);
                     pushEdge(ids[1], ids[2]);
                     pushEdge(ids[2], ids[3]);
@@ -2446,10 +2659,10 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
             case kernel::MeshCellType::Tet4:
             case kernel::MeshCellType::Tet10:
                 if (ids.size() >= 4) {
-                    pushTri(ids[0], ids[2], ids[1]);
-                    pushTri(ids[0], ids[1], ids[3]);
-                    pushTri(ids[1], ids[2], ids[3]);
-                    pushTri(ids[2], ids[0], ids[3]);
+                    pushTri(ids[0], ids[2], ids[1], faceColorPtr);
+                    pushTri(ids[0], ids[1], ids[3], faceColorPtr);
+                    pushTri(ids[1], ids[2], ids[3], faceColorPtr);
+                    pushTri(ids[2], ids[0], ids[3], faceColorPtr);
                     pushEdge(ids[0], ids[1]); pushEdge(ids[1], ids[2]); pushEdge(ids[2], ids[0]);
                     pushEdge(ids[0], ids[3]); pushEdge(ids[1], ids[3]); pushEdge(ids[2], ids[3]);
                 }
@@ -2462,8 +2675,8 @@ void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
                         {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}
                     }};
                     for (const auto& f : faces) {
-                        pushTri(ids[f[0]], ids[f[1]], ids[f[2]]);
-                        pushTri(ids[f[0]], ids[f[2]], ids[f[3]]);
+                        pushTri(ids[f[0]], ids[f[1]], ids[f[2]], faceColorPtr);
+                        pushTri(ids[f[0]], ids[f[2]], ids[f[3]], faceColorPtr);
                     }
                     const std::array<std::pair<int, int>, 12> edges = {{
                         {0, 1}, {1, 2}, {2, 3}, {3, 0},

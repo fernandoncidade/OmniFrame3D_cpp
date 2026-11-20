@@ -5,6 +5,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDockWidget>
 #include <QEvent>
@@ -13,6 +14,13 @@
 #include <QRect>
 #include <QScreen>
 #include <QWidget>
+
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace omniframe {
 
@@ -144,8 +152,9 @@ void WindowZOrderManager::positionDialogOverRoot(QDialog* dlg) {
     if (dlg->layout()) {
         dlg->layout()->activate();
     }
-    const QSize layoutHint = dlg->sizeHint().expandedTo(dlg->minimumSizeHint());
-    const QSize hint = dlg->testAttribute(Qt::WA_Resized)
+    const QSize minHint = dlg->minimumSizeHint().expandedTo(dlg->minimumSize());
+    const QSize layoutHint = dlg->sizeHint().expandedTo(minHint);
+    QSize targetSize = dlg->testAttribute(Qt::WA_Resized)
         ? dlg->size().expandedTo(layoutHint)
         : layoutHint;
 
@@ -155,19 +164,35 @@ void WindowZOrderManager::positionDialogOverRoot(QDialog* dlg) {
     } else if (QScreen* screen = QGuiApplication::primaryScreen()) {
         anchorRect = screen->availableGeometry();
     } else {
+        dlg->resize(targetSize);
         return;
+    }
+
+    const QScreen* targetScreen = QGuiApplication::screenAt(anchorRect.center());
+    if (!targetScreen) {
+        targetScreen = QGuiApplication::primaryScreen();
+    }
+    if (targetScreen) {
+        const QRect avail = targetScreen->availableGeometry();
+        const int maxW = std::max(minHint.width(), avail.width() - 32);
+        const int maxH = std::max(minHint.height(), avail.height() - 32);
+        targetSize = QSize(std::min(targetSize.width(), maxW), std::min(targetSize.height(), maxH));
+    }
+
+    if (dlg->size() != targetSize) {
+        dlg->resize(targetSize);
     }
 
     const int offset = (m_cascadeStep % 6) * 26;
     m_cascadeStep = (m_cascadeStep + 1) % 60;
 
-    int x = anchorRect.center().x() - hint.width() / 2 + offset;
-    int y = anchorRect.center().y() - hint.height() / 2 + offset;
+    int x = anchorRect.center().x() - targetSize.width() / 2 + offset;
+    int y = anchorRect.center().y() - targetSize.height() / 2 + offset;
 
-    if (QScreen* targetScreen = QGuiApplication::screenAt(anchorRect.center())) {
+    if (targetScreen) {
         const QRect avail = targetScreen->availableGeometry();
-        x = std::clamp(x, avail.left() + 16, std::max(avail.left() + 16, avail.right() - hint.width() - 16));
-        y = std::clamp(y, avail.top() + 16, std::max(avail.top() + 16, avail.bottom() - hint.height() - 16));
+        x = std::clamp(x, avail.left() + 16, std::max(avail.left() + 16, avail.right() - targetSize.width() - 16));
+        y = std::clamp(y, avail.top() + 16, std::max(avail.top() + 16, avail.bottom() - targetSize.height() - 16));
     }
 
     dlg->move(x, y);
@@ -183,7 +208,67 @@ void WindowZOrderManager::showAndRaise(QWidget* window) {
         window->setWindowState((window->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
     }
     if (!window->isVisible()) {
+        if (window != m_rootWindow.data()) {
+            window->ensurePolished();
+            if (window->layout()) {
+                window->layout()->activate();
+            }
+            const QSize minHint = window->minimumSizeHint().expandedTo(window->minimumSize());
+            const QSize layoutHint = window->sizeHint().expandedTo(minHint);
+            if (!window->testAttribute(Qt::WA_Resized)) {
+                window->resize(layoutHint);
+            } else if (window->width() < minHint.width() || window->height() < minHint.height()) {
+                window->resize(window->size().expandedTo(minHint));
+            }
+        }
+
+        const QString platform = QGuiApplication::platformName();
+        const bool prepareHiddenNativeChrome =
+            (window->isWindow() &&
+             window != m_rootWindow.data() &&
+             !window->testAttribute(Qt::WA_DontShowOnScreen) &&
+             platform != QLatin1String("offscreen") &&
+             platform != QLatin1String("minimal"));
+
+        struct CloakGuard {
+            QPointer<QWidget> target;
+            bool active = false;
+            ~CloakGuard() {
+                if (active && target) {
+                    ThemeManager::instance().setWindowCloaked(target.data(), false);
+                }
+            }
+        } cloakGuard;
+
+        if (prepareHiddenNativeChrome) {
+            // Cria o HWND ainda oculto, aplica tema/chrome, desativa zoom DWM e aplica cloak
+            // para evitar janela branca/fantasma em frações de segundo antes do primeiro paint.
+            (void)window->winId();
+            ThemeManager::instance().applyWindowChrome(window);
+            ThemeManager::instance().setWindowTransitionsDisabled(window, true);
+            ThemeManager::instance().setWindowCloaked(window, true);
+            cloakGuard.target = window;
+            cloakGuard.active = true;
+        }
+
         window->show();
+
+        if (prepareHiddenNativeChrome) {
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::PolishRequest);
+            QCoreApplication::sendPostedEvents(window, QEvent::Show);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
+            if (window->layout()) {
+                window->layout()->activate();
+            }
+            window->repaint();
+#ifdef Q_OS_WIN
+            if (const WId wid = window->internalWinId(); wid != 0) {
+                ::UpdateWindow(reinterpret_cast<HWND>(wid));
+            }
+#endif
+            ThemeManager::instance().setWindowCloaked(window, false);
+            cloakGuard.active = false;
+        }
     }
     bringToFront(window, true);
 }
@@ -366,6 +451,9 @@ bool WindowZOrderManager::eventFilter(QObject* watched, QEvent* event) {
         if (auto* widget = qobject_cast<QWidget*>(watched)) {
             if (widget->isWindow()) {
                 ThemeManager::instance().applyWindowChrome(widget);
+                if (widget != m_rootWindow.data()) {
+                    ThemeManager::instance().setWindowTransitionsDisabled(widget, true);
+                }
             }
         }
     }

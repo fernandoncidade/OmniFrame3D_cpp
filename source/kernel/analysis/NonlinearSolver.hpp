@@ -36,6 +36,7 @@ struct NonlinearOptions {
     // Critérios de convergência
     double forceTol = 1e-6;         // ||R|| / max(1, ||F_ref||)
     double dispTol = 1e-7;          // ||dU|| / max(1, ||U||)
+    double energyTol = 1e-10;       // |dU^T * R| / max(1e-12, |U^T * F_ref|)
     bool fullNewtonTangent = true;  // true = Full NR (atualiza Kt cada iteração), false = Modified NR
     bool enableLineSearch = true;   // Line search com retrocesso para Newton-Raphson
 
@@ -57,6 +58,7 @@ struct NonlinearStepRecord {
     VecX U_full;
     VecX reactionsFull;
     bool anyYielded = false;
+    double energyRatio = 0.0;
 };
 
 struct NonlinearResult {
@@ -68,6 +70,7 @@ struct NonlinearResult {
     VecX finalU_full;
     VecX finalReactionsFull;
     std::vector<NonlinearStepRecord> history;
+    std::string convergenceDiagnostic;
 };
 
 /**

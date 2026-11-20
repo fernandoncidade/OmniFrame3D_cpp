@@ -38,31 +38,40 @@ namespace {
 
 using locale::GerenciadorTraducao;
 
-std::unordered_map<NodeId, Vec3> extractNodalDispMap(const StructuralModel& model, const kernel::VecX& uFull) {
-    std::unordered_map<NodeId, Vec3> out;
-    const auto& nodes = model.getNodes();
-    const Eigen::Index needed = static_cast<Eigen::Index>(nodes.size() * 6);
-    if (uFull.size() < needed) {
-        return out;
-    }
-    out.reserve(nodes.size());
-    for (std::size_t i = 0; i < nodes.size(); ++i) {
-        const Eigen::Index base = static_cast<Eigen::Index>(i * 6);
-        out[nodes[i].id] = Vec3(uFull(base), uFull(base + 1), uFull(base + 2));
-    }
-    return out;
+double maxTranslationalDisp(const StructuralModel& model, const kernel::VecX& uFull) {
+    return FemSolver3D::extractNodalDisplacements(model, uFull).maxTranslationalNorm;
 }
 
-double maxTranslationalDisp(const kernel::VecX& uFull) {
-    double maxVal = 0.0;
-    const Eigen::Index nNodes = uFull.size() / 6;
-    for (Eigen::Index i = 0; i < nNodes; ++i) {
-        const double ux = uFull(i * 6);
-        const double uy = uFull(i * 6 + 1);
-        const double uz = uFull(i * 6 + 2);
-        maxVal = std::max(maxVal, std::sqrt(ux * ux + uy * uy + uz * uz));
+void applyFieldToViewport(Viewport3D* viewport,
+                          const StructuralModel& model,
+                          const kernel::VecX& uFull,
+                          const QString& label,
+                          double baseScale,
+                          bool oscillating) {
+    const auto field = FemSolver3D::extractNodalDisplacements(model, uFull);
+    viewport->setPostAnimationField(label, field.frameNodes, baseScale, oscillating);
+    viewport->setPostMeshAnimationField(field.meshNodes);
+}
+
+template <typename HistoryT, typename FactorGetter>
+std::size_t applyStepFramesToViewport(Viewport3D* viewport,
+                                      const StructuralModel& model,
+                                      const HistoryT& history,
+                                      std::size_t stride,
+                                      const QString& label,
+                                      FactorGetter&& factorFn) {
+    std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> frameNodes;
+    std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> meshFrames;
+    for (std::size_t i = 0; i < history.size(); i += stride) {
+        const auto& rec = history[i];
+        const double fac = factorFn(rec);
+        const auto field = FemSolver3D::extractNodalDisplacements(model, rec.U_full);
+        frameNodes.emplace_back(fac, field.frameNodes);
+        meshFrames.emplace_back(fac, field.meshNodes);
     }
-    return maxVal;
+    viewport->setNonlinearStepFrames(label, frameNodes);
+    viewport->setNonlinearMeshStepFrames(meshFrames);
+    return frameNodes.size();
 }
 
 void initReadOnlyTable(QTableWidget* tbl, const QStringList& headers) {
@@ -162,6 +171,31 @@ void copySolvedNodalElementResults(const StructuralModel& src, StructuralModel& 
             dstElems[i].hasResults = srcElems[i].hasResults;
         }
     }
+    const auto& srcMesh = src.surfaceMesh();
+    auto& dstMesh = dst.surfaceMesh();
+    if (srcMesh.nodes.size() == dstMesh.nodes.size()) {
+        for (std::size_t i = 0; i < srcMesh.nodes.size(); ++i) {
+            if (srcMesh.nodes[i].id == dstMesh.nodes[i].id) {
+                dstMesh.nodes[i].hasResults = srcMesh.nodes[i].hasResults;
+                dstMesh.nodes[i].displacement = srcMesh.nodes[i].displacement;
+                dstMesh.nodes[i].reaction = srcMesh.nodes[i].reaction;
+            }
+        }
+    }
+    if (srcMesh.elements.size() == dstMesh.elements.size()) {
+        for (std::size_t i = 0; i < srcMesh.elements.size(); ++i) {
+            if (srcMesh.elements[i].id == dstMesh.elements[i].id) {
+                dstMesh.elements[i].hasResults = srcMesh.elements[i].hasResults;
+                dstMesh.elements[i].vonMisesStress = srcMesh.elements[i].vonMisesStress;
+                dstMesh.elements[i].maxPrincipalStress = srcMesh.elements[i].maxPrincipalStress;
+                dstMesh.elements[i].minPrincipalStress = srcMesh.elements[i].minPrincipalStress;
+                dstMesh.elements[i].membraneResultants = srcMesh.elements[i].membraneResultants;
+                dstMesh.elements[i].bendingResultants = srcMesh.elements[i].bendingResultants;
+                dstMesh.elements[i].transverseShear = srcMesh.elements[i].transverseShear;
+                dstMesh.elements[i].stressVoigt = srcMesh.elements[i].stressVoigt;
+            }
+        }
+    }
 }
 
 template <typename ResultT, typename WorkFn, typename DoneFn>
@@ -189,13 +223,15 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
     Viewport3D* viewport,
     const SolverResult* lastStaticResult,
     std::function<void(const SolverResult&)> onStaticOrNonlinearCompleted,
-    std::function<void(const QString&)> onStatusMsg)
+    std::function<void(const QString&)> onStatusMsg,
+    std::function<void()> onModelMutated)
     : QDialog(parent),
       m_model(model),
       m_viewport(viewport),
       m_lastStatic(lastStaticResult),
       m_onCompleted(std::move(onStaticOrNonlinearCompleted)),
-      m_onStatus(std::move(onStatusMsg)) {
+      m_onStatus(std::move(onStatusMsg)),
+      m_onModelMutated(std::move(onModelMutated)) {
     setModal(false);
     setWindowModality(Qt::NonModal);
     resize(840, 620);
@@ -282,6 +318,22 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
         topRow->addWidget(m_btnPlotBuckling);
         topRow->addStretch();
         lay->addLayout(topRow);
+
+        auto* impRow = new QHBoxLayout();
+        m_impAmpSpin = new QDoubleSpinBox(tab);
+        m_impAmpSpin->setRange(-5.0, 5.0);
+        m_impAmpSpin->setDecimals(4);
+        m_impAmpSpin->setSingleStep(0.005);
+        m_impAmpSpin->setValue(0.02);
+        m_impAmpSpin->setSuffix(QStringLiteral(" m"));
+        m_btnApplyImperfection = new QPushButton(tab);
+        m_actionButtons.push_back(m_btnApplyImperfection);
+        connect(m_btnApplyImperfection, &QPushButton::clicked, this, &AnalysisSuiteDialog::onApplyBucklingImperfection);
+        impRow->addWidget(makeTrLabel("Imperfeição Inicial (amp):", tab));
+        impRow->addWidget(m_impAmpSpin);
+        impRow->addWidget(m_btnApplyImperfection);
+        impRow->addStretch();
+        lay->addLayout(impRow);
 
         m_bucklingTable = new QTableWidget(tab);
         initReadOnlyTable(m_bucklingTable, {QStringLiteral("Modo"), QStringLiteral("Fator Crítico λ_cr"), QStringLiteral("Situação")});
@@ -411,6 +463,11 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
         auto* tab = new QWidget(this);
         auto* lay = new QVBoxLayout(tab);
         auto* form = new QFormLayout();
+        m_seisModeCombo = new QComboBox(tab);
+        m_seisModeCombo->addItem(QStringLiteral("Acelerograma Sísmico (a_g)"), 0);
+        m_seisModeCombo->addItem(QStringLiteral("Histórico de Força F(t)"), 1);
+        m_seisLoadCaseCombo = new QComboBox(tab);
+        refreshSeismicLoadCases();
         m_seisSchemeCombo = new QComboBox(tab);
         m_seisSchemeCombo->addItem(QStringLiteral("Newmark-Beta (γ=0,50, β=0,25)"), static_cast<int>(kernel::TransientScheme::NewmarkBeta));
         m_seisSchemeCombo->addItem(QStringLiteral("HHT-Alpha (α=-0,05)"), static_cast<int>(kernel::TransientScheme::HHTAlpha));
@@ -433,10 +490,31 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
         m_seisDirCombo = new QComboBox(tab);
         m_seisDirCombo->addItems({QStringLiteral("X"), QStringLiteral("Y"), QStringLiteral("Z")});
 
+        m_seisAmpLabel = new QLabel(GerenciadorTraducao::trText("Pico do Sismo (a_g):"), tab);
+        connect(m_seisModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+            const bool isForceHistory = (idx == 1);
+            if (m_seisLoadCaseCombo) m_seisLoadCaseCombo->setEnabled(isForceHistory);
+            if (m_seisDirCombo) m_seisDirCombo->setEnabled(!isForceHistory);
+            if (m_seisAmpLabel) {
+                m_seisAmpLabel->setText(isForceHistory
+                    ? GerenciadorTraducao::trText("Fator de Escala (A₀):")
+                    : GerenciadorTraducao::trText("Pico do Sismo (a_g):"));
+            }
+            if (m_seisAmpSpin) {
+                m_seisAmpSpin->setSuffix(isForceHistory ? QStringLiteral(" x") : QStringLiteral(" m/s²"));
+                if (isForceHistory && std::abs(m_seisAmpSpin->value() - 1.5) < 1e-6) {
+                    m_seisAmpSpin->setValue(1.0);
+                }
+            }
+        });
+        m_seisLoadCaseCombo->setEnabled(false);
+
+        addTrRow(form, "Tipo de Excitação:", m_seisModeCombo, tab);
+        addTrRow(form, "Caso Base F(t):", m_seisLoadCaseCombo, tab);
         addTrRow(form, "Integrador Temporal:", m_seisSchemeCombo, tab);
         addTrRow(form, "Passo de Tempo (Δt):", m_seisDtSpin, tab);
         addTrRow(form, "Número de Passos:", m_seisStepsSpin, tab);
-        addTrRow(form, "Pico do Sismo (a_g):", m_seisAmpSpin, tab);
+        form->addRow(m_seisAmpLabel, m_seisAmpSpin);
         addTrRow(form, "Frequência Excitação:", m_seisFreqSpin, tab);
         addTrRow(form, "Direção da Excitação:", m_seisDirCombo, tab);
         lay->addLayout(form);
@@ -579,6 +657,21 @@ void AnalysisSuiteDialog::retranslateUi() {
     m_btnPlotModal->setText(GerenciadorTraducao::trText("Animar Modo no Viewport 3D"));
     m_btnRunBuckling->setText(GerenciadorTraducao::trText("Calcular Flambagem"));
     m_btnPlotBuckling->setText(GerenciadorTraducao::trText("Animar Flambagem no Viewport 3D"));
+    if (m_btnApplyImperfection) {
+        m_btnApplyImperfection->setText(GerenciadorTraducao::trText("Aplicar Imperfeição à Geometria"));
+    }
+    if (m_seisModeCombo) {
+        retranslateComboItems(m_seisModeCombo, {
+            "Acelerograma Sísmico (a_g)",
+            "Histórico de Força F(t)"
+        });
+        if (m_seisAmpLabel) {
+            const bool isForceHistory = (m_seisModeCombo->currentIndex() == 1);
+            m_seisAmpLabel->setText(isForceHistory
+                ? GerenciadorTraducao::trText("Fator de Escala (A₀):")
+                : GerenciadorTraducao::trText("Pico do Sismo (a_g):"));
+        }
+    }
     m_btnRunHarmonic->setText(GerenciadorTraducao::trText("Varrimento Harmônico"));
     m_btnPlotHarmonic->setText(GerenciadorTraducao::trText("Animar Frequência no Viewport 3D"));
     m_specNoteLabel->setText(GerenciadorTraducao::trText(
@@ -596,6 +689,24 @@ void AnalysisSuiteDialog::retranslateUi() {
     }
 }
 
+void AnalysisSuiteDialog::refreshSeismicLoadCases() {
+    if (!m_seisLoadCaseCombo) return;
+    const QVariant prevData = m_seisLoadCaseCombo->currentData();
+    m_seisLoadCaseCombo->clear();
+    m_seisLoadCaseCombo->addItem(GerenciadorTraducao::trText("Cargas Ativas do Modelo (Todas)"), 0);
+    if (m_model) {
+        for (const auto& lc : m_model->getLoadCases()) {
+            m_seisLoadCaseCombo->addItem(
+                QStringLiteral("%1 - %2").arg(lc.id).arg(QString::fromStdString(lc.name)),
+                lc.id);
+        }
+    }
+    if (prevData.isValid()) {
+        const int idx = m_seisLoadCaseCombo->findData(prevData);
+        if (idx >= 0) m_seisLoadCaseCombo->setCurrentIndex(idx);
+    }
+}
+
 void AnalysisSuiteDialog::refreshContext() {
     m_hasCombos = false;
     m_combosResults.clear();
@@ -605,6 +716,7 @@ void AnalysisSuiteDialog::refreshContext() {
     m_hasSpec = false;
     m_hasSeis = false;
     m_hasNonlinear = false;
+    refreshSeismicLoadCases();
     if (m_combosTable) m_combosTable->setRowCount(0);
     if (m_modalTable) m_modalTable->setRowCount(0);
     if (m_bucklingTable) m_bucklingTable->setRowCount(0);
@@ -686,7 +798,7 @@ void AnalysisSuiteDialog::onRunCombosAsync() {
                     self->m_combosTable->setItem(row, 0, makeItem(QString::number(r.caseOrComboId)));
                     self->m_combosTable->setItem(row, 1, makeItem(kind));
                     self->m_combosTable->setItem(row, 2, makeItem(QString::fromStdString(r.name), Qt::AlignLeft | Qt::AlignVCenter));
-                    self->m_combosTable->setItem(row, 3, makeItem(QString::number(maxTranslationalDisp(r.U_full) * 1000.0, 'f', 3)));
+                    self->m_combosTable->setItem(row, 3, makeItem(QString::number(maxTranslationalDisp(pack.solvedModel, r.U_full) * 1000.0, 'f', 3)));
                     self->m_combosTable->setItem(row, 4, makeItem(QStringLiteral("OK")));
                     self->m_combosResults.push_back(r);
                 }
@@ -717,13 +829,14 @@ void AnalysisSuiteDialog::onPlotSelectedCombo() {
     int row = m_combosTable->currentRow();
     if (row < 0 || row >= static_cast<int>(m_combosResults.size())) row = 0;
     const auto& r = m_combosResults[static_cast<std::size_t>(row)];
-    const auto dispMap = extractNodalDispMap(*m_model, r.U_full);
     const QString label = QString::fromStdString(r.name);
-    m_viewport->setPostAnimationField(label, dispMap, -1.0, false);
+    const auto field = FemSolver3D::extractNodalDisplacements(*m_model, r.U_full);
+    m_viewport->setPostAnimationField(label, field.frameNodes, -1.0, false);
+    m_viewport->setPostMeshAnimationField(field.meshNodes);
     m_viewport->setAnimationPlaying(false);
     m_statusLabel->setText(GerenciadorTraducao::trText("Plotado no Viewport 3D: %1 (|u|máx = %2 mm)")
                                .arg(label)
-                               .arg(maxTranslationalDisp(r.U_full) * 1000.0, 0, 'f', 3));
+                               .arg(field.maxTranslationalNorm * 1000.0, 0, 'f', 3));
 }
 
 void AnalysisSuiteDialog::onRunModalAsync() {
@@ -774,11 +887,10 @@ void AnalysisSuiteDialog::onPlotSelectedMode() {
     int row = m_modalTable->currentRow();
     if (row < 0 || row >= static_cast<int>(m_modalRes.modes.size())) row = 0;
     const auto& mode = m_modalRes.modes[static_cast<std::size_t>(row)];
-    const auto dispMap = extractNodalDispMap(*m_model, mode.phi_full);
     const QString label = GerenciadorTraducao::trText("Modo %1 (f = %2 Hz)")
                               .arg(mode.modeIndex)
                               .arg(mode.frequencyHz, 0, 'f', 2);
-    m_viewport->setPostAnimationField(label, dispMap, -1.0, true);
+    applyFieldToViewport(m_viewport, *m_model, mode.phi_full, label, -1.0, true);
     m_viewport->setAnimationPlaying(true);
     m_statusLabel->setText(GerenciadorTraducao::trText("Animando %1 no Viewport 3D.").arg(label));
 }
@@ -829,12 +941,40 @@ void AnalysisSuiteDialog::onPlotSelectedBucklingMode() {
     }
     int row = m_bucklingTable->currentRow();
     if (row < 0 || row >= static_cast<int>(m_bucklingRes.modeShapesFull.size())) row = 0;
-    const auto dispMap = extractNodalDispMap(*m_model, m_bucklingRes.modeShapesFull[static_cast<std::size_t>(row)]);
     const double lf = (row < static_cast<int>(m_bucklingRes.loadFactors.size())) ? m_bucklingRes.loadFactors[static_cast<std::size_t>(row)] : 0.0;
     const QString label = GerenciadorTraducao::trText("Flambagem %1 (λ = %2)").arg(row + 1).arg(lf, 0, 'f', 3);
-    m_viewport->setPostAnimationField(label, dispMap, -1.0, false);
+    applyFieldToViewport(m_viewport, *m_model, m_bucklingRes.modeShapesFull[static_cast<std::size_t>(row)], label, -1.0, false);
     m_viewport->setAnimationPlaying(true);
     m_statusLabel->setText(GerenciadorTraducao::trText("Animando %1 no Viewport 3D.").arg(label));
+}
+
+void AnalysisSuiteDialog::onApplyBucklingImperfection() {
+    if (!m_hasBuckling || !m_model || m_bucklingRes.modeShapesFull.empty()) {
+        m_statusLabel->setText(GerenciadorTraducao::trText("Execute a análise de flambagem antes de aplicar uma imperfeição geométrica."));
+        return;
+    }
+    int row = m_bucklingTable ? m_bucklingTable->currentRow() : 0;
+    if (row < 0 || row >= static_cast<int>(m_bucklingRes.modeShapesFull.size())) row = 0;
+    const double amp = m_impAmpSpin ? m_impAmpSpin->value() : 0.02;
+    std::string errMsg;
+    if (!FemSolver3D::applyBucklingImperfection(*m_model, m_bucklingRes, row, amp, &errMsg)) {
+        const QString msg = GerenciadorTraducao::trText("Falha ao aplicar imperfeição: %1")
+                                .arg(QString::fromStdString(errMsg));
+        m_statusLabel->setText(msg);
+        if (m_onStatus) m_onStatus(msg);
+        return;
+    }
+    m_model->pushUndo();
+    if (m_viewport) {
+        m_viewport->clearPostAnimation();
+        m_viewport->update();
+    }
+    if (m_onModelMutated) m_onModelMutated();
+    const QString okMsg = GerenciadorTraducao::trText("Imperfeição geométrica (Modo %1, amplitude = %2 m) aplicada ao modelo.")
+                              .arg(row + 1)
+                              .arg(amp, 0, 'f', 4);
+    m_statusLabel->setText(okMsg);
+    if (m_onStatus) m_onStatus(okMsg);
 }
 
 void AnalysisSuiteDialog::onRunHarmonicAsync() {
@@ -858,7 +998,7 @@ void AnalysisSuiteDialog::onRunHarmonicAsync() {
             return FemSolver3D::solveHarmonic(snapshot, opts);
         },
         [self](const kernel::HarmonicResult& res) {
-            if (!self) return;
+            if (!self || !self->m_model) return;
             self->m_harmonicRes = res;
             self->m_hasHarmonic = res.success;
             self->m_harmonicTable->setRowCount(0);
@@ -866,7 +1006,7 @@ void AnalysisSuiteDialog::onRunHarmonicAsync() {
             double peakDisp = -1.0;
             for (std::size_t i = 0; i < res.sweep.size(); ++i) {
                 const auto& st = res.sweep[i];
-                const double uMax = maxTranslationalDisp(st.amplitudeFull) * 1000.0;
+                const double uMax = maxTranslationalDisp(*self->m_model, st.amplitudeFull) * 1000.0;
                 if (uMax > peakDisp) {
                     peakDisp = uMax;
                     peakRow = static_cast<int>(i);
@@ -897,9 +1037,8 @@ void AnalysisSuiteDialog::onPlotSelectedHarmonicStep() {
     int row = m_harmonicTable->currentRow();
     if (row < 0 || row >= static_cast<int>(m_harmonicRes.sweep.size())) row = 0;
     const auto& st = m_harmonicRes.sweep[static_cast<std::size_t>(row)];
-    const auto dispMap = extractNodalDispMap(*m_model, st.amplitudeFull);
     const QString label = GerenciadorTraducao::trText("FRF f = %1 Hz").arg(st.frequencyHz, 0, 'f', 2);
-    m_viewport->setPostAnimationField(label, dispMap, -1.0, true);
+    applyFieldToViewport(m_viewport, *m_model, st.amplitudeFull, label, -1.0, true);
     m_viewport->setAnimationPlaying(true);
     m_statusLabel->setText(GerenciadorTraducao::trText("Animando %1 no Viewport 3D.").arg(label));
 }
@@ -925,11 +1064,11 @@ void AnalysisSuiteDialog::onRunSpectrumAsync() {
             return FemSolver3D::solveResponseSpectrum(snapshot, sOpts, mOpts);
         },
         [self](const kernel::ResponseSpectrumResult& res) {
-            if (!self) return;
+            if (!self || !self->m_model) return;
             self->m_specRes = res;
             self->m_hasSpec = res.success;
             if (res.success) {
-                const double uPeakMm = maxTranslationalDisp(res.combinedDisplacementFull) * 1000.0;
+                const double uPeakMm = maxTranslationalDisp(*self->m_model, res.combinedDisplacementFull) * 1000.0;
                 self->m_specResultLabel->setText(
                     GerenciadorTraducao::trText("Deslocamento espectral máximo combinado: %1 mm").arg(uPeakMm, 0, 'f', 3));
             } else {
@@ -947,9 +1086,13 @@ void AnalysisSuiteDialog::onPlotSpectrumResult() {
         m_statusLabel->setText(GerenciadorTraducao::trText("Calcule a combinação espectral antes de plotar no Viewport 3D."));
         return;
     }
-    const auto dispMap = extractNodalDispMap(*m_model, m_specRes.combinedDisplacementFull);
-    m_viewport->setPostAnimationField(
-        GerenciadorTraducao::trText("Espectro CQC/SRSS"), dispMap, -1.0, true);
+    applyFieldToViewport(
+        m_viewport,
+        *m_model,
+        m_specRes.combinedDisplacementFull,
+        GerenciadorTraducao::trText("Espectro CQC/SRSS"),
+        -1.0,
+        true);
     m_viewport->setAnimationPlaying(false);
     m_statusLabel->setText(GerenciadorTraducao::trText("Envoltória espectral plotada no Viewport 3D."));
 }
@@ -960,17 +1103,27 @@ void AnalysisSuiteDialog::onRunSeismicAsync() {
     opts.scheme = static_cast<kernel::TransientScheme>(m_seisSchemeCombo->currentData().toInt());
     opts.dt = m_seisDtSpin->value();
     opts.numSteps = m_seisStepsSpin->value();
+    const bool isForceHistory = (m_seisModeCombo && m_seisModeCombo->currentIndex() == 1);
+    const kernel::LoadCaseId baseCaseId = m_seisLoadCaseCombo ? m_seisLoadCaseCombo->currentData().toInt() : 0;
     const double amp = m_seisAmpSpin->value();
     const double omega = 2.0 * std::numbers::pi * m_seisFreqSpin->value();
     const int dir = m_seisDirCombo->currentIndex();
 
     StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Integrando histórico temporal sísmico (Newmark / HHT)..."));
+    setBusyState(true, isForceHistory
+        ? GerenciadorTraducao::trText("Integrando histórico temporal de forças F(t) (Newmark / HHT)...")
+        : GerenciadorTraducao::trText("Integrando histórico temporal sísmico (Newmark / HHT)..."));
 
     QPointer<AnalysisSuiteDialog> self(this);
     runAsyncJob<kernel::TransientResult>(
         this,
-        [snapshot = std::move(snapshot), opts, amp, omega, dir]() -> kernel::TransientResult {
+        [snapshot = std::move(snapshot), opts, isForceHistory, baseCaseId, amp, omega, dir]() -> kernel::TransientResult {
+            if (isForceHistory) {
+                auto scaleFn = [amp, omega](double t, int /*step*/) -> double {
+                    return amp * std::sin(omega * t);
+                };
+                return FemSolver3D::solveTransient(snapshot, scaleFn, baseCaseId, opts);
+            }
             auto accelFn = [amp, omega, dir](double t, int /*step*/) -> kernel::Vec3 {
                 const double env = std::exp(-0.4 * t);
                 const double a = amp * env * std::sin(omega * t);
@@ -981,11 +1134,11 @@ void AnalysisSuiteDialog::onRunSeismicAsync() {
             return FemSolver3D::solveSeismic(snapshot, accelFn, opts);
         },
         [self](const kernel::TransientResult& res) {
-            if (!self) return;
+            if (!self || !self->m_model) return;
             self->m_seisRes = res;
             self->m_hasSeis = res.success;
             if (res.success) {
-                const double peakMm = maxTranslationalDisp(res.peakDisplacementFull) * 1000.0;
+                const double peakMm = maxTranslationalDisp(*self->m_model, res.peakDisplacementFull) * 1000.0;
                 self->m_seisResultLabel->setText(
                     GerenciadorTraducao::trText("Passos integrados: %1 | Pico de deslocamento: %2 mm")
                         .arg(res.history.size()).arg(peakMm, 0, 'f', 3));
@@ -1004,15 +1157,16 @@ void AnalysisSuiteDialog::onPlaySeismicHistory() {
         m_statusLabel->setText(GerenciadorTraducao::trText("Execute a integração sísmica antes de reproduzir o histórico."));
         return;
     }
-    std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> frames;
     const std::size_t stride = std::max<std::size_t>(1, m_seisRes.history.size() / 60);
-    for (std::size_t i = 0; i < m_seisRes.history.size(); i += stride) {
-        const auto& rec = m_seisRes.history[i];
-        frames.emplace_back(rec.time, extractNodalDispMap(*m_model, rec.U_full));
-    }
-    m_viewport->setNonlinearStepFrames(GerenciadorTraducao::trText("Transiente Sísmico"), frames);
+    const std::size_t frameCount = applyStepFramesToViewport(
+        m_viewport,
+        *m_model,
+        m_seisRes.history,
+        stride,
+        GerenciadorTraducao::trText("Transiente Sísmico"),
+        [](const auto& rec) { return rec.time; });
     m_viewport->setAnimationPlaying(true);
-    m_statusLabel->setText(GerenciadorTraducao::trText("Reproduzindo histórico sísmico (%1 frames) no Viewport 3D.").arg(frames.size()));
+    m_statusLabel->setText(GerenciadorTraducao::trText("Reproduzindo histórico transiente (%1 frames) no Viewport 3D.").arg(frameCount));
 }
 
 void AnalysisSuiteDialog::onRunNonlinearAsync() {
@@ -1062,9 +1216,9 @@ void AnalysisSuiteDialog::onRunNonlinearAsync() {
                 sr.success = true;
                 sr.totalNodes = static_cast<int>(self->m_model->getNodes().size());
                 sr.totalElements = static_cast<int>(self->m_model->getElements().size());
-                sr.totalDofs = static_cast<int>(p.solvedModel.getNodes().size() * 6);
+                sr.totalDofs = static_cast<int>(p.nlRes.finalU_full.size() > 0 ? p.nlRes.finalU_full.size() : p.solvedModel.getNodes().size() * 6);
                 sr.equilibrium.isBalanced = true;
-                sr.maxNodalDisplacement = maxTranslationalDisp(p.nlRes.finalU_full);
+                sr.maxNodalDisplacement = maxTranslationalDisp(p.solvedModel, p.nlRes.finalU_full);
                 for (const auto& el : p.solvedModel.getElements()) {
                     if (!el.hasResults) continue;
                     ElementExtremes ex;
@@ -1111,14 +1265,15 @@ void AnalysisSuiteDialog::onPlayNonlinearHistory() {
         m_statusLabel->setText(GerenciadorTraducao::trText("Execute a análise não linear antes de animar os passos."));
         return;
     }
-    std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> frames;
-    frames.reserve(m_nonlinearRes.history.size());
-    for (const auto& step : m_nonlinearRes.history) {
-        frames.emplace_back(step.loadFactor, extractNodalDispMap(*m_model, step.U_full));
-    }
-    m_viewport->setNonlinearStepFrames(GerenciadorTraducao::trText("Não Linear |u|"), frames);
+    const std::size_t frameCount = applyStepFramesToViewport(
+        m_viewport,
+        *m_model,
+        m_nonlinearRes.history,
+        1,
+        GerenciadorTraducao::trText("Não Linear |u|"),
+        [](const auto& step) { return step.loadFactor; });
     m_viewport->setAnimationPlaying(true);
-    m_statusLabel->setText(GerenciadorTraducao::trText("Animando trajetória não linear (%1 passos) no Viewport 3D.").arg(frames.size()));
+    m_statusLabel->setText(GerenciadorTraducao::trText("Animando trajetória não linear (%1 passos) no Viewport 3D.").arg(frameCount));
 }
 
 // ==========================================
@@ -1923,7 +2078,35 @@ MeshGeneratorDialog::MeshGeneratorDialog(
     m_nzSpin = new QSpinBox(this); m_nzSpin->setRange(1, 40); m_nzSpin->setValue(2);
     m_delaunayEdgeSpin = new QDoubleSpinBox(this); m_delaunayEdgeSpin->setRange(0.05, 20.0); m_delaunayEdgeSpin->setValue(0.60); m_delaunayEdgeSpin->setSuffix(" m");
 
+    m_matCombo = new QComboBox(this);
+    refreshMaterialCombo();
+    m_thicknessSpin = new QDoubleSpinBox(this);
+    m_thicknessSpin->setRange(0.005, 10.0);
+    m_thicknessSpin->setDecimals(3);
+    m_thicknessSpin->setSingleStep(0.02);
+    m_thicknessSpin->setValue(0.20);
+    m_thicknessSpin->setSuffix(" m");
+    m_bcPresetCombo = new QComboBox(this);
+    m_bcPresetCombo->addItems({
+        QStringLiteral("Sem apoios (Livre)"),
+        QStringLiteral("Bordas externas engastadas"),
+        QStringLiteral("Bordas externas apoiadas (uX,uY,uZ=0)"),
+        QStringLiteral("Base inferior (Zmin) engastada"),
+        QStringLiteral("Face esquerda (Xmin) engastada")
+    });
+    m_bcPresetCombo->setCurrentIndex(1);
+    m_pressureSpin = new QDoubleSpinBox(this);
+    m_pressureSpin->setRange(-10000.0, 10000.0);
+    m_pressureSpin->setDecimals(2);
+    m_pressureSpin->setSingleStep(1.0);
+    m_pressureSpin->setValue(-5.0);
+    m_pressureSpin->setSuffix(" kPa");
+
     addTrRow(form, "Tipo de Malha:", m_meshTypeCombo, this);
+    addTrRow(form, "Material da Malha:", m_matCombo, this);
+    addTrRow(form, "Espessura (Casca 2D):", m_thicknessSpin, this);
+    addTrRow(form, "Condição de Contorno:", m_bcPresetCombo, this);
+    addTrRow(form, "Pressão / Carga Z (2D/3D):", m_pressureSpin, this);
     addTrRow(form, "Origem (X / Y / Z):", [this]() {
         auto* w = new QWidget(this);
         auto* h = new QHBoxLayout(w);
@@ -1974,7 +2157,25 @@ MeshGeneratorDialog::MeshGeneratorDialog(
     updateQualityReport();
 }
 
+void MeshGeneratorDialog::refreshMaterialCombo() {
+    if (!m_matCombo) return;
+    const QVariant prev = m_matCombo->currentData();
+    m_matCombo->clear();
+    if (m_model) {
+        for (const auto& mat : m_model->getMaterials()) {
+            m_matCombo->addItem(
+                QStringLiteral("%1 - %2").arg(mat.id).arg(QString::fromStdString(mat.name)),
+                mat.id);
+        }
+    }
+    if (prev.isValid()) {
+        const int idx = m_matCombo->findData(prev);
+        if (idx >= 0) m_matCombo->setCurrentIndex(idx);
+    }
+}
+
 void MeshGeneratorDialog::refreshFromModel() {
+    refreshMaterialCombo();
     updateParameterEnablement();
     updateQualityReport();
 }
@@ -2023,6 +2224,9 @@ void MeshGeneratorDialog::updateParameterEnablement() {
     m_nySpin->setEnabled((is2D && !isDelaunay) || is3D || needsBaseForExtrude);
     m_nzSpin->setEnabled(is3D || isExtrude);
     m_delaunayEdgeSpin->setEnabled(isDelaunay);
+    if (m_thicknessSpin) {
+        m_thicknessSpin->setEnabled(is2D);
+    }
 }
 
 void MeshGeneratorDialog::changeEvent(QEvent* event) {
@@ -2045,6 +2249,13 @@ void MeshGeneratorDialog::retranslateUi() {
         "3D Bloco Hex20 Quadrático",
         "3D Bloco Tet4 Estruturado",
         "Extrusão 2D -> 3D Hex8"
+    });
+    retranslateComboItems(m_bcPresetCombo, {
+        "Sem apoios (Livre)",
+        "Bordas externas engastadas",
+        "Bordas externas apoiadas (uX,uY,uZ=0)",
+        "Base inferior (Zmin) engastada",
+        "Face esquerda (Xmin) engastada"
     });
     m_btnGenerate->setText(GerenciadorTraducao::trText("Gerar e Exibir no Viewport 3D"));
     m_btnFitBounds->setText(GerenciadorTraducao::trText("Ajustar ao Contorno do Modelo"));
@@ -2105,6 +2316,43 @@ void MeshGeneratorDialog::onGenerateMesh() {
         default: break;
     }
 
+    const int matId = (m_matCombo && m_matCombo->currentData().isValid())
+        ? m_matCombo->currentData().toInt()
+        : 1;
+    const double thickness = m_thicknessSpin ? m_thicknessSpin->value() : 0.20;
+    const double pressure = m_pressureSpin ? m_pressureSpin->value() : 0.0;
+    const int bcPreset = m_bcPresetCombo ? m_bcPresetCombo->currentIndex() : 0;
+
+    if (!mesh.nodes.empty() && bcPreset > 0) {
+        double minX = mesh.nodes.front().position.x();
+        double minZ = mesh.nodes.front().position.z();
+        for (const auto& mn : mesh.nodes) {
+            minX = std::min(minX, mn.position.x());
+            minZ = std::min(minZ, mn.position.z());
+        }
+        for (auto& mn : mesh.nodes) {
+            if (bcPreset == 1 && mn.isBoundary) {
+                mn.fixed = {true, true, true, true, true, true};
+            } else if (bcPreset == 2 && mn.isBoundary) {
+                mn.fixed = {true, true, true, false, false, false};
+            } else if (bcPreset == 3 && std::abs(mn.position.z() - minZ) <= 1e-6) {
+                mn.fixed = {true, true, true, true, true, true};
+            } else if (bcPreset == 4 && std::abs(mn.position.x() - minX) <= 1e-6) {
+                mn.fixed = {true, true, true, true, true, true};
+            }
+        }
+    }
+
+    for (auto& el : mesh.elements) {
+        el.materialId = matId;
+        if (el.isShell()) {
+            el.thickness = thickness;
+            el.normalPressure = pressure;
+        } else {
+            el.distributedLoad = kernel::Vec3(0.0, 0.0, pressure);
+        }
+    }
+
     m_model->surfaceMesh() = std::move(mesh);
     m_model->pushUndo();
     if (m_viewport) {
@@ -2163,9 +2411,11 @@ PostProcessControlDialog::PostProcessControlDialog(
     auto* contourGrp = makeTrGroup("Contornos e Malha 3D", this);
     auto* cf = new QFormLayout(contourGrp);
     m_contourCombo = new QComboBox(contourGrp);
+    m_contourCombo->setObjectName(QStringLiteral("postContourCombo"));
     m_contourCombo->addItem(QStringLiteral("Padrão (Cores por Seleção/Tema)"), static_cast<int>(Viewport3D::PostContourMode::None));
     m_contourCombo->addItem(QStringLiteral("Mapa Vetorial de Deslocamentos |u|"), static_cast<int>(Viewport3D::PostContourMode::Displacement));
     m_contourCombo->addItem(QStringLiteral("Mapa de Calor DCR (ABNT NBR)"), static_cast<int>(Viewport3D::PostContourMode::NbrComplianceDcr));
+    m_contourCombo->addItem(QStringLiteral("Tensão de von Mises (Casca/Sólido)"), static_cast<int>(Viewport3D::PostContourMode::VonMisesStress));
     connect(m_contourCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &PostProcessControlDialog::onContourChanged);
 
     m_showMeshCheck = makeTrCheck("Exibir Malha 2D/3D (Superfícies/Sólidos)", contourGrp);
@@ -2177,6 +2427,7 @@ PostProcessControlDialog::PostProcessControlDialog(
     auto* clipGrp = makeTrGroup("Plano de Corte Interativo (OpenGL Clip Plane)", this);
     auto* clf = new QFormLayout(clipGrp);
     m_clipAxisCombo = new QComboBox(clipGrp);
+    m_clipAxisCombo->setObjectName(QStringLiteral("clipAxisCombo"));
     m_clipAxisCombo->addItem(QStringLiteral("Desligado"), static_cast<int>(Viewport3D::ClipAxis::None));
     m_clipAxisCombo->addItem(QStringLiteral("Plano X = cota"), static_cast<int>(Viewport3D::ClipAxis::X));
     m_clipAxisCombo->addItem(QStringLiteral("Plano Y = cota"), static_cast<int>(Viewport3D::ClipAxis::Y));
@@ -2259,7 +2510,8 @@ void PostProcessControlDialog::retranslateUi() {
     retranslateComboItems(m_contourCombo, {
         "Padrão (Cores por Seleção/Tema)",
         "Mapa Vetorial de Deslocamentos |u|",
-        "Mapa de Calor DCR (ABNT NBR)"
+        "Mapa de Calor DCR (ABNT NBR)",
+        "Tensão de von Mises (Casca/Sólido)"
     });
     retranslateComboItems(m_clipAxisCombo, {
         "Desligado",
@@ -2319,7 +2571,13 @@ void PostProcessControlDialog::onContourChanged(int idx) {
         return;
     }
     m_viewport->setPostContourMode(mode);
-    if (m_statusLabel) m_statusLabel->clear();
+    if (m_statusLabel) {
+        if (mode == Viewport3D::PostContourMode::VonMisesStress) {
+            m_statusLabel->setText(GerenciadorTraducao::trText("Mapa de Tensão de von Mises (Casca/Sólido) aplicado ao Viewport 3D."));
+        } else {
+            m_statusLabel->clear();
+        }
+    }
 }
 
 void PostProcessControlDialog::onMeshVisibilityToggled(bool checked) {

@@ -1,5 +1,5 @@
 COMMERCIAL LICENSING CLARIFICATION AND ENTERPRISE SUPPORT — OmniFrame 3D
-Version 2026.11.14.0, November 14, 2026
+Version 2026.11.15.0, November 15, 2027
 
 Author and Developer: Fernando Nillsson Cidade (Individual Developer)
 Support & Contact Email: linceu_lighthouse@outlook.com

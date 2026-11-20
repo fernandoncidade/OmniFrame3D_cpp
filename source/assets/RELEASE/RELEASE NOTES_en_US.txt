@@ -1,4 +1,43 @@
 RELEASE NOTES — OMNIFRAME 3D
+Version: 2026.11.15.0
+Date: November 15, 2026
+
+Highlights of Version 2026.11.15.0:
+
+1. End-to-End 2D Shell and 3D Solid Mesh Workflow Integrated with 1D Members
+- The Parametric Mesh Generator now lets you pick the mesh material, shell thickness, support boundary condition, and vertical load or pressure directly when generating a mesh, allowing plates, shells, and 3D solids to be solved together with beams, columns, and trusses via Solve Structure (F5).
+- A new "2D/3D Forces (Shell/Solid)" tab in the bottom results area lists each continuous element with its equivalent von Mises stress, principal stresses, and local force resultants.
+- Inside the 3D Post-Processing (Clip/Contours...) controls, a new "von Mises Stress (Shell/Solid)" contour mode highlights stress concentration directly across surfaces and solid faces.
+- Exported calculation reports in HTML, Markdown, and Executive A4 PDF, as well as spreadsheet tables and 3D visualization datasets, now include complete pre-analysis diagnostics along with 2D/3D mesh stresses and resultants.
+
+2. Advanced Solvers, Buckling Imperfection Seeding & Force Time History
+- In Advanced Analysis, you can now choose the preferred linear solver method (Automatic Selection, Cholesky LDLT, SparseLU, or Conjugate Gradient) and view clear status notices whenever an automatic adjustment is applied to maintain numerical stability.
+- The Buckling tab now provides "Initial Imperfection (amp)" and "Apply Imperfection to Geometry" controls, letting you transfer the critical buckling mode shape onto the structural geometry for follow-up stability or nonlinear studies.
+- The Seismic / Transient tab now supports both ground-motion accelerograms and a "Force Time History F(t)" applied to active model loads or a chosen load case, with selectable time integration methods (Newmark-Beta or HHT-Alpha) and a refined default time step.
+- Geometric Nonlinear analysis has been upgraded with improved 3D Corotational convergence options, including Full Tangent stiffness updates and Line Search for models under large displacements and rotations.
+
+3. Child Window "Ghost Flash" Fix, Clean Icons & Default Example Plane
+- Fixed an issue where opening any child engineering or helper dialog briefly flashed an empty window frame for a fraction of a second before rendering the actual dialog cleanly.
+- Combo-box and numeric spin-box arrows are now drawn directly on screen matching the active Light, Dark, or High Contrast theme without creating temporary arrow image files inside the application's icon folder.
+- All three built-in structural examples under the Examples menu now initialize in the "XY (Plan)" work plane by default for clearer plan-view orientation from the very first step.
+
+4. Enlarged & Fully Integrated Interactive Guided Session (F2)
+- The "Interactive Guided Session - OmniFrame 3D" dialog has been resized and its control rows reorganized so every button label, reading-pace selector, and descriptive panel remains completely visible without text clipping.
+- The walkthrough script now reflects all new integrated features, demonstrating loaded 2D/3D mesh creation, von Mises stress contours, the 2D/3D Forces table, linear solver selection, buckling imperfection and dynamic/nonlinear controls, and the default XY (Plan) work plane.
+
+5. Complete Real-Time Translation & Updated Documentation
+- All new analysis controls, mesh inputs, table headers, validation notices, command-line menu items, and Guided Session steps update dynamically when switching between Portuguese (Brazil) and English (US).
+- The built-in Operations Manual (F1) has been expanded in both languages with a dedicated chapter detailing what the command-line tool is for, how to access it, and how to use every command in Windows Command Prompt (CMD) and PowerShell, accompanied by a quick-jump button at the top of the manual viewer to go straight to that section.
+
+6. Command-Line Tool Integrated with the Desktop App & Windows 10/11 (CMD & PowerShell)
+- The headless command-line tool (omniframe-cli) is now fully integrated with the main desktop application and Windows 10/11, sharing the exact same built-in structural examples, finite element solvers, and compliance audits as the graphical workspace.
+- A new Settings > Windows CLI (CMD / PowerShell) submenu was added inside the main menu bar so users can register or remove the command on Windows without requiring administrator privileges, check the current registration status, or immediately launch a ready-to-use Command Prompt (CMD) or PowerShell window.
+- Passing a project file (.omniframe, .dxf, or .ifc) directly to the main application from the command line or through Windows file associations now opens the model straight into the 3D workspace, while headless automation flags passed to the main executable are forwarded transparently to the command-line tool.
+- Full support for folders and filenames containing spaces or accented characters has been improved across both CMD and PowerShell workflows, alongside new command-line options to list and run the three built-in examples, trigger ABNT NBR compliance audits, configure time integration and nonlinear convergence options, and apply initial buckling imperfections before exporting datasets and reports.
+
+================================================================================
+
+RELEASE NOTES — OMNIFRAME 3D
 Version: 2026.11.14.0
 Date: November 14, 2026
 

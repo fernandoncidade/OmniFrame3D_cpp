@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Modelo de Segurança, Integridade de Dados e Resiliência
 
-**Versão:** `2026.11.14.0`  
-**Data:** `14 de novembro de 2026`  
+**Versão:** `2026.11.15.0`  
+**Data:** `15 de novembro de 2027`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -39,6 +39,7 @@ O **OmniFrame 3D** é projetado para atuar em ambientes de engenharia de missão
 | **Singularidade Estrutural (Mecanismos)** | Baixo | Solver de Cholesky com pivotamento simétrico que detecta pivôs nulos ou autovalores negativos, emitindo aviso sem travar o processo. |
 | **Vazamento de Dados / Espionagem Industrial** | Inexistente | Nenhuma chamada de rede existe no executável; nenhuma coordenada ou projeto é enviado para a internet. |
 | **Injeção de Shaders / Falhas de Driver Gráfico** | Baixo | Shaders GLSL 330 com código estático fixo compilado em tempo de execução com verificação de logs de compilação/link. |
+| **CLI Windows 10/11 & Caminhos UTF-8 (`HKCU`)** | Baixo | Decodificação UTF-16 `CommandLineToArgvW`, aberturas de arquivo via `pathFromUtf8`, registro opcional restrito a `HKCU` (sem elevação de administrador) e remoção completa via `--uninstall-windows-integration`. |
 
 ---
 
@@ -60,8 +61,8 @@ Ao importar ou abrir qualquer arquivo `.omniframe`, `.dxf` ou `.ifc`:
 
 # OmniFrame 3D — Security Model, Data Integrity & Resilience
 
-**Version:** `2026.11.14.0`  
-**Date:** `November 14, 2026`  
+**Version:** `2026.11.15.0`  
+**Date:** `November 15, 2027`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -85,6 +86,7 @@ OmniFrame 3D is designed to operate in mission-critical engineering environments
 | **Structural Singularity (Mechanisms)** | Low | Cholesky solver with symmetric pivoting that detects zero pivots or negative eigenvalues, issuing a clear diagnostic without crashing the process. |
 | **Data Exfiltration / Industrial Espionage** | None | Zero network calls exist in the executable; no coordinate or structural project ever leaves the local workstation over the internet. |
 | **Shader Injection / Graphics Driver Faults** | Low | Static fixed-source GLSL 330 shaders compiled at runtime with strict compile/link log verification. |
+| **Windows 10/11 CLI & UTF-8 Paths (`HKCU`)** | Low | UTF-16 `CommandLineToArgvW` decoding, Unicode `pathFromUtf8` stream opening, optional `HKCU`-only user registry integration (zero admin rights), and clean reversal via `--uninstall-windows-integration`. |
 
 ---
 

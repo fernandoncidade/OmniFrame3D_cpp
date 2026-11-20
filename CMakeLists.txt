@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(OmniFrame
-    VERSION 2026.11.14.0
+    VERSION 2026.11.15.0
     DESCRIPTION "OmniFrame 3D - Porticos e Trelicas Espaciais 3D via FEM (C++23 / Qt6 / OpenGL / Eigen3)"
     LANGUAGES CXX
 )
@@ -191,6 +191,9 @@ if(BUILD_APP OR BUILD_TESTS)
         source/io/IfcInterop.cpp
         source/io/PdfReportGenerator.hpp
         source/io/PdfReportGenerator.cpp
+        source/io/Utf8Path.hpp
+        source/os/WindowsCliIntegration.hpp
+        source/os/WindowsCliIntegration.cpp
     )
 
     add_library(OmniFrameCore STATIC
@@ -200,15 +203,27 @@ if(BUILD_APP OR BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
     )
+    target_compile_definitions(OmniFrameCore PUBLIC
+        OMNIFRAME_APP_VERSION="${PROJECT_VERSION}"
+    )
     target_link_libraries(OmniFrameCore PUBLIC
         OmniFrameKernel
         Qt6::Core
         Qt6::Gui
+        $<$<PLATFORM_ID:Windows>:Shell32>
+        $<$<PLATFORM_ID:Windows>:Advapi32>
     )
     omniframe_apply_compiler_options(OmniFrameCore)
 
-    add_executable(omniframe-cli
+    set(OMNIFRAME_CLI_SOURCES
         source/cli/main_cli.cpp
+    )
+    if(WIN32)
+        list(APPEND OMNIFRAME_CLI_SOURCES "${OMNIFRAME_GENERATED_ICON_RC}")
+    endif()
+
+    add_executable(omniframe-cli
+        ${OMNIFRAME_CLI_SOURCES}
     )
     set_target_properties(omniframe-cli PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

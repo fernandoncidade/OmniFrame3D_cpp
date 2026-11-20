@@ -2,6 +2,8 @@
 
 #include "../core/KernelTypes.hpp"
 #include <Eigen/Dense>
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -25,6 +27,48 @@ struct MeshNode {
     Vec3 position = Vec3::Zero();
     bool isBoundary = false;
     std::string tag;
+
+    // Boundary conditions, nodal loads and post-processing results
+    // Kept after the first 4 members with default initializers for aggregate compatibility
+    std::array<bool, 6> fixed{false, false, false, false, false, false};
+    std::array<double, 6> springStiffness{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    std::array<double, 6> prescribedDisplacement{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    Vec3 nodalForce = Vec3::Zero();
+    Vec3 nodalMoment = Vec3::Zero();
+
+    bool hasResults = false;
+    std::array<double, 6> displacement{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    std::array<double, 6> reaction{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+    bool hasFixedDofs() const {
+        for (bool b : fixed) if (b) return true;
+        return false;
+    }
+    bool hasSprings() const {
+        for (double k : springStiffness) if (k > 0.0) return true;
+        return false;
+    }
+    bool hasPrescribedDisplacements() const {
+        for (int i = 0; i < 6; ++i) {
+            if (fixed[i] && std::abs(prescribedDisplacement[i]) > 1e-15) return true;
+        }
+        return false;
+    }
+    bool isRestrained() const { return hasFixedDofs() || hasSprings(); }
+    bool isSupported() const { return hasFixedDofs(); }
+    bool hasLoad() const {
+        return nodalForce.squaredNorm() > 1e-24 || nodalMoment.squaredNorm() > 1e-24;
+    }
+    double displacementNorm() const {
+        return std::sqrt(displacement[0] * displacement[0]
+                       + displacement[1] * displacement[1]
+                       + displacement[2] * displacement[2]);
+    }
+    void clearResults() {
+        hasResults = false;
+        displacement = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        reaction = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    }
 };
 
 struct MeshElement {
@@ -32,6 +76,43 @@ struct MeshElement {
     MeshCellType type = MeshCellType::Quad4;
     std::vector<NodeId> nodeIds;
     std::string groupTag;
+
+    // Structural properties and loading
+    int materialId = 1;
+    int sectionId = 0;
+    double thickness = 0.15;             // Espessura [m] para elementos Shell
+    double normalPressure = 0.0;         // Pressão normal local (+z) [kPa] para Shell
+    Vec3 distributedLoad = Vec3::Zero(); // Carregamento distribuído global [kN/m^2] ou [kN/m^3]
+    double deltaT = 0.0;                 // Variação térmica uniforme [°C]
+    bool includeSelfWeight = false;
+
+    // Post-processing results (centroid)
+    bool hasResults = false;
+    double vonMisesStress = 0.0;
+    double maxPrincipalStress = 0.0;
+    double minPrincipalStress = 0.0;
+    std::array<double, 3> membraneResultants{0.0, 0.0, 0.0}; // Nxx, Nyy, Nxy
+    std::array<double, 3> bendingResultants{0.0, 0.0, 0.0};  // Mxx, Myy, Mxy
+    std::array<double, 2> transverseShear{0.0, 0.0};         // Qxz, Qyz
+    std::array<double, 6> stressVoigt{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}; // sxx, syy, szz, txy, tyz, tzx
+
+    bool isShell() const {
+        return type == MeshCellType::Tri3 || type == MeshCellType::Quad4 || type == MeshCellType::Quad8;
+    }
+    bool isSolid() const {
+        return type == MeshCellType::Tet4 || type == MeshCellType::Tet10
+            || type == MeshCellType::Hex8 || type == MeshCellType::Hex20;
+    }
+    void clearResults() {
+        hasResults = false;
+        vonMisesStress = 0.0;
+        maxPrincipalStress = 0.0;
+        minPrincipalStress = 0.0;
+        membraneResultants = {0.0, 0.0, 0.0};
+        bendingResultants = {0.0, 0.0, 0.0};
+        transverseShear = {0.0, 0.0};
+        stressVoigt = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    }
 };
 
 struct MeshContainer {

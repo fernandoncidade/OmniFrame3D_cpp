@@ -1,10 +1,10 @@
 #include "ThemeManager.hpp"
 
-#include <QAbstractSpinBox>
 #include <QApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
@@ -180,38 +180,45 @@ QString buildLightApplicationStyleSheet() {
 }
 
 #ifdef Q_OS_WIN
-void setWindowsImmersiveDarkMode(QWidget* widget, bool dark) {
-    if (!widget || !widget->isWindow()) return;
+bool isDwmEligibleWindow(const QWidget* widget) {
+    if (!widget || !widget->isWindow()) return false;
     const Qt::WindowType type = widget->windowType();
     if (type == Qt::Popup || type == Qt::ToolTip || type == Qt::SplashScreen) {
-        return;
+        return false;
     }
-    if (widget->testAttribute(Qt::WA_DontShowOnScreen)) return;
-    const WId wid = widget->internalWinId();
-    if (wid == 0) return;
+    if (widget->testAttribute(Qt::WA_DontShowOnScreen)) return false;
+    const QString platform = QGuiApplication::platformName();
+    if (platform == QLatin1String("offscreen") || platform == QLatin1String("minimal")) {
+        return false;
+    }
+    return widget->internalWinId() != 0;
+}
+
+bool setDwmBoolAttribute(QWidget* widget, DWORD attribute, bool enabled) {
+    if (!isDwmEligibleWindow(widget)) return false;
 
     using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
     static DwmSetWindowAttributeFn fn = []() -> DwmSetWindowAttributeFn {
         QLibrary lib(QStringLiteral("dwmapi"));
         return reinterpret_cast<DwmSetWindowAttributeFn>(lib.resolve("DwmSetWindowAttribute"));
     }();
-    if (!fn) return;
+    if (!fn) return false;
 
-    HWND hwnd = reinterpret_cast<HWND>(wid);
-    const BOOL value = dark ? TRUE : FALSE;
+    HWND hwnd = reinterpret_cast<HWND>(widget->internalWinId());
+    const BOOL value = enabled ? TRUE : FALSE;
+    return SUCCEEDED(fn(hwnd, attribute, &value, sizeof(value)));
+}
+
+void setWindowsImmersiveDarkMode(QWidget* widget, bool dark) {
     // Attribute 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 11 / Win10 20H1+), fallback 19 for earlier builds
     constexpr DWORD attrModern = 20;
     constexpr DWORD attrLegacy = 19;
-    if (FAILED(fn(hwnd, attrModern, &value, sizeof(value)))) {
-        fn(hwnd, attrLegacy, &value, sizeof(value));
+    if (!setDwmBoolAttribute(widget, attrModern, dark)) {
+        setDwmBoolAttribute(widget, attrLegacy, dark);
     }
 }
 #endif
 
-/**
- * Custom Fusion proxy style that draws QComboBox and QSpinBox/QDoubleSpinBox
- * frames, buttons, and arrows directly via QPainter without PNG assets.
- */
 class OmniFrameFusionStyle final : public QProxyStyle {
 public:
     explicit OmniFrameFusionStyle(bool lightTheme)
@@ -481,6 +488,26 @@ void ThemeManager::applyWindowChrome(QWidget* widget) const {
     setWindowsImmersiveDarkMode(widget, isDark());
 #else
     Q_UNUSED(widget);
+#endif
+}
+
+void ThemeManager::setWindowTransitionsDisabled(QWidget* widget, bool disabled) const {
+#ifdef Q_OS_WIN
+    // Attribute 3 = DWMWA_TRANSITIONS_FORCEDISABLED
+    setDwmBoolAttribute(widget, 3, disabled);
+#else
+    Q_UNUSED(widget);
+    Q_UNUSED(disabled);
+#endif
+}
+
+void ThemeManager::setWindowCloaked(QWidget* widget, bool cloaked) const {
+#ifdef Q_OS_WIN
+    // Attribute 13 = DWMWA_CLOAK
+    setDwmBoolAttribute(widget, 13, cloaked);
+#else
+    Q_UNUSED(widget);
+    Q_UNUSED(cloaked);
 #endif
 }
 

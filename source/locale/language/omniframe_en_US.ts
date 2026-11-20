@@ -1696,8 +1696,8 @@
             <translation>Inspector &amp; Quick Input</translation>
         </message>
         <message>
-            <source>Instruções detalhadas de modelagem 3D, análise FEM, interface modeless e configurações.</source>
-            <translation>Detailed instructions for 3D modeling, FEM analysis, modeless workspace, and settings.</translation>
+            <source>Instruções detalhadas de modelagem 3D, análise FEM, CLI (CMD/PowerShell), interface modeless e configurações.</source>
+            <translation>Detailed instructions for 3D modeling, FEM analysis, CLI (CMD/PowerShell), modeless workspace, and settings.</translation>
         </message>
         <message>
             <source>Integração temporal concluída.</source>
@@ -3441,7 +3441,7 @@
         </message>
         <message>
             <source>Execução Passo a Passo e Tooltip Explicativo</source>
-            <translation>Step-by-Step Execution &amp; Explanatory Tooltip</translation>
+            <translation>Step-by-Step Execution and Explanatory Tooltip</translation>
         </message>
         <message>
             <source>Exemplo 1: Pórtico Espacial de Edifício</source>
@@ -4517,7 +4517,7 @@
         </message>
         <message>
             <source>Configuração da Sessão Guiada e Ritmo Cognitivo</source>
-            <translation>Guided Session Setup &amp; Cognitive Reading Pace</translation>
+            <translation>Guided Session Setup and Cognitive Reading Pace</translation>
         </message>
         <message>
             <source>O exemplo escolhido foi reconstruído integralmente do zero ao longo das 30 etapas e restaurado ao seu estado inicial padrão para uso imediato.</source>
@@ -4574,6 +4574,378 @@
         <message>
             <source>Sessão Guiada concluída com sucesso! Exemplo selecionado restaurado ao estado inicial.</source>
             <translation>Guided Session completed successfully! Selected example restored to its initial state.</translation>
+        </message>
+        <message>
+            <source>Abas de Resultados (4 Abas: Deslocamentos / Reações / Esforços / 2D/3D)</source>
+            <translation>Results Tabs (4 Tabs: Displacements / Reactions / Forces / 2D/3D)</translation>
+        </message>
+        <message>
+            <source>Abre a Suíte Avançada, seleciona o solver linear esparso (SimplicialLDLT/SparseLU/PCG), resolve envoltórias NBR, frequências naturais (Modal) e fatores críticos de flambagem com suporte a imperfeições geométricas.</source>
+            <translation>Opens the Advanced Suite, selects the sparse linear solver (SimplicialLDLT/SparseLU/PCG), solves NBR envelopes, natural frequencies (Modal), and critical buckling factors with geometric imperfection support.</translation>
+        </message>
+        <message>
+            <source>Abre o Gerador de Malha, enquadra os limites do modelo, configura material, espessura de casca, contorno engastado e pressão normal, gera a malha e resolve tensões 2D/3D na Aba 4.</source>
+            <translation>Opens the Mesh Generator, fits model bounds, configures material, shell thickness, clamped boundary, and normal pressure, generates the mesh, and solves 2D/3D stresses in Tab 4.</translation>
+        </message>
+        <message>
+            <source>Abre o controle de Pós-Processamento 3D, alterna mapas de contorno de deslocamentos |u| e tensão de von Mises da casca 2D, exibe a malha gerada, aplica plano de corte Z e demonstra a animação.</source>
+            <translation>Opens the 3D Post-Processing controls, toggles |u| displacement and 2D shell von Mises stress contour maps, displays the generated mesh, applies a Z clipping plane, and demonstrates animation.</translation>
+        </message>
+        <message>
+            <source>Acelerograma Sísmico (a_g)</source>
+            <translation>Seismic Accelerogram (a_g)</translation>
+        </message>
+        <message>
+            <source>Aplicar Imperfeição à Geometria</source>
+            <translation>Apply Imperfection to Geometry</translation>
+        </message>
+        <message>
+            <source>Apresenta modelo 1D/2D completo pronto para salvar .omniframe ou exportar PDF/HTML/MD/BIM</source>
+            <translation>Presents complete 1D/2D model ready to save .omniframe or export PDF/HTML/MD/BIM</translation>
+        </message>
+        <message>
+            <source>Ativa contornos |u| / von Mises (Casca/Sólido), malha, corte Z e animação</source>
+            <translation>Enables |u| / von Mises (Shell/Solid) contours, mesh, Z clip &amp; animation</translation>
+        </message>
+        <message>
+            <source>Barra 2: Avançadas... &gt; Sísmica/F(t) HHT-α / Não Linear Corrotacional</source>
+            <translation>Toolbar 2: Advanced... &gt; Seismic/F(t) HHT-α / Corotational Nonlinear</translation>
+        </message>
+        <message>
+            <source>Base inferior (Zmin) engastada</source>
+            <translation>Fixed bottom base (Zmin)</translation>
+        </message>
+        <message>
+            <source>Bordas externas apoiadas (uX,uY,uZ=0)</source>
+            <translation>Pinned outer edges (uX,uY,uZ=0)</translation>
+        </message>
+        <message>
+            <source>Bordas externas engastadas</source>
+            <translation>Fixed outer edges</translation>
+        </message>
+        <message>
+            <source>Botão Avançadas... &gt; Solver Linear &amp; Abas Combinações / Modal / Flambagem</source>
+            <translation>Advanced... Button &gt; Linear Solver &amp; Combinations / Modal / Buckling Tabs</translation>
+        </message>
+        <message>
+            <source>Botão Corte/Contornos... &gt; Contorno von Mises &amp; Controles 3D</source>
+            <translation>Cut/Contours... Button &gt; von Mises Contour &amp; 3D Controls</translation>
+        </message>
+        <message>
+            <source>Botão Malha 2D/3D... &gt; Gerador de Malha + Aba Esforços 2D/3D</source>
+            <translation>Mesh 2D/3D... Button &gt; Mesh Generator + 2D/3D Forces Tab</translation>
+        </message>
+        <message>
+            <source>Cargas Ativas do Modelo (Todas)</source>
+            <translation>Active Model Loads (All)</translation>
+        </message>
+        <message>
+            <source>Caso Base F(t):</source>
+            <translation>Base Load Case F(t):</translation>
+        </message>
+        <message>
+            <source>Condição de Contorno:</source>
+            <translation>Boundary Condition:</translation>
+        </message>
+        <message>
+            <source>Controles 3D Avançados: Contornos |u| e von Mises σ_vM, Malha, Corte Z e Animação</source>
+            <translation>Advanced 3D Controls: |u| &amp; von Mises σ_vM Contours, Mesh, Z Clip &amp; Animation</translation>
+        </message>
+        <message>
+            <source>Desligado</source>
+            <translation>Off</translation>
+        </message>
+        <message>
+            <source>Elemento</source>
+            <translation>Element</translation>
+        </message>
+        <message>
+            <source>Encerra a montagem apresentando o modelo reconstruído completo com resultados 1D/2D/3D ativos e destaca o menu Arquivo para gravação .omniframe e exportação de memoriais e BIM.</source>
+            <translation>Completes the guided build showcasing the full reconstructed model with active 1D/2D/3D results and highlights the File menu for saving .omniframe projects and exporting reports and BIM.</translation>
+        </message>
+        <message>
+            <source>Esforços 2D/3D (Casca/Sólido)</source>
+            <translation>2D/3D Forces (Shell/Solid)</translation>
+        </message>
+        <message>
+            <source>Espessura (Casca 2D):</source>
+            <translation>Thickness (2D Shell):</translation>
+        </message>
+        <message>
+            <source>Execute a análise de flambagem antes de aplicar uma imperfeição geométrica.</source>
+            <translation>Run buckling analysis before applying a geometric imperfection.</translation>
+        </message>
+        <message>
+            <source>Executa a integração direta no tempo (Newmark-β / HHT-α, sismo ou histórico F(t)) na Aba 6 e o solver incremental não linear geométrico Newton-Raphson / Corrotacional 3D com Line Search na Aba 7.</source>
+            <translation>Runs direct time-history integration (Newmark-β / HHT-α, seismic or F(t) history) on Tab 6 and the geometric nonlinear Newton-Raphson / 3D Corotational incremental solver with Line Search on Tab 7.</translation>
+        </message>
+        <message>
+            <source>Face esquerda (Xmin) engastada</source>
+            <translation>Fixed left face (Xmin)</translation>
+        </message>
+        <message>
+            <source>Falha ao aplicar imperfeição: %1</source>
+            <translation>Failed to apply imperfection: %1</translation>
+        </message>
+        <message>
+            <source>Fator de Escala (A₀):</source>
+            <translation>Scale Factor (A₀):</translation>
+        </message>
+        <message>
+            <source>Foca o painel de resultados, alterna entre Deslocamentos, Reações de Apoio, Esforços Internos 1D e Esforços 2D/3D (Casca/Sólido), rolando as tabelas até o somatório de reações.</source>
+            <translation>Focuses the results dock, cycles through Displacements, Support Reactions, 1D Internal Forces, and 2D/3D Forces (Shell/Solid), scrolling tables down to the reaction sum.</translation>
+        </message>
+        <message>
+            <source>Gera malha Quad4 com espessura/apoios/pressão e resolve tensões E2E na Aba 4</source>
+            <translation>Generates Quad4 mesh with thickness/supports/pressure and solves E2E stresses in Tab 4</translation>
+        </message>
+        <message>
+            <source>Gerador de Malha 1D/2D/3D E2E: Material, Espessura, Apoios, Carga e Tensões</source>
+            <translation>E2E 1D/2D/3D Mesh Generator: Material, Thickness, Supports, Load &amp; Stresses</translation>
+        </message>
+        <message>
+            <source>Histórico de Força F(t)</source>
+            <translation>Force Time History F(t)</translation>
+        </message>
+        <message>
+            <source>Imperfeição Inicial (amp):</source>
+            <translation>Initial Imperfection (amp):</translation>
+        </message>
+        <message>
+            <source>Imperfeição geométrica (Modo %1, amplitude = %2 m) aplicada ao modelo.</source>
+            <translation>Geometric imperfection (Mode %1, amplitude = %2 m) applied to the model.</translation>
+        </message>
+        <message>
+            <source>Integra histórico HHT-α e resolve análise não linear corrotacional 3D</source>
+            <translation>Integrates HHT-α time history and solves 3D corotational nonlinear analysis</translation>
+        </message>
+        <message>
+            <source>Integrando histórico temporal de forças F(t) (Newmark / HHT)...</source>
+            <translation>Integrating force time history F(t) (Newmark / HHT)...</translation>
+        </message>
+        <message>
+            <source>Mapa de Tensão de von Mises (Casca/Sólido) aplicado ao Viewport 3D.</source>
+            <translation>von Mises Stress Map (Shell/Solid) applied to 3D Viewport.</translation>
+        </message>
+        <message>
+            <source>Material da Malha:</source>
+            <translation>Mesh Material:</translation>
+        </message>
+        <message>
+            <source>Menu Arquivo e Entrega Final: Salvar, Memorial PDF A4, Relatórios HTML/Markdown, DXF e IFC4</source>
+            <translation>File Menu &amp; Final Delivery: Save, Executive PDF A4, HTML/Markdown Reports, DXF &amp; IFC4</translation>
+        </message>
+        <message>
+            <source>Painel Inferior de Resultados (QDockWidget): 4 Abas e Rolagem de Tabelas</source>
+            <translation>Bottom Results Dock (QDockWidget): 4 Tabs &amp; Table Scrolling</translation>
+        </message>
+        <message>
+            <source>Painel Inferior: Deslocamentos / Reações / Esforços 1D / Esforços 2D/3D</source>
+            <translation>Bottom Dock: Displacements / Reactions / 1D Forces / 2D/3D Forces</translation>
+        </message>
+        <message>
+            <source>Percorre as 4 abas de resultados e rola tabelas até a soma Σ Reações</source>
+            <translation>Cycles through all 4 results tabs and scrolls tables to Σ Reactions</translation>
+        </message>
+        <message>
+            <source>Pressão / Carga Z (2D/3D):</source>
+            <translation>Pressure / Z Load (2D/3D):</translation>
+        </message>
+        <message>
+            <source>Reproduzindo histórico transiente (%1 frames) no Viewport 3D.</source>
+            <translation>Playing transient history (%1 frames) in 3D Viewport.</translation>
+        </message>
+        <message>
+            <source>Seleciona SimplicialLDLT, resolve Envoltória NBR, Modos e Flambagem λ_cr</source>
+            <translation>Selects SimplicialLDLT, solves NBR Envelope, Modes &amp; Buckling λ_cr</translation>
+        </message>
+        <message>
+            <source>Sem apoios (Livre)</source>
+            <translation>Unconstrained (Free)</translation>
+        </message>
+        <message>
+            <source>Serve para avaliar histórico sísmico/transiente com amortecimento numérico e efeitos corrotacionais de grande rotação e segunda ordem nas barras 1D.</source>
+            <translation>Used to evaluate seismic/transient history with numerical damping and large-rotation 3D corotational/second-order effects in 1D frame members.</translation>
+        </message>
+        <message>
+            <source>Serve para comparar solvers de sistemas esparsos, diagnosticar rigidez dinâmica global e verificar estabilidade elástica.</source>
+            <translation>Used to benchmark sparse linear system solvers, diagnose global dynamic stiffness, and verify elastic stability.</translation>
+        </message>
+        <message>
+            <source>Serve para documentar o cálculo estrutural com memorial A4 completo ou relatórios web/Markdown editáveis e continuar editando livremente o projeto.</source>
+            <translation>Used to document structural calculations with a full A4 report or editable web/Markdown reports while continuing to edit the project freely.</translation>
+        </message>
+        <message>
+            <source>Serve para inspecionar concentrações de tensão σ_vM na malha contínua, avaliar seções de corte e animar a resposta deformada.</source>
+            <translation>Used to inspect σ_vM stress concentrations on the continuum mesh, examine cut sections, and animate deformed response.</translation>
+        </message>
+        <message>
+            <source>Serve para integrar elementos finitos 2D/3D (Quad4/Tri3/Hex8/Tet4) ao solver MEF E2E e inspecionar σ_vM, σ_1, σ_3 e esforços Mxx/Nxx.</source>
+            <translation>Used to integrate 2D/3D finite elements (Quad4/Tri3/Hex8/Tet4) into the E2E FEM solver and inspect σ_vM, σ_1, σ_3, and Mxx/Nxx resultants.</translation>
+        </message>
+        <message>
+            <source>Serve para validar equilíbrio ΣF = 0 e ΣM = 0 e consultar valores máximos exatos em barras e elementos contínuos.</source>
+            <translation>Used to validate ΣF = 0 and ΣM = 0 equilibrium and inspect exact peak values across beams and continuum elements.</translation>
+        </message>
+        <message>
+            <source>Suíte Avançada (Abas 1–3): Solver Esparso (LDLT/LU/PCG), Combinações, Modal e Flambagem</source>
+            <translation>Advanced Suite (Tabs 1–3): Sparse Solver (LDLT/LU/PCG), Combinations, Modal &amp; Buckling</translation>
+        </message>
+        <message>
+            <source>Suíte Avançada (Abas 6–7): Transiente HHT-α / Newmark-β e Não Linear Corrotacional 3D</source>
+            <translation>Advanced Suite (Tabs 6–7): HHT-α / Newmark-β Transient &amp; 3D Corotational Nonlinear</translation>
+        </message>
+        <message>
+            <source>Suíte de Análises &gt; Abas Transiente HHT-α e Não Linear Corrotacional</source>
+            <translation>Analysis Suite &gt; HHT-α Transient &amp; Corotational Nonlinear Tabs</translation>
+        </message>
+        <message>
+            <source>Tensão de von Mises (Casca/Sólido)</source>
+            <translation>von Mises Stress (Shell/Solid)</translation>
+        </message>
+        <message>
+            <source>Tipo de Excitação:</source>
+            <translation>Excitation Type:</translation>
+        </message>
+        <message>
+            <source>Abrir PowerShell com CLI...</source>
+            <translation>Open PowerShell with CLI...</translation>
+        </message>
+        <message>
+            <source>Abrir Prompt de Comando (CMD) com CLI...</source>
+            <translation>Open Command Prompt (CMD) with CLI...</translation>
+        </message>
+        <message>
+            <source>As entradas de usuário (HKCU PATH, App Paths e associação .omniframe) deste diretório foram removidas com segurança.
+
+%1</source>
+            <translation>The user entries (HKCU PATH, App Paths, and .omniframe file association) for this directory have been safely removed.
+
+%1</translation>
+        </message>
+        <message>
+            <source>CLI Windows (CMD / PowerShell)</source>
+            <translation>Windows CLI (CMD / PowerShell)</translation>
+        </message>
+        <message>
+            <source>CLI integrada ao PATH do Windows (CMD e PowerShell).</source>
+            <translation>CLI integrated into Windows PATH (CMD &amp; PowerShell).</translation>
+        </message>
+        <message>
+            <source>Comandos CLI (CMD/PowerShell)</source>
+            <translation>CLI Commands (CMD/PowerShell)</translation>
+        </message>
+        <message>
+            <source>Erro ao Abrir CMD</source>
+            <translation>Error Opening CMD</translation>
+        </message>
+        <message>
+            <source>Erro ao Abrir PowerShell</source>
+            <translation>Error Opening PowerShell</translation>
+        </message>
+        <message>
+            <source>Falha na Integração CLI Windows</source>
+            <translation>Windows CLI Integration Failed</translation>
+        </message>
+        <message>
+            <source>Integração CLI Removida</source>
+            <translation>Windows CLI Integration Removed</translation>
+        </message>
+        <message>
+            <source>Integração CLI Windows Concluída</source>
+            <translation>Windows CLI Integration Complete</translation>
+        </message>
+        <message>
+            <source>Ir diretamente ao capítulo completo de Linha de Comando (omniframe-cli.exe) no Windows 10/11.</source>
+            <translation>Jump directly to the full Command-Line Interface (omniframe-cli.exe) chapter for Windows 10/11.</translation>
+        </message>
+        <message>
+            <source>Não foi possível concluir o registro completo da CLI no Windows.
+
+Detalhes: %1</source>
+            <translation>Could not complete Windows CLI registration.
+
+Details: %1</translation>
+        </message>
+        <message>
+            <source>Não foi possível iniciar o PowerShell com a CLI.
+
+Detalhes: %1</source>
+            <translation>Could not launch PowerShell with CLI active.
+
+Details: %1</translation>
+        </message>
+        <message>
+            <source>Não foi possível iniciar o Prompt de Comando com a CLI.
+
+Detalhes: %1</source>
+            <translation>Could not launch Command Prompt with CLI active.
+
+Details: %1</translation>
+        </message>
+        <message>
+            <source>O binário omniframe-cli.exe foi registrado no Windows 10/11 (HKCU Environment PATH, App Paths e extensão .omniframe).
+
+Diretório: %1
+
+Novos terminais CMD e PowerShell já podem executar 'omniframe-cli --help' diretamente.</source>
+            <translation>The omniframe-cli.exe binary has been registered on Windows 10/11 (HKCU Environment PATH, App Paths, and .omniframe file association).
+
+Directory: %1
+
+New CMD and PowerShell terminals can now execute 'omniframe-cli --help' directly.</translation>
+        </message>
+        <message>
+            <source>PowerShell iniciado com omniframe-cli ativo.</source>
+            <translation>PowerShell launched with omniframe-cli active.</translation>
+        </message>
+        <message>
+            <source>Prompt de Comando (CMD) iniciado com omniframe-cli ativo.</source>
+            <translation>Command Prompt (CMD) launched with omniframe-cli active.</translation>
+        </message>
+        <message>
+            <source>Registrar omniframe-cli no Windows (PATH e App Paths)...</source>
+            <translation>Register omniframe-cli on Windows (PATH &amp; App Paths)...</translation>
+        </message>
+        <message>
+            <source>Registro HKCU da CLI removido.</source>
+            <translation>HKCU CLI registration removed.</translation>
+        </message>
+        <message>
+            <source>Remover Registro da CLI no Windows...</source>
+            <translation>Remove Windows CLI Registration...</translation>
+        </message>
+        <message>
+            <source>Sim</source>
+            <translation>Yes</translation>
+        </message>
+        <message>
+            <source>Status da CLI Windows (CMD / PowerShell)</source>
+            <translation>Windows CLI Status (CMD / PowerShell)</translation>
+        </message>
+        <message>
+            <source>Status da Integração omniframe-cli.exe no Windows 10/11:
+
+• Diretório ativo: %1
+• omniframe-cli.exe encontrado: %2
+• PATH do Usuário (HKCU): %3
+• PATH do Sistema (HKLM): %4
+• App Paths (omniframe-cli.exe): %5
+• Associação .omniframe: %6
+• Pronto para CMD e PowerShell: %7</source>
+            <translation>Windows 10/11 omniframe-cli.exe Integration Status:
+
+• Active directory: %1
+• omniframe-cli.exe found: %2
+• User PATH (HKCU): %3
+• System PATH (HKLM): %4
+• App Paths (omniframe-cli.exe): %5
+• .omniframe file association: %6
+• Ready for CMD &amp; PowerShell: %7</translation>
+        </message>
+        <message>
+            <source>Verificar Status da CLI no Windows...</source>
+            <translation>Check Windows CLI Status...</translation>
         </message>
     </context>
 </TS>

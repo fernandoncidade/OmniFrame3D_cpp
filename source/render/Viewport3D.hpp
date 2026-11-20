@@ -65,7 +65,8 @@ public:
     enum class PostContourMode {
         None = 0,
         Displacement = 1,
-        NbrComplianceDcr = 2
+        NbrComplianceDcr = 2,
+        VonMisesStress = 3
     };
 
     enum class ClipAxis {
@@ -94,12 +95,20 @@ public:
                                const std::unordered_map<NodeId, Vec3>& modeDisplByNode,
                                double baseScale = 1.0,
                                bool oscillating = true);
+    void setPostMeshAnimationField(const std::unordered_map<NodeId, Vec3>& meshDisplByNode);
     void setNonlinearStepFrames(const QString& label,
                                 const std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>>& stepFrames);
+    void setNonlinearMeshStepFrames(
+        const std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>>& meshStepFrames);
     void setNonlinearStepIndex(int idx);
-    int nonlinearStepCount() const { return static_cast<int>(m_nonlinearFrames.size()); }
+    int nonlinearStepCount() const {
+        return static_cast<int>(std::max(m_nonlinearFrames.size(), m_nonlinearMeshFrames.size()));
+    }
     int nonlinearStepIndex() const { return m_nonlinearStepIdx; }
-    bool hasPostAnimation() const { return !m_postAnimNodeDispl.empty() || !m_nonlinearFrames.empty(); }
+    bool hasPostAnimation() const {
+        return !m_postAnimNodeDispl.empty() || !m_postAnimMeshDispl.empty()
+            || !m_nonlinearFrames.empty() || !m_nonlinearMeshFrames.empty();
+    }
     void setAnimationPlaying(bool playing);
     bool isAnimationPlaying() const { return m_animPlaying; }
     void setAnimationSpeed(double speed);
@@ -174,7 +183,7 @@ private:
 
     // Modos e flags
     InteractionMode m_mode = InteractionMode::Select;
-    WorkPlane m_workPlane = WorkPlane::XZ_Frontal;
+    WorkPlane m_workPlane = WorkPlane::XY_Top;
     double m_planeOffset = 0.0;
     bool m_snapToGrid = true;
     double m_gridStep = 0.5;
@@ -201,7 +210,9 @@ private:
     double m_animBaseScale = 1.0;
     QString m_postAnimLabel;
     std::unordered_map<NodeId, Vec3> m_postAnimNodeDispl;
+    std::unordered_map<NodeId, Vec3> m_postAnimMeshDispl;
     std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> m_nonlinearFrames;
+    std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> m_nonlinearMeshFrames;
     int m_nonlinearStepIdx = 0;
 
     mutable bool m_legendVisible = false;

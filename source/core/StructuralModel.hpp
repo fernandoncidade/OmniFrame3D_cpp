@@ -42,10 +42,25 @@ struct ProjectMetadata {
     double windS3 = 1.0;
 };
 
+enum class IssueSeverity {
+    Error = 0,
+    Warning = 1,
+    Info = 2
+};
+
+struct ValidationIssue {
+    IssueSeverity severity = IssueSeverity::Error;
+    std::string code;
+    std::string message;
+    std::string category;
+    std::string entityId;
+};
+
 struct ModelValidation {
     bool valid = true;
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
+    std::vector<ValidationIssue> issues;
 };
 
 class StructuralModel {

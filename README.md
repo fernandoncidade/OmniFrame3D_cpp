@@ -2,7 +2,7 @@
 
 **Plataforma desktop nativa de engenharia para análise estrutural tridimensional (FEA — estática linear, modal, flambagem, harmônica, espectro de resposta e não linear geométrica/J2) em Windows, desenvolvida em C++23 moderno (`OmniFrameKernel` livre de Qt), Qt 6.11.1, Eigen 3.4.0 e OpenGL 3.3 Core Profile. Oferece elementos 1D/2D/3D, gerador de malhas (`MeshGenerator`), combinações ELU/ELS (`LoadSystem`), suíte de solvers esparsos (`LinearSolverSuite`), interpolação contínua de Hermite, viewport de alta definição (SSAA/MSAA/SDF, Clip Planes e contornos DCR), interoperabilidade `.omniframe` Schema 2.1.0 / DXF / IFC4, auditoria ABNT NBR em PDF local, relatórios PDF A4 e CLI headless `omniframe-cli.exe` (`pt-BR` / `en-US`).**
 
-[![Latest Release](https://img.shields.io/badge/Release-v2026.11.14.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.14.0)
+[![Latest Release](https://img.shields.io/badge/Release-v2026.11.15.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.15.0)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C?logo=c%2B%2B)](CMakeLists.txt)
 [![Qt 6.11.1](https://img.shields.io/badge/Qt-6.11.1-41CD52?logo=qt)](CMakeLists.txt)
 [![Eigen 3.4.0](https://img.shields.io/badge/Eigen-3.4.0-d9534f)](https://eigen.tuxfamily.org)
@@ -42,7 +42,7 @@
 <details>
 <summary><b>Clique para expandir / recolher a documentação em Português (BR)</b></summary><br>
 
-O **OmniFrame 3D** (Versão 2026.11.14.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
+O **OmniFrame 3D** (Versão 2026.11.15.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
 
 Diferente de suítes comerciais de FEA em caixa-preta que bloqueiam cálculos atrás de assinaturas caras, armazenamento obrigatório em nuvem e solvers opacos, o **OmniFrame 3D** foi concebido para entregar transparência matemática integral, soberania absoluta de dados locais (`Local-First`) e alto desempenho computacional em álgebra matricial esparsa:
 
@@ -84,12 +84,12 @@ Elemento Espacial de Viga-Coluna 3D (Nós i -> j)
 - **E-mail Oficial de Suporte (exclusivamente por disponibilidade, sem urgência/SLA):** `linceu_lighthouse@outlook.com`
 - **Repositório / Site Oficial:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
 - **Download Oficial (Microsoft Store — Edição Gratuita Assinada):** [Instalar via Microsoft Store](https://apps.microsoft.com/detail/OmniFrame3D)
-- **Identidade MSIX e Alias no Windows:** `fernandoncidade.OmniFrame3D` · Execution Alias `omniframe.exe` ([`repo/AppxManifest.xml`](repo/AppxManifest.xml))
+- **Identidade MSIX e Aliases no Windows:** `fernandoncidade.OmniFrame3D` · Aliases de Execução `omniframe.exe` e `omniframe-cli.exe` (`desktop4:Subsystem="console"`) + associação `.omniframe` ([`repo/AppxManifest.xml`](repo/AppxManifest.xml))
 - **Escopo Normativo Auditável (`ABNT NBR`):** Verificações locais verificadas em PDF para `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022` e `NBR 8800:2024` (`LocalPdfVerified`), com marcação explícita `OutOfLocalPdfScope` para normas fora do pacote local (`NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360-22` e `Eurocode 3` — [`docs/compliance.md`](docs/compliance.md#ptbr))
 - **Idiomas Suportados Dinamicamente em Tempo de Execução:** Português (Brasil — `pt-BR`) · English (United States — `en-US`)
 - **Requisitos de Sistema:** Windows 10 (build `17763+`) / Windows 11 x64, GPU compatível com **OpenGL 3.3 Core Profile**
 - **Executáveis Gerados pelos Presets CMake (`CMakePresets.json`):**
-  - `OmniFrame.exe` e `omniframe-cli.exe` (`build/OmniFrame3D/` e distribuídos juntos no pacote externo): Aplicativo desktop GUI principal em C++23 / Qt 6.11.1 / OpenGL 3.3 Core ([`source/main.cpp`](source/main.cpp)) e executável headless CLI compartilhado ([`source/cli/main_cli.cpp`](source/cli/main_cli.cpp))
+  - `OmniFrame.exe` e `omniframe-cli.exe` (`build/OmniFrame3D/` e distribuídos juntos no pacote externo com `register_cli_windows.ps1`): Aplicativo desktop GUI principal em C++23 / Qt 6.11.1 / OpenGL 3.3 Core ([`source/main.cpp`](source/main.cpp)) com abertura direta de modelos via argumento e delegação CLI transparente para o executável console nativo `omniframe-cli.exe` ([`source/cli/main_cli.cpp`](source/cli/main_cli.cpp)) integrado ao Windows 10/11 (`CMD` / `PowerShell` via [`source/os/WindowsCliIntegration.cpp`](source/os/WindowsCliIntegration.cpp))
   - `VersionEditor.exe` (`build/Version/`): Utilitário GUI e CLI (`--check` / `--apply`) de auditoria e sincronização de versão/data ([`mocks/VersionEditor.cpp`](mocks/VersionEditor.cpp))
   - `CompileTranslationsGUI.exe` e `CompileTranslationsTerminal.exe` (`build/CompileLanguage/`): Ferramentas de compilação e validação dos catálogos `.ts` → `.qm`
   - **Suíte Modular CTest (`build/Testes/`):** **20 suítes independentes** de validação numérica, solvers, normas e fluxos de UI (`test_Material`..`test_SpringsSettlementsAndExamples` + `test_Phase0ValidationAndBenchmarks`..`test_Phase9UiAndWorkflows`)
@@ -103,22 +103,22 @@ Elemento Espacial de Viga-Coluna 3D (Nós i -> j)
    - Apoios elásticos nodais (**molas $k$**), vínculos rígidos e articulados (**Engastado**, **Articulado Fixo**, **Móvel/Rolete**), **deslocamentos e rotações prescritos**, forças/momentos nodais concentrados e carregamentos distribuídos uniformes com vetores consistentes de forças de engastamento perfeito (*Fixed-End Forces*).
 2. **`OmniFrameKernel` em C++23 Puro, Suíte Linear & Solvers Multifísica:**
    - Núcleo FEA estritamente livre de Qt (`OmniFrameKernel` — C++23 + Eigen 3.4.0) compartilhado por `OmniFrameCore`, `OmniFrame.exe` e `omniframe-cli.exe`;
-   - Montagem esparsa em precisão dupla via `LinearSolverSuite` (`SimplicialLDLT` AMD, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB`) executada assincronamente em *worker threads* na UI;
-   - Recursos multianálise: **Estática Linear**, **Modal (autovalores)**, **Flambagem Linear**, **Varredura Harmônica FRF**, **Espectro de Resposta**, **Não Linear Geométrica (`P-Delta` / Corrotacional `NR` & `Arc-Length`)** e **Plasticidade Material J2** ($\sigma_y, H_{\text{iso}}, H_{\text{kin}}$);
-   - Pré-validação automática (rejeitando $L \le 10^{-6}\text{ m}$, constantes não positivas e valores não finitos), detecção automática de **mecanismos cinemáticos** / singularidades e verificação rigorosa do **equilíbrio estático global** ($\sum F = 0$, $\sum M = 0$).
-3. **Elementos 1D/2D/3D, Recuperação Contínua & Pós-Processamento Avançado:**
-   - Biblioteca de elementos: pórticos/treliças 3D Euler-Bernoulli / Timoshenko (`BeamTruss1D`, `Corotational1D`), cascas Mindlin/DKT (`ShellElements`) e sólidos 3D hexa/tetra (`SolidElements`), além de geração paramétrica de malhas (`MeshGenerator` 1D/2D/3D & Delaunay);
-   - Reconstrução contínua exata por **polinômios cúbicos de Hermite** (`Nenhum`, `Deformada 3D`, `Normal N`, `Cortante Vy`, `Cortante Vz`, `Torção Tx`, `Fletor My`, `Fletor Mz`), vetores de reações, controle de ampliação (`1`–`100`, escala `1.5x`–`150x`), **Planos de Corte 3D (Clip Planes)**, **contornos DCR** e **animação modal/deformada**.
+   - Montagem esparsa em precisão dupla via `LinearSolverSuite` (`SimplicialLDLT` AMD, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB`) com política explícita e rastreável de fallback (`allowFallback` + diagnóstico) executada assincronamente em *worker threads* na UI;
+   - Recursos multianálise unificados para 1D/2D/3D: **Estática Linear**, **Modal (autovalores)**, **Flambagem Linear** (com aplicação direta de **`Imperfeição Inicial`** à geometria), **Varredura Harmônica FRF**, **Espectro de Resposta**, **Dinâmica Transiente (`Newmark-Beta` / `HHT-Alpha α=-0,05`, acelerograma `a_g` ou `Histórico de Força F(t)`) e Sísmica**, além de **Não Linear Geométrica (`P-Delta` / `Corrotacional 3D` com `Tangente Completa`, `Line Search`, `NR` & `Arc-Length` com critério energético)** e **Plasticidade Material J2** ($\sigma_y, H_{\text{iso}}, H_{\text{kin}}$) em barras 1D;
+   - Pré-validação automática estruturada (`ModelValidation::issues` cobrindo conectividade BFS, finitude e malhas 2D/3D), detecção automática de **mecanismos cinemáticos** / singularidades e verificação rigorosa do **equilíbrio estático global** ($\sum F = 0$, $\sum M = 0$).
+3. **Elementos 1D/2D/3D Unificados, Recuperação Contínua & Pós-Processamento Avançado:**
+   - Biblioteca unificada em `FemSolver3D`: pórticos/treliças 3D Euler-Bernoulli / Timoshenko (`BeamTruss1D`, `Corotational1D`), cascas Mindlin/DKT (`ShellElements`: `Tri3`, `Quad4`, `Quad8`) e sólidos 3D hexa/tetra (`SolidElements`: `Tet4`, `Tet10`, `Hex8`, `Hex20` com DOFs `mask3` em nós sólidos puros e acoplamento automático em nós coincidentes), além de geração paramétrica (`MeshGenerator` 1D/2D/3D & Delaunay);
+   - Reconstrução contínua exata por **polinômios cúbicos de Hermite** (`Nenhum`, `Deformada 3D`, `Normal N`, `Cortante Vy`, `Cortante Vz`, `Torção Tx`, `Fletor My`, `Fletor Mz`), **Mapa de Tensão de von Mises (`VonMisesStress`)** e aba `"Esforços 2D/3D (Casca/Sólido)"` com tensões principais e resultantes de casca, vetores de reações, controle de ampliação (`1`–`100`, escala `1.5x`–`150x`), **Planos de Corte 3D (Clip Planes)**, **contornos DCR** e **animação modal/deformada**.
 4. **Viewport OpenGL 3.3 Core com Pipeline de Alta Definição (`SSAA`, `MSAA` e `Shader SDF`):**
    - Pipeline acelerado por GPU em **GLSL 330** com iluminação Phong, câmera orbital fluida (Botão Direito/Meio para orbitar, `Shift` + arraste para pan, roda do mouse para zoom), atalhos instantâneos (`Vista 3D Isométrica`, `Frontal XZ`, `Planta XY`, `Lateral YZ`, `Enquadrar Tudo [F]`) e seleção espacial exata via **Raycasting 3D** (incluindo multisseleção com `Ctrl`);
    - Menu **Configurações → Qualidade Gráfica e Resolução** permitindo configurar predefinições (`Máximo Automático`, `Ultra Qualidade`, etc.), superamostragem interna **SSAA até 200% (`2.00×`)**, **MSAA por GPU até `16×`**, downsampling **Catmull-Rom 16-tap com nitidez CAS**, suavização analítica subpixel de linhas por **Shader SDF**, VSync, contraste de grade e paletas dedicadas para o **Plano Ativo** (`ObsidianDark`, `PureNight`, `GraphiteDark`, `CleanLight`).
 5. **Modelagem Paramétrica, Combinações, Interoperabilidade & Relatórios Técnicos:**
    - Ferramentas em plano ativo (`XY`/`XZ`/`YZ`, Snap Grid, Eixos Locais), casos e combinações ELU/ELS (`LoadSystem`) e auditoria normativa **ABNT NBR** (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explícito para normas ausentes como `NBR 8681`, `14762`, `15421`, `AISC 360` e `Eurocode 3`);
-   - Editores para materiais elásticos/J2 ($E, \nu, \alpha, \gamma, \rho$), seções paramétricas (`Retangular`, `Circular`, `Perfil I/W`, `Tubular`, `Personalizada`), **3 exemplos estruturais prontos e totalmente reeditáveis como exercício** (incluindo edição inline por listas suspensas limpas no Inspetor Lateral e `Desfazer`/`Refazer`), intercâmbio **DXF / IFC4 / VTK / CSV**, formato aberto **`.omniframe` JSON Schema `2.1.0`** (retrocompatível com `1.0` e `2.0`), relatórios em **HTML / Markdown / PDF executivo A4** (`PdfReportGenerator`) e CLI dedicada **`omniframe-cli.exe`** (`20` suítes CTest).
+   - Editores para materiais elásticos/J2 ($E, \nu, \alpha, \gamma, \rho$), seções paramétricas (`Retangular`, `Circular`, `Perfil I/W`, `Tubular`, `Personalizada`), **3 exemplos estruturais prontos abrindo no plano padrão `XY (Planta)` e totalmente reeditáveis como exercício** (incluindo edição inline por listas suspensas limpas no Inspetor Lateral e `Desfazer`/`Refazer`), intercâmbio **DXF / IFC4 / VTK `UNSTRUCTURED_GRID` / CSV** (com caminhos UTF-8 acentuados via `Utf8Path.hpp`), formato aberto **`.omniframe` JSON Schema `2.1.0`** (com bloco `"surfaceMesh"` retrocompatível com `1.0` e `2.0`), relatórios Seção 9 (itens 1 a 20 e contínuo 2D/3D) em **HTML / Markdown / PDF executivo A4** (`PdfReportGenerator`) e CLI integrada **`omniframe-cli.exe`** (`--example`, `--nbr-audit`, `static|modal|buckling|nonlinear|pdelta|harmonic|spectrum|transient|seismic`, `--scheme newmark|hht`, `--load-factor`, `--modified-newton`, `--no-line-search`, `--imperfection`, `--install-windows-integration` para CMD/PowerShell e `20` suítes CTest).
 6. **Interface Qt 6.11.1 Adaptativa, Sessão Guiada (`F2`), Janelas Não-Modais (`Z-Order`) & Soberania 100% Offline:**
-   - Alternância dinâmica em tempo de execução de **Idioma** (`Português (BR)` / `English (US)`) e **Tema Visual** (`Escuro` / `Claro`) propagada a todos os menus, painéis acopláveis, tabelas sincronizadas, gráficos do Plano Ativo, diálogos de engenharia (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), **Manual de Instruções (`F1`)** e **Sessão Guiada (`F2` — `GuidedSessionDialog`)**;
-   - **Sessão Guiada Passo a Passo (`Ajuda > Sessão Guiada...`, `F2`):** percorre **30 etapas** construindo e simulando qualquer um dos 3 exemplos pré-definidos com 4 perfis científicos de ritmo de leitura (PPM — Fluente, Técnico, Voz Alta e Acessível/Dislexia), **callout e destaque visual unificados em 2 fases (sem sobreposição sobre janelas filhas)** e restauração automática do exemplo selecionado ao estado inicial ao concluir;
-   - Gerenciamento central de janelas **Modeless** com abertura em clique único sem contornos fantasmas e elevação automática na pilha de profundidade **`Z-Order`** (`WindowZOrderManager`);
+   - Alternância dinâmica em tempo de execução de **Idioma** (`Português (BR)` / `English (US)`), **Tema Visual** (`Escuro` / `Claro`) e submenu **`Configurações > CLI Windows (CMD / PowerShell)`** propagados a todos os menus, setas vetoriais nativas de `QComboBox`/`QSpinBox` via `QProxyStyle` (sem gravação de arquivos PNG temporários), painéis acopláveis, tabelas sincronizadas (inclusive aba **`Esforços 2D/3D (Casca/Sólido)`**), gráficos do Plano Ativo, diálogos de engenharia (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), **Manual de Instruções (`F1`, com botão de acesso rápido ao Capítulo 10 da CLI)** e **Sessão Guiada (`F2` — `GuidedSessionDialog`)**;
+   - **Sessão Guiada Passo a Passo (`Ajuda > Sessão Guiada...`, `F2`):** dimensões ampliadas para exibição integral de todos os rótulos, percorrendo **30 etapas** sobre qualquer um dos 3 exemplos pré-definidos no plano padrão `XY (Planta)` com 4 perfis científicos de ritmo de leitura (PPM — Fluente, Técnico, Voz Alta e Acessível/Dislexia), **callout e destaque visual unificados em 2 fases (sem sobreposição sobre janelas filhas)** e restauração automática do exemplo selecionado ao estado inicial ao concluir;
+   - Gerenciamento central de janelas **Modeless** (`WindowZOrderManager`) com preparo prévio da alça nativa oculta para abertura em clique único sem contornos fantasmas e elevação automática na pilha de profundidade **`Z-Order`**;
    - Operação **100% Local-First e Offline**: zero telemetria, zero sockets de rede e persistência restrita a projetos do usuário mais 3 arquivos locais de preferência (`language.json`, `theme.json` e `graphics.json`) em `%LOCALAPPDATA%\OmniFrame\OmniFrame\`.
 
 ---
@@ -186,8 +186,14 @@ ctest --preset testes-msvc-release --output-on-failure
 cmake --preset version-msvc-release && cmake --build --preset version-msvc-release
 cmake --preset compile-language-msvc-release && cmake --build --preset compile-language-msvc-release
 
-# Executar o aplicativo gráfico principal
+# Executar o aplicativo gráfico principal (ou abrir diretamente um modelo)
 .\build\OmniFrame3D\OmniFrame.exe
+.\build\OmniFrame3D\OmniFrame.exe "caminho\modelo.omniframe"
+
+# Registrar e utilizar omniframe-cli no Windows 10/11 (CMD e PowerShell, sem admin)
+.\build\OmniFrame3D\omniframe-cli.exe --install-windows-integration --json
+.\cmake\register_cli_windows.ps1 -CheckOnly -Json
+omniframe-cli --example building --nbr-audit --json
 ```
 
 #### Utilitários Auxiliares via Linha de Comando (`mocks/`)
@@ -220,7 +226,8 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutur
 - 📖 [Guia do Usuário](docs/user-guide.md#ptbr) · [Manual Técnico Completo (MANUAL.md)](MANUAL.md#parte-1-manual-de-instruções-português---br)
 - 💻 [Referência da Linha de Comando e Utilitários (CLI)](docs/cli-reference.md#ptbr)
 - 💡 [Sugestões de Evolução e Backlog Técnico](docs/suggested-issues.md#ptbr)
-- 🚀 [Notas de Lançamento da Versão 2026.11.14.0](docs/release-v2026.11.14.0.md#ptbr)
+- 🔬 [Auditoria Técnica, ADRs, Matriz V&V e Roadmap](docs/technical-audit-and-roadmap.md)
+- 🚀 [Notas de Lançamento da Versão 2026.11.15.0](docs/release-v2026.11.15.0.md#ptbr)
 
 ---
 
@@ -242,7 +249,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutur
 <details>
 <summary><b>Click to expand / collapse English (US) documentation</b></summary><br>
 
-**OmniFrame 3D** (Version 2026.11.14.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
+**OmniFrame 3D** (Version 2026.11.15.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
 
 Unlike commercial black-box FEA suites that lock calculations behind expensive subscription paywalls, forced cloud storage, and opaque solvers, **OmniFrame 3D** is purpose-built to deliver complete mathematical transparency, strict local data sovereignty (`Local-First`), and high-speed sparse matrix computation:
 
@@ -284,12 +291,12 @@ Unlike commercial black-box FEA suites that lock calculations behind expensive s
 - **Official Support Email (strictly by availability, no urgency/SLA):** `linceu_lighthouse@outlook.com`
 - **Official Repository / Website:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
 - **Official Download (Microsoft Store — Signed Free Edition):** [Install via Microsoft Store](https://apps.microsoft.com/detail/OmniFrame3D)
-- **Windows MSIX Identity & Execution Alias:** `fernandoncidade.OmniFrame3D` · Execution Alias `omniframe.exe` ([`repo/AppxManifest.xml`](repo/AppxManifest.xml))
+- **Windows MSIX Identity & Execution Aliases:** `fernandoncidade.OmniFrame3D` · Execution Aliases `omniframe.exe` and `omniframe-cli.exe` (`desktop4:Subsystem="console"`) + `.omniframe` file association ([`repo/AppxManifest.xml`](repo/AppxManifest.xml))
 - **Auditable Normative Scope (`ABNT NBR`):** Local PDF-verified checks for `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022`, and `NBR 8800:2024` (`LocalPdfVerified`), with absent standards explicitly flagged `OutOfLocalPdfScope` (`NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360-22`, and `Eurocode 3` — [`docs/compliance.md`](docs/compliance.md#enus))
 - **Runtime Dynamic Languages:** English (United States — `en-US`) · Português (Brasil — `pt-BR`)
 - **System Requirements:** Windows 10 (build `17763+`) / Windows 11 x64, GPU supporting **OpenGL 3.3 Core Profile**
 - **Executables Built by CMake Presets (`CMakePresets.json`):**
-  - `OmniFrame.exe` and `omniframe-cli.exe` (`build/OmniFrame3D/` and packaged together in external distributions): Primary C++23 / Qt 6.11.1 / OpenGL 3.3 Core desktop GUI ([`source/main.cpp`](source/main.cpp)) and companion headless CLI ([`source/cli/main_cli.cpp`](source/cli/main_cli.cpp))
+  - `OmniFrame.exe` and `omniframe-cli.exe` (`build/OmniFrame3D/` and packaged together in external distributions with `register_cli_windows.ps1`): Primary C++23 / Qt 6.11.1 / OpenGL 3.3 Core desktop GUI ([`source/main.cpp`](source/main.cpp)) supporting direct file launch plus transparent forwarding to the native console binary `omniframe-cli.exe` ([`source/cli/main_cli.cpp`](source/cli/main_cli.cpp)) integrated into Windows 10/11 (`CMD` / `PowerShell` via [`source/os/WindowsCliIntegration.cpp`](source/os/WindowsCliIntegration.cpp))
   - `VersionEditor.exe` (`build/Version/`): GUI & CLI (`--check` / `--apply`) version and date synchronization/auditing utility ([`mocks/VersionEditor.cpp`](mocks/VersionEditor.cpp))
   - `CompileTranslationsGUI.exe` and `CompileTranslationsTerminal.exe` (`build/CompileLanguage/`): Translation compilation and verification utilities (`.ts` → `.qm`)
   - **Modular CTest Suite (`build/Testes/`):** **20 standalone suites** covering mechanics, solvers, mesh/interop, NBR compliance, and UI workflows (`test_Material`..`test_SpringsSettlementsAndExamples` + `test_Phase0ValidationAndBenchmarks`..`test_Phase9UiAndWorkflows`)
@@ -303,22 +310,22 @@ Unlike commercial black-box FEA suites that lock calculations behind expensive s
    - Elastic nodal **spring supports ($k$)**, **Fixed**, **Pinned**, and **Roller** restraints, **prescribed displacements/rotations**, concentrated nodal forces/moments, and uniform distributed member loads using consistent Fixed-End Forces.
 2. **Pure C++23 `OmniFrameKernel`, Sparse Linear Suite & Multi-Physics Solvers:**
    - Strictly Qt-free FEA kernel (`OmniFrameKernel` — C++23 + Eigen 3.4.0) powering `OmniFrameCore`, `OmniFrame.exe`, and `omniframe-cli.exe`;
-   - Double-precision (64-bit) sparse assembly via `LinearSolverSuite` (`SimplicialLDLT` with AMD ordering, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB`) executed asynchronously on worker threads in the UI;
-   - Multi-analysis capabilities: **Linear Static**, **Modal Eigenvalue**, **Linear Buckling**, **Harmonic FRF Sweep**, **Response Spectrum**, **Geometric Nonlinear (`P-Delta` / Corotational `NR` & `Arc-Length`)**, and **Material J2 Plasticity** ($\sigma_y, H_{\text{iso}}, H_{\text{kin}}$);
-   - Automated geometric/physical pre-validation (rejecting zero-length members $L \le 10^{-6}\text{ m}$, non-positive constants, and non-finite inputs), automatic **kinematic mechanism** / singularity detection, and strict global static equilibrium verification ($\sum F = 0$, $\sum M = 0$).
-3. **1D/2D/3D Elements, Continuous Recovery & Post-Processing Controls:**
-   - Element library covering 3D Euler-Bernoulli / Timoshenko beams & trusses (`BeamTruss1D`, `Corotational1D`), Mindlin/DKT shells (`ShellElements`), and 8-node/4-node solids (`SolidElements`), plus parametric mesh generation (`MeshGenerator` 1D/2D/3D & Delaunay);
-   - Exact continuous diagram recovery via **cubic Hermite interpolation** along every frame element, supporting `None`, `Deformed 3D`, `Normal N`, `Shear Vy`, `Shear Vz`, `Torsion Tx`, `Moment My`, and `Moment Mz`, nodal reaction arrows, adjustable amplification slider (`1`–`100`, scaling `1.5x`–`150x`), **3D Clip Planes**, **DCR utilization contours**, and **modal/deformed animation**.
+   - Double-precision (64-bit) sparse assembly via `LinearSolverSuite` (`SimplicialLDLT` with AMD ordering, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB`) with explicit tracked fallback policy (`allowFallback` + diagnostic message) executed asynchronously on worker threads in the UI;
+   - Multi-analysis capabilities unified across 1D/2D/3D: **Linear Static**, **Modal Eigenvalue**, **Linear Buckling** (with direct **`Initial Imperfection`** seeding onto geometry), **Harmonic FRF Sweep**, **Response Spectrum**, **Transient (`Newmark-Beta` / `HHT-Alpha α=-0.05`, accelerogram `a_g` or `Force Time History F(t)`) & Seismic Time-History**, alongside **Geometric Nonlinear (`P-Delta` / `Corotational 3D` with `Full Tangent`, `Line Search`, `NR` & `Arc-Length` with energy criterion)** and **Material J2 Plasticity** ($\sigma_y, H_{\text{iso}}, H_{\text{kin}}$) on 1D frame members;
+   - Structured pre-validation (`ModelValidation::issues` covering BFS connectivity, coordinate finiteness, and 2D/3D meshes), automatic **kinematic mechanism** / singularity detection, and strict global static equilibrium verification ($\sum F = 0$, $\sum M = 0$).
+3. **Unified 1D/2D/3D Elements, Continuous Recovery & Post-Processing Controls:**
+   - Element library unified in `FemSolver3D`: 3D Euler-Bernoulli / Timoshenko beams & trusses (`BeamTruss1D`, `Corotational1D`), Mindlin/DKT shells (`ShellElements`: `Tri3`, `Quad4`, `Quad8`), and 3D tetra/hexa solids (`SolidElements`: `Tet4`, `Tet10`, `Hex8`, `Hex20` allocating translational `mask3` DOFs on pure solid nodes and auto-merging coincident 1D/2D/3D nodes), plus parametric mesh generation (`MeshGenerator` 1D/2D/3D & Delaunay);
+   - Exact continuous diagram recovery via **cubic Hermite interpolation** (`None`, `Deformed 3D`, `Normal N`, `Shear Vy`, `Shear Vz`, `Torsion Tx`, `Moment My`, `Moment Mz`), **von Mises Stress Contour (`VonMisesStress`)** and dedicated **2D/3D Shell/Solid Stresses tab**, nodal reaction arrows, adjustable amplification slider (`1`–`100`, scaling `1.5x`–`150x`), **3D Clip Planes**, **DCR utilization contours**, and **modal/deformed animation**.
 4. **OpenGL 3.3 Core Viewport with High-Definition Rendering (`SSAA`, `MSAA` & `Shader SDF`):**
    - Hardware-accelerated **GLSL 330** Phong lighting pipeline, orbital camera (Right/Middle drag to orbit, `Shift` + drag to pan, scroll wheel to zoom), instant preset views (`3D Iso`, `Front XZ`, `Plan XY`, `Side YZ`, `Fit View [F]`), and exact **3D Raycasting** selection (including `Ctrl` multi-selection);
    - **Settings → Graphics Quality & Resolution** dialog with presets (`Auto Max`, `Ultra Quality`, etc.), internal supersampling **SSAA up to 200% (`2.00×`)**, **GPU MSAA up to `16×`**, **Catmull-Rom 16-tap downsampling with CAS sharpening**, analytical subpixel **Shader SDF** line anti-aliasing, VSync toggle, grid contrast control, and dedicated **Active Plane** palettes (`ObsidianDark`, `PureNight`, `GraphiteDark`, `CleanLight`).
 5. **Parametric Modeling, Load Combinations, Interoperability & Engineering Reports:**
    - Modeling tools (`Select [S]`, `Add Node [N]`, `Add Member [B]`, `Measure [M]`, `Delete [Del]`) projected onto configurable `XY`, `XZ`, or `YZ` working planes with **Snap Grid**, local triad axes display, `LoadSystem` load cases/combinations, and **ABNT NBR** code audit (`LocalPdfVerified`: `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022`, `NBR 8800:2024`; `OutOfLocalPdfScope` explicitly flagged for absent standards such as `NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360`, and `Eurocode 3`);
-   - Built-in editors for linear/J2 materials ($E, \nu, \alpha, \gamma, \rho$), parametric cross-sections (`Rectangular`, `Circular`, `I-Beam`, `Tubular`, and `Custom`), **3 ready-to-solve and fully re-editable structural examples** (including clean inline dropdown editing in the Side Property Inspector and `Undo`/`Redo`), **DXF / IFC4 / VTK / CSV** interoperability, open **`.omniframe` JSON Schema `2.1.0`** (backward-compatible with `1.0` & `2.0`), and native **HTML / Markdown / A4 PDF** (`PdfReportGenerator`) calculation report export alongside headless **`omniframe-cli.exe`** (`20` modular CTest targets).
+   - Built-in editors for linear/J2 materials ($E, \nu, \alpha, \gamma, \rho$), parametric cross-sections (`Rectangular`, `Circular`, `I-Beam`, `Tubular`, and `Custom`), **3 ready-to-solve built-in structural examples opening in the default `XY (Plan)` work plane and remaining freely re-editable** (including clean inline dropdown editing in the Side Property Inspector and `Undo`/`Redo`), **DXF / IFC4 / VTK `UNSTRUCTURED_GRID` / CSV** interoperability (supporting accented UTF-8 paths via `Utf8Path.hpp`), open **`.omniframe` JSON Schema `2.1.0`** (with `"surfaceMesh"` backward-compatible with `1.0` & `2.0`), Section-9 **HTML / Markdown / A4 PDF** (`PdfReportGenerator`, items 1–20 + 2D/3D continuum) calculation report export, and integrated CLI **`omniframe-cli.exe`** (`--example`, `--nbr-audit`, `static|modal|buckling|nonlinear|pdelta|harmonic|spectrum|transient|seismic`, `--scheme newmark|hht`, `--load-factor`, `--modified-newton`, `--no-line-search`, `--imperfection`, `--install-windows-integration` for CMD/PowerShell, and `20` modular CTest targets).
 6. **Adaptive Qt 6.11.1 Workspace, Guided Session (`F2`), Modeless Windows (`Z-Order`) & 100% Offline Privacy:**
-   - Dynamic runtime switching for **Language** (`English (US)` / `Português (BR)`) and **GUI Theme** (`Dark` / `Light`) propagated across all menus, dock panels, synchronized result tables, Active Plane palettes, engineering dialogs (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), the searchable **Operations Manual (`F1`)**, and the **Guided Session (`F2` — `GuidedSessionDialog`)**;
-   - **Step-by-Step Guided Session (`Help > Guided Session...`, `F2`):** walks through **30 automated steps** demonstrating every tool on any chosen preset example across 4 scientific cognitive reading-speed profiles in WPM (Fluent, Technical, Read Aloud, and Dyslexia/Accessible), featuring a **unified two-phase spotlight & non-overlapping callout** and automatic restoration of the selected example to its initial state upon completion;
-   - Centralized **Modeless** child-window stack management with single-click opening without ghost outlines and click-to-raise **`Z-Order`** control (`WindowZOrderManager`);
+   - Dynamic runtime switching for **Language** (`English (US)` / `Português (BR)`), **GUI Theme** (`Dark` / `Light`), and **`Settings > Windows CLI (CMD / PowerShell)`** propagated across all menus, native vector `QComboBox`/`QSpinBox` arrows rendered via `QProxyStyle` (without emitting temporary PNG files on disk), dock panels, synchronized result tables (including the **`2D/3D Forces (Shell/Solid)`** tab), Active Plane palettes, engineering dialogs (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), the searchable **Operations Manual (`F1`, with quick-jump button to Chapter 10 CLI reference)**, and the **Guided Session (`F2` — `GuidedSessionDialog`)**;
+   - **Step-by-Step Guided Session (`Help > Guided Session...`, `F2`):** enlarged layout displaying full button labels across **30 automated steps** on any chosen preset example defaulting to the `XY (Plan)` work plane across 4 scientific cognitive reading-speed profiles in WPM (Fluent, Technical, Read Aloud, and Dyslexia/Accessible), featuring a **unified two-phase spotlight & non-overlapping callout** and automatic restoration of the selected example to its initial state upon completion;
+   - Centralized **Modeless** child-window stack management (`WindowZOrderManager`) preparing hidden native window handles prior to mapping to prevent transient ghost frames on single-click opening alongside managed **`Z-Order`** elevation;
    - Strictly **100% Local-First & Offline**: zero telemetry, zero network sockets, and local persistence restricted to user-saved project files plus three preference files (`language.json`, `theme.json`, and `graphics.json`) inside `%LOCALAPPDATA%\OmniFrame\OmniFrame\`.
 
 ---
@@ -386,8 +393,14 @@ ctest --preset testes-msvc-release --output-on-failure
 cmake --preset version-msvc-release && cmake --build --preset version-msvc-release
 cmake --preset compile-language-msvc-release && cmake --build --preset compile-language-msvc-release
 
-# Launch the main desktop GUI
+# Launch the main desktop GUI (or open a model directly from command line)
 .\build\OmniFrame3D\OmniFrame.exe
+.\build\OmniFrame3D\OmniFrame.exe "path\model.omniframe"
+
+# Register and run omniframe-cli in Windows 10/11 (CMD & PowerShell, zero admin rights)
+.\build\OmniFrame3D\omniframe-cli.exe --install-windows-integration --json
+.\cmake\register_cli_windows.ps1 -CheckOnly -Json
+omniframe-cli --example building --nbr-audit --json
 ```
 
 #### Companion Command-Line Utilities (`mocks/`)
@@ -420,7 +433,8 @@ cmake --preset compile-language-msvc-release && cmake --build --preset compile-l
 - 📖 [User Guide](docs/user-guide.md#enus) · [Complete Technical Manual (MANUAL.md)](MANUAL.md#part-2-operations-manual--3d-fea-engineering-guide-english---us)
 - 💻 [Command-Line & Utilities Reference (CLI)](docs/cli-reference.md#enus)
 - 💡 [Suggested Issues & Technical Backlog](docs/suggested-issues.md#enus)
-- 🚀 [Release Notes for Version 2026.11.14.0](docs/release-v2026.11.14.0.md#enus)
+- 🔬 [Technical Audit, ADRs, V&V Matrix & Roadmap](docs/technical-audit-and-roadmap.md)
+- 🚀 [Release Notes for Version 2026.11.15.0](docs/release-v2026.11.15.0.md#enus)
 
 ---
 

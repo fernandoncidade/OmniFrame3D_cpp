@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
-Version: 2026.11.14.0 | Date: November 14, 2026 | Author: Fernando Nillsson Cidade
+Version: 2026.11.15.0 | Date: November 15, 2027 | Author: Fernando Nillsson Cidade
 Document Language: English (US) — Strict line-by-line correspondence with pt-BR
 ================================================================================
 
@@ -18,7 +18,7 @@ The main window organizes the engineering workflow into six integrated, resizabl
 • Toolbar 2 (Engineering, Analyses & Results): gathers assignment shortcuts (Materials, Sections, Supports, Hinges, Roll γ, Nodal Load, Dist. Load, Thermal ΔT), advanced engineering modules (Combinations, 2D/3D Mesh, Advanced, Clip/Contours, NBR Audit), RUN ANALYSIS (F5) button, Diagram selector, Reactions toggle, and visual Scale slider.
 • Central OpenGL 3D Viewport: renders the three-dimensional structure, high-definition Active Plane, supports, concentrated forces, distributed loads, 2D/3D meshes, contour colormaps, 3D clipping planes, deformed shapes, internal force diagrams, and the viewport heads-up display (HUD) overlay.
 • Left Dock Panel (Inspector & Quick Input): provides exact node insertion via Cartesian coordinates (X, Y, Z) together with the interactive Selected Element / Node panel featuring dropdown lists and direct editing buttons.
-• Bottom Dock Panel (Result Tables & Structural Diagnostics) and Status Bar: displays synchronized tabs for Nodal Displacements, Support Reactions, and Member Forces, while the status bar continuously reports live 3D cursor coordinates, node/member counters, and diagnostic status messages.
+• Bottom Dock Panel (Result Tables & Structural Diagnostics) and Status Bar: displays four synchronized tabs for Nodal Displacements, Support Reactions, Member Forces, and 2D/3D Forces (Shell/Solid), while the status bar continuously reports live 3D cursor coordinates, node/member/mesh counters, and diagnostic status messages.
 
 1.3 Dockable Panels (Docks) and Workspace Customization
 Both the left panel and the bottom panel are dockable widgets (QDockWidget) that can remain docked along the main window edges or be detached into independent floating windows using the undock button or by dragging their title bar.
@@ -59,6 +59,7 @@ The Examples menu includes three complete 3D structural models ready for immedia
 • Example 1: 3D Building Space Frame (2 Stories, Wind and Live Load): multi-story concrete space frame with columns and beams subjected to combined vertical gravity and lateral loads.
 • Example 2: L-Shaped 3D Cantilever under Bending-Torsion: plan L-bent cantilever beam clearly demonstrating torsion-bending coupling between orthogonal spans.
 • Example 3: 3D Space Truss / Steel Footbridge: three-dimensional truss structure with released member ends (Tx, My, and Mz released), exhibiting predominantly axial tension and compression behavior.
+When loading any of the three built-in examples, the Active Working Plane is set by default to XY (Plan) at elevation Z = 0.00 m and the camera frames the entire structure automatically.
 All three built-in examples remain fully editable once loaded: you can select nodes or members in the viewport, switch materials and cross sections directly in the side inspector dropdown lists, modify coordinates, supports, loads, or combinations, apply Undo/Redo (Ctrl+Z / Ctrl+Y), and re-solve immediately (F5) as hands-on practice before tackling real projects.
 
 CHAPTER 3 — 3D NAVIGATION, ACTIVE PLANE AND VISUALIZATION
@@ -73,7 +74,7 @@ Three-dimensional navigation combines direct mouse controls in the 3D Viewport w
 3.2 Active Working Plane (XY, XZ, YZ) and Offset
 To sketch nodes accurately in 3D space using a two-dimensional mouse cursor, OmniFrame 3D casts a geometric picking ray from the camera onto the selected Active Working Plane.
 • XZ Plane (Front): ideal for constructing vertical planar frames and building elevations along a constant Y coordinate.
-• XY Plane (Plan): ideal for constructing floor plans, horizontal grids, and slabs at a fixed Z elevation.
+• XY Plane (Plan): ideal for constructing floor plans, horizontal grids, and slabs at a fixed Z elevation (default active plane selected at startup and when loading the three built-in examples).
 • YZ Plane (Side): ideal for constructing transverse frames and elevations perpendicular to the global X axis.
 • Active Plane Elevation (Elevation:): the numerical elevation control shifts the working plane parallel to its normal axis (for example Z = 3.00 m when modeling a second-floor deck).
 
@@ -123,10 +124,11 @@ Clicking any node or member in the 3D Viewport (or holding Ctrl for multi-select
 • Quick Criteria Selection: the Same Material and Same Section buttons automatically select every member in the model sharing the active member's material or cross section, streamlining batch adjustments across both new models and the three built-in examples.
 
 4.6 Parametric 1D/2D/3D Mesh Generator (Shells and Solids)
-Open Structure > 1D/2D/3D Mesh Generator... (or 2D/3D Mesh... on Toolbar 2) to generate and attach surface or volumetric finite element meshes anywhere in your project:
-• Supported Element Families: structured 2D shell meshes (Quad4 MITC4, Tri3 MITC3, Tri6, and Quad8 Serendipity) for slabs, shear walls, and shells, as well as 3D solid meshes (Hex8 B-Bar and Tet4) for blocks and volumetric foundations.
-• Automatic Bounding-Box Fitting: the auto-fit action adapts mesh box bounds to the active frame geometry, while letting you specify subdivisions (nx, ny, nz), shell thickness, and automatic boundary/base clamping.
-• Quality Diagnostics and Cleanup: displays element/node counts and mesh aspect-ratio quality metrics; use Clear Mesh to remove the parametric 2D/3D mesh cleanly while keeping the primary 3D frame intact.
+Open Structure > 1D/2D/3D Mesh Generator... (or 2D/3D Mesh... on Toolbar 2) to generate and couple surface or volumetric finite element meshes anywhere in your project with an integrated end-to-end (E2E) workflow:
+• Supported Element Families (Mesh Type:): generates refined 1D lines (Line2), 2D shell/plate meshes (2D Structured Quad4 Slab/Shell, 2D Quadratic Quad8 Slab/Shell, Structured Tri3, and Delaunay Tri3 Polygon) for slabs, walls, and shells, 3D solid blocks (Structured Hex8, Quadratic Hex20, and Structured Tet4), and 2D -> 3D Hex8 Extrusion.
+• Material, Thickness, Supports and Direct Pressure: choose Mesh Material: from the project catalog, set Thickness (2D Shell): in meters, pick a ready Constraint Condition: preset (Unconstrained (Free), Fixed outer edges, Pinned outer edges (uX,uY,uZ=0), Fixed bottom base (Zmin), or Fixed left face (Xmin)), and enter Pressure / Z Load (2D/3D): in kPa (such as -5.00 kPa) directly prior to mesh generation.
+• Automatic Bounding-Box Fitting and Dimensions: enter Origin (X / Y / Z), Dimensions (Lx / Ly / Lz), Subdivisions (nx / ny / nz), and Delaunay target size, or click Fit to Model Bounds to adapt the generator box automatically to the active frame bounds.
+• Quality Diagnostics, Coupling and Cleanup: displays node/element counts and quality metrics (J_min, Aspect ratio range, and max Skewness); running SOLVE STRUCTURE (F5) automatically merges coincident 1D and 2D/3D nodes (while pure solid nodes allocate only 3 translational DOFs uX, uY, uZ) and populates the 2D/3D Forces (Shell/Solid) tab. Use Clear Mesh to remove the parametric 2D/3D mesh cleanly while keeping the primary 3D frame intact.
 
 CHAPTER 5 — STRUCTURAL PROPERTIES, BOUNDARY CONDITIONS, THERMAL AND COMBINATIONS
 
@@ -197,11 +199,12 @@ Residual force errors (ΔFx, ΔFy, ΔFz) and residual moment errors about the or
 
 6.4 Advanced Analysis Suite (Modal, Buckling, Dynamic and Nonlinear)
 Open Structure > Advanced Analysis Suite... (or Advanced... on Toolbar 2) to run multi-physics background simulations on the active structural model:
-• Combinations & Envelope: runs Solve Cases & Combinations across all configured cases and NBR combinations, computes min/max envelopes, and lets you plot any solved case or combination in the 3D Viewport.
+• Combinations & Envelope and Linear Solver Selector: select the sparse solver backend under Solver: (Auto, SimplicialLDLT (SPD Cholesky), SparseLU (COLAMD), or ConjugateGradient (PCG)) and run Solve Cases & Combinations to compute displacements, member forces, and envelopes for each configured case/NBR combination, then plot any case/combination in the 3D Viewport.
 • Modal Analysis: extracts natural frequencies (Hz), periods (s), modal participation factors, and effective masses for the requested number of modes, enabling live 3D mode-shape animation.
-• Linear Buckling (Elastic Stability): solves critical buckling load factors (λ_cr) and global Euler buckling mode shapes for the applied load state.
-• Harmonic FRF & Response Spectrum: computes frequency-response sweeps (amplitude and phase under modal/Rayleigh damping) and CQC/SRSS spectral combinations (with explicit normative-scope transparency).
-• Seismic Transient (Newmark-β) & Nonlinear Analysis (P-Delta / Corotational / J2 Plasticity): integrates time-history ground motions via Newmark-β and resolves geometric nonlinearity (P-Delta or 3D Corotational using Newton-Raphson or Arc-Length) and elastoplastic J2 response over incremental load steps.
+• Linear Buckling and Initial Geometric Imperfection: solves critical buckling load factors (λ_cr) and global stability mode shapes for the applied loads; select a mode row in the table, set the amplitude in Initial Imperfection (amp) (m), and click Apply Imperfection to Geometry to perturb nodal coordinates before P-Delta or nonlinear analyses.
+• Harmonic FRF & Response Spectrum: computes frequency-response sweeps (amplitude and phase under modal/Rayleigh damping) and CQC/SRSS spectral combinations (with seismic spectrum parameters and explicit OutOfLocalPdfScope transparency note for NBR 15421).
+• Transient / Seismic (Newmark-Beta & HHT-Alpha): under Excitation Type:, choose Seismic Accelerogram (a_g) (X, Y, or Z directions with peak a_g) or Force Time History F(t) (selecting Base Load Case F(t): from Active Model Loads (All) or a specific load case with Scale Factor (A₀):), pick Time Integrator: between Newmark-Beta (γ=0.50, β=0.25) and HHT-Alpha (α=-0.05), configure Time Step (Δt) and Number of Steps, and play back via Play History in 3D Viewport.
+• Nonlinear Analysis (P-Delta / Newton-Raphson / Arc-Length): choose the solver strategy (Iterative P-Delta, Newton-Raphson, or Crisfield Arc-Length), kinematics (Small Strain, 2nd-Order P-Delta, or 3D Corotational), Full Tangent (Full Newton) and Line Search options, step count, and target load factor λ_target, inspecting residual ||R||, energy convergence, and J2 yield indicators (Yielded J2).
 
 6.5 ABNT NBR Code Compliance Audit and 3D DCR Heatmap
 Open Structure > ABNT NBR Code Compliance Audit (6118 / 8800 / 6122)... (or NBR Audit... on Toolbar 2) to evaluate the structural model against locally verified Brazilian technical standards:
@@ -225,14 +228,15 @@ The Scale: slider on the main toolbar spans continuously from 1 to 100 (default 
 
 7.3 Continuous Hermite Polynomial Recovery and Results Tables
 Internally, each element evaluates internal forces and deflections along normalized coordinate ξ in [0, 1] via Element::evaluateAt(xi), using cubic Hermite interpolation polynomials combined with exact distributed-load particular solutions.
-Within the Bottom Dock (Result Tables & Structural Diagnostics), three synchronized tabs summarize exact numerical outputs for every entity:
-• Nodal Displacements Tab: lists node ID and all six computed global components (ux, uy, uz and rotations Rx, Ry, Rz).
+Within the Bottom Dock (Result Tables & Structural Diagnostics), four synchronized tabs summarize exact numerical outputs for every entity:
+• Nodal Displacements Tab: lists node ID and all six computed global components (ux, uy, uz in mm and rotations Rx, Ry, Rz in mrad).
 • Support Reactions Tab: lists restrained nodes together with reactive forces (Rx, Ry, Rz in kN) and reactive moments (Mx, My, Mz in kN·m).
 • Member Forces Tab: lists minimum and maximum values of N, Vy, Vz, Tx, My, Mz and maximum deflection recorded along each member.
+• 2D/3D Forces (Shell/Solid) Tab: lists each 2D/3D continuum mesh element with Element, Type, equivalent von Mises stress (σ_vM (kPa)), principal stresses (σ_1 (kPa), σ_3 (kPa)), and local resultants/stress components (Nxx / σxx, Nyy / σyy, Mxx / τxz).
 
 7.4 Advanced 3D Post-Processing Controls (Contours, Clip Plane and Animation)
 Open Structure > 3D Controls (Contours / Clip / Animation)... (or Clip/Contours... on Toolbar 2) to inspect advanced results inside the OpenGL Viewport:
-• Surface Contour Maps & Mesh Overlay: switch element/surface coloring among None, Displacement |u|, von Mises Stress, Axial Force, and DCR Utilization, alongside showing or hiding generated 2D/3D surface meshes.
+• Surface Contour Maps & Mesh Overlay: under Contour:, switch between Default (Selection/Theme Colors), Displacement Vector Map |u|, DCR Heatmap (ABNT NBR), and von Mises Stress (Shell/Solid), plus toggle Show 2D/3D Mesh (Surfaces/Solids) to display or hide generated meshes over the model.
 • Interactive 3D Clipping Plane: select a sectioning axis (Off, X, Y, or Z), scrub the slice offset continuously across the model bounding box, and flip side orientation to inspect interior solids and dense frames.
 • Continuous 3D Animation: animate static deformed shapes, natural vibration mode shapes, buckling modes, or harmonic/time-history steps in real time with adjustable playback speed and amplitude.
 
@@ -274,8 +278,8 @@ CHAPTER 9 — HELP, GUIDED SESSION (F2), KEYBOARD SHORTCUTS AND COMPANION TOOLS
 The Help > Guided Session... feature (shortcut F2) runs an automated 30-step walkthrough demonstrating every feature, workflow, and dialog in OmniFrame 3D, simulating a real engineer operating the software starting from any of the three built-in examples:
 • Choosing the Example & Scientific Cognitive Reading Paces (WPM): before starting, select which of the three built-in examples to demonstrate and pick your preferred reading speed profile in Words Per Minute (WPM) — Fluent Typical Reader (250 WPM, 200–300 WPM range), Technical / Engineering Reading (150 WPM, recommended default with +10% margin), Read Aloud Pace (155 WPM), or Dyslexia / Accessible Pace (130 WPM, 100–160 WPM range with +30% extra time for regressions and re-reading without cognitive fatigue).
 • Unified Two-Phase Visual Spotlight & Callout (Zero Overlap): each step highlights the target menu, button, or panel paired with a single unified callout balloon and pointer arrow. In Phase 1 (yellow), the callout explains what the control does and why it is used for a duration proportional to the exact word count and selected WPM; in Phase 2 (green), the step executes (docking child dialogs neatly in the lower-left area while placing the callout without overlapping the child window) using the same word-proportional WPM timing.
-• Modeless Z-Order Controls During Playback: the Guided Session window operates modelessly so you can switch window focus freely at any time, monitor step progress and countdowns, and click Start Guided Session, Pause / Resume, Advance Now, Stop, or Close.
-• Automatic Restoration to Initial State: upon completing step 30, the application automatically clears temporary overlays, contours, clipping planes, animations, and auxiliary dialogs and restores the selected example and workspace cleanly to its initial ready-to-solve state.
+• Modeless Controls, Full-Text Layout and Z-Order During Playback: the Guided Session window is sized so every label, selector, and banner renders completely without text truncation, runs modelessly without flashing ghost outlines, and offers progress tracking, countdowns, and Start Guided Session, Pause / Resume, Advance Now, Stop, and Close buttons covering E2E 1D/2D/3D meshing, 2D/3D Forces tab, von Mises contours, linear solver selection, buckling imperfection, and HTML/Markdown/PDF reports.
+• Automatic Restoration to Initial State: upon completing step 30 (or when finalized), the application automatically clears temporary overlays, contours, clipping planes, animations, and auxiliary dialogs and restores the chosen example (with the XY (Plan) work plane active) cleanly to its initial ready-to-solve state.
 
 9.3 Complete Keyboard Shortcuts and Quick Controls Table
 Use the shortcuts below whenever the main viewport or menu bar holds focus:
@@ -303,9 +307,107 @@ All bilingual documentation assets (about, history, release notes, legal notices
 OmniFrame 3D collects zero telemetry, opens zero network sockets, and stores only user-saved project/report files (.omniframe, .dxf, .ifc, .html, .md, .pdf) plus three local configuration files (language.json, theme.json, and graphics.json) inside %LOCALAPPDATA%\OmniFrame\OmniFrame\.
 When uninstalled via Microsoft Store or removed as a portable distribution, zero kernel drivers or hidden background services remain on the operating system.
 
-9.5 Companion Distribution Utilities and Headless CLI
-The OmniFrame 3D ecosystem also provides command-line and maintenance tools compiled and packaged alongside the application:
-• OmniFrame CLI (omniframe-cli.exe): headless command-line executable distributed together with OmniFrame.exe to validate models (.omniframe, .dxf, .ifc), execute static, modal, buckling, harmonic, spectral, or nonlinear analyses in batch mode (--analyze), and export datasets or reports (.pdf, .html, .md, .dxf, .ifc, .json, .csv, .vtk).
+9.5 Companion Distribution Utilities and Command-Line Interface (CLI)
+The OmniFrame 3D ecosystem also provides integrated command-line and maintenance tools compiled and packaged alongside the project:
+• OmniFrame CLI (omniframe-cli.exe): native console executable integrated with the main OmniFrame.exe binary and Windows 10/11 (CMD and PowerShell), sharing 100% of OmniFrameCore and OmniFrameKernel. Refer to Chapter 10 of this Manual (or click the CLI Commands (CMD/PowerShell) button in the top bar) for the complete reference covering installation, access, all supported flags, JSON output schema, exit codes, and ready-to-run workflows.
 • VersionEditor (VersionEditor.exe): graphical and CLI utility for synchronized version number and revision date updates across configured Portuguese (BR) and English (US) documents and manifests.
 • CompileTranslationsGUI (CompileTranslationsGUI.exe): graphical utility for inspecting, compiling (.ts to .qm), and deploying Qt translations cleanly.
 • Automated Test Suite (CTest): 20 standalone analytical, advanced-solver, mesh, interoperability, ABNT NBR compliance, and UI workflow verification suites safeguarding numerical and interactive accuracy on every build.
+
+CHAPTER 10 — WINDOWS 10/11 COMMAND-LINE INTERFACE (omniframe-cli.exe — CMD & POWERSHELL)
+
+10.1 Overview, Purpose and Integration with OmniFrame.exe
+The omniframe-cli.exe utility is the official headless command-line interface of OmniFrame 3D (running cleanly with zero GUI windows). It is built alongside OmniFrame.exe in the exact same installation or distribution directory and directly links OmniFrameCore and OmniFrameKernel — ensuring that 3D FEA formulations, topology checks, ABNT NBR code audits, and exporters (DXF, IFC4, CSV, VTK, JSON, HTML, Markdown, and PDF) match desktop GUI calculations bit-for-bit.
+What the CLI is used for in engineering workflows:
+• Batch processing & CI automation: validate and solve dozens of models (.omniframe, .dxf, .ifc) automatically via Windows Command Prompt (.bat/.cmd) or PowerShell (.ps1) scripts.
+• Parametric studies & regression sweeps: evaluate variations in load factor (--load-factor), initial buckling imperfections (--imperfection), transient integrators (--scheme newmark|hht), or ABNT load combinations (--combo).
+• Automated code compliance audits: execute consolidated ABNT NBR 6118:2023, NBR 8800:2024, NBR 6120:2019, NBR 6122:2022, NBR 6123:2023, and NBR 7480:2022 checks outputting structured JSON for spreadsheets, CI pipelines, or enterprise QA tools.
+• Seamless integration with the main OmniFrame.exe executable:
+1. Direct GUI launch with a file argument: running OmniFrame.exe "path\model.omniframe" (or a .dxf/.ifc file) opens that model immediately inside the maximized 3D desktop workspace.
+2. Transparent CLI delegation: passing any headless flag to the main executable (--cli, --version, -v, --help, -h, --list-examples, --validate, --analyze, --example, --nbr-audit, --audit-nbr, --check-windows-integration, --install-windows-integration, or --uninstall-windows-integration) makes OmniFrame.exe locate the sibling omniframe-cli.exe binary, enable UTF-8 console output, forward every argument, and return its exact exit code.
+
+TIP: Because OmniFrame.exe targets the Windows GUI subsystem (/SUBSYSTEM:WINDOWS), invoke omniframe-cli.exe directly in CMD or PowerShell scripts for synchronous console execution (or pipe through "| Out-String" in PowerShell when delegating CLI flags via OmniFrame.exe).
+
+10.2 How to Access and Associate with Windows 10/11 (CMD, PowerShell, GUI, Installer, MSIX & Script)
+OmniFrame 3D provides six official mechanisms to access and register omniframe-cli system-wide on Windows 10 and Windows 11 without requiring Administrator elevation:
+• Via the Desktop GUI Menu (zero typing required): open Settings > Windows CLI (CMD / PowerShell) from the OmniFrame.exe menu bar. The submenu offers five direct actions: Register omniframe-cli in Windows (PATH / App Paths), Unregister CLI from Windows, Open CMD Terminal with CLI, Open PowerShell with CLI, and Check CLI Integration Status.
+• Self-registration via CLI (non-admin HKCU): run omniframe-cli --install-windows-integration from the folder containing omniframe-cli.exe. It safely appends the install directory to HKCU\Environment\Path, writes App Paths entries for omniframe-cli.exe, OmniFrame.exe, and omniframe.exe under HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths, registers the .omniframe extension under OmniFrame3D.Project, and broadcasts WM_SETTINGCHANGE and SHChangeNotify.
+• Dedicated Portable PowerShell Registration Script: run ".\register_cli_windows.ps1" (packaged in every clean distribution folder and under cmake\register_cli_windows.ps1) to register, ".\register_cli_windows.ps1 -CheckOnly" to inspect status, or ".\register_cli_windows.ps1 -Uninstall" for clean removal.
+• Desktop Installer (Inno Setup): during installation with the Windows setup wizard, keep "Add omniframe-cli to user PATH (CMD & PowerShell)" and ".omniframe file association" checked (enabled by default); uninstalling reverses both cleanly.
+• Microsoft Store / MSIX Package: installing through the Microsoft Store or .msix bundle uses AppxManifest.xml to declare native AppExecutionAlias entries for both omniframe.exe (desktop app + .omniframe association) and omniframe-cli.exe (desktop4:Subsystem="console" alias immediately available in any new CMD or PowerShell window).
+• Direct Full-Path Invocation: even without registry changes, omniframe-cli.exe always runs directly from its installation or distribution path (for example C:\Folder\OmniFrame3D\omniframe-cli.exe).
+
+WARNING: After registering PATH via --install-windows-integration or register_cli_windows.ps1, open a new Command Prompt (CMD) or new PowerShell window for Windows to pick up the updated user PATH (or launch a ready session immediately from Settings > Windows CLI > Open CMD Terminal with CLI / Open PowerShell with CLI inside the GUI).
+
+10.3 UTF-8 Encoding, Accented File Paths and CMD vs PowerShell Conventions
+• Command Prompt (CMD): run "chcp 65001 >nul" before redirecting JSON or text output so accented UTF-8 characters remain intact. Always wrap paths containing spaces or accents in double quotes (e.g., "D:\Projects\Pórtico São Paulo\modelo_técnico.omniframe").
+• Windows PowerShell / PowerShell 7: set "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8" when redirecting output or parsing JSON via "ConvertFrom-Json". When quoting the executable path itself in PowerShell, prefix it with the "&" call operator (e.g., & "C:\OmniFrame3D\omniframe-cli.exe" --version).
+• Native Unicode Path Support: both CLI argument parsing (UTF-16 CommandLineToArgvW converted to UTF-8) and file I/O (DXF, IFC4, JSON, CSV, VTK, HTML, Markdown, and PDF) handle full UTF-8 Windows paths natively.
+
+10.4 Information, Example Selection and Windows Integration Commands
+• --version | -v: prints the active CLI version string, C++23 standard, Eigen 3.4.0, and project schema version (2.1.0), returning exit code 0.
+• --help | -h: prints official command-line usage syntax for Windows 10/11 (CMD and PowerShell) and all supported flags, returning exit code 0.
+• --list-examples: lists the three built-in structural benchmark models with node and member counts (1 | building — Building 3D Space Frame, 2 | cantilever — 3D L-Cantilever Frame, 3 | truss — 3D Space Truss). Pair with --json or --output <path.json> to emit structured JSON.
+• --example <name|1|2|3>: loads a built-in structural example without needing an external file on disk. Accepts numeric index (1, 2, 3) or English/Portuguese aliases (building/portico/edificio/frame; cantilever/balanco/lframe; truss/trelica/passarela).
+• --check-windows-integration: audits Windows HKCU/HKLM registry keys and live environment (user PATH, system PATH, process PATH, App Paths for omniframe-cli.exe and OmniFrame.exe, .omniframe association, and consolidated readyForCmdAndPowerShell flag). Pair with --json for machine-readable output.
+• --install-windows-integration: registers the active omniframe-cli.exe and OmniFrame.exe directory in Windows 10/11 (user PATH + App Paths + .omniframe association) with zero elevation required.
+• --uninstall-windows-integration: cleanly removes OmniFrame HKCU registry entries (CLI PATH directory, App Paths keys, and .omniframe association).
+
+10.5 Model Validation, Analysis Execution and ABNT NBR Code Audit Commands
+• --validate [<file.omniframe|dxf|ifc>]: loads the input file (or active --example model) and runs offline topology, graph BFS connectivity, coordinate/property finiteness, restraint, and 2D/3D mesh quality validation (Quad4/Quad8/Tri3/Tet4/Tet10/Hex8/Hex20), populating validationErrors, validationWarnings, and validationIssues. Exits 0 if valid or 2 if invalid.
+• --analyze [<file.omniframe|dxf|ifc>]: runs the configured structural analysis on the input file or selected --example. When --output, --export, or --report is requested without standalone --validate, analysis runs automatically.
+• --nbr-audit | --audit-nbr [<file.omniframe|dxf|ifc>]: executes consolidated ABNT NBR compliance auditing (NBR 6118:2023, NBR 8800:2024, NBR 6120:2019, NBR 6122:2022, NBR 6123:2023, and NBR 7480:2022), solving static equilibrium beforehand when no other analysis has populated internal forces yet. Outputs the nbrAudit block (passedAll, maxDcr, governingSummary, steel/beam/column/foundation counts, elsDisplacement, wind6123, and coverageMatrix).
+
+10.6 Complete Reference of Analysis, Solver, Nonlinear and Dynamic Options
+• --analysis <type>: selects the finite element analysis solver — accepted values: static (default), modal, buckling, nonlinear, pdelta, harmonic, spectrum, transient, or seismic.
+• --solver <type>: selects or auto-routes the sparse linear equation solver from LinearSolverSuite — auto (default, tracks fallback if triggered), ldlt (SimplicialLDLT), llt (SimplicialLLT), sparselu (SparseLU), cg (ConjugateGradient), or bicgstab (BiCGSTAB).
+• --modes <N>: number of eigenvalues/eigenvectors for modal, buckling, or spectrum analysis (integer >= 1; default: 6).
+• --steps <N>: number of load increments for nonlinear/pdelta or time integration steps for transient/seismic (integer >= 1; default: 20).
+• --dt <seconds>: time step size in seconds for transient or seismic integration (minimum: 0.00001 s; default: 0.02 s).
+• --scheme <newmark|hht>: chooses the implicit time-integration scheme for transient or seismic — newmark (average-acceleration Newmark-beta, default) or hht (Hilber-Hughes-Taylor HHT-alpha).
+• --case <id>: selects an integer LoadCase ID for static or transient analysis.
+• --combo <id>: selects an integer ABNT LoadCombination ID for static analysis.
+• --method <nr|arclength>: selects the incremental-iterative nonlinear strategy — nr (Newton-Raphson, default) or arclength (Crisfield cylindrical Arc-Length).
+• --load-factor <factor>: sets target load multiplier for nonlinear and pdelta analysis (default: 1.0).
+• --full-tangent: updates global tangent stiffness matrix Kt at every Newton-Raphson iteration (Full Newton-Raphson, default).
+• --modified-newton: freezes tangent stiffness Kt within each load step (Modified Newton).
+• --line-search: enables backtracking line search during Newton-Raphson equilibrium iterations (default).
+• --no-line-search: disables line search during Newton-Raphson iterations.
+• --imperfection <amp_m>: pre-runs linear buckling and perturbs initial nodal geometry along the chosen buckling mode shape scaled to the specified amplitude in meters (e.g., 0.005 for 5 mm) prior to solving/exporting (requires a model with valid positive buckling load factors).
+• --imperfection-mode <N>: selects the 1-based buckling mode index used by --imperfection (default: 1).
+
+10.7 Export Formats, Engineering Reports, JSON Schema and Exit Codes
+• --export <fmt> <path>: exports model geometry and/or computed results to disk (repeatable in a single command for multiple formats). Supported formats: json (serialized .omniframe project including displacements and stresses), csv (nodal displacements plus continuum shell/solid stress table), vtk (legacy VTK UNSTRUCTURED_GRID 1D/2D/3D with nodal displacement vectors and cell von_mises_kPa for ParaView), dxf (3D CAD interchange), and ifc (IFC4 structural BIM interchange).
+• --report <fmt> <path>: generates engineering calculation reports in md (Markdown), html (styled HTML5), or pdf (A4 technical calculation report). Repeatable in one call; automatically embeds static, modal, buckling, and nonlinear solver results plus ABNT NBR audit tables when available.
+• --output <path.json>: writes the full indented JSON analysis summary cleanly to disk (works with or without --json on stdout).
+• --json: prints the complete indented JSON summary object to stdout.
+• Primary JSON output keys: schemaVersion, inputFile, exampleName, analysisType, valid, nodes, elements, surfaceNodes, surfaceElements, validationErrors, validationWarnings, validationIssues, success, and error; plus solver-specific metrics (maxNodalDisplacement, totalStrainEnergy, relativeResidual, usedFallback, solverMessage, equilibriumBalanced, frequenciesHz, criticalLoadFactors, appliedImperfection, totalSteps, totalIterations, finalLoadFactor, fullNewtonTangent, enableLineSearch, anyYielded, scheme, dt, peakDispNorm, nbrAudit, and Windows integration diagnostics readyForCmdAndPowerShell / PATH / App Paths flags).
+• Process exit codes (Exit Codes):
+1. Code 0: clean success (query command succeeded, model passed validation, solver converged, and all requested exports/reports were written).
+2. Code 1: CLI syntax error, missing or unreadable input file, unsupported export/report format, disk write failure, or Windows registry write failure.
+3. Code 2: structural model validation failure (--validate) or numerical/physical solver failure (mechanism, singular stiffness, lack of positive buckling modes for --imperfection, or nonlinear non-convergence).
+
+10.8 Ready-to-Run Windows Command Prompt (CMD) Workflows
+Run the following commands directly inside Windows Command Prompt (cmd.exe) on Windows 10/11:
+CMD> chcp 65001 >nul
+CMD> omniframe-cli --version
+CMD> omniframe-cli --install-windows-integration --json
+CMD> omniframe-cli --check-windows-integration
+CMD> omniframe-cli --list-examples
+CMD> omniframe-cli --validate "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe" --json
+CMD> omniframe-cli --example building --nbr-audit --report pdf "C:\Projects\building_report.pdf" --export vtk "C:\Projects\building.vtk" --json
+CMD> omniframe-cli --analyze "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe" --analysis modal --modes 10 --solver ldlt --output "C:\Projects\modal.json"
+CMD> omniframe-cli --example building --analysis nonlinear --steps 12 --load-factor 1.25 --method nr --modified-newton --no-line-search --imperfection 0.005 --imperfection-mode 1 --json
+CMD> echo Exit code: %ERRORLEVEL%
+CMD> OmniFrame.exe "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe"
+
+10.9 Ready-to-Run Windows PowerShell and Batch Automation Workflows
+Run the following workflows directly in Windows PowerShell or inside automated .ps1 scripts:
+PS> [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+PS> omniframe-cli --version
+PS> omniframe-cli --check-windows-integration --json | ConvertFrom-Json
+PS> $res = omniframe-cli --example cantilever --analysis transient --scheme hht --dt 0.01 --steps 50 --export csv ".\hht_out.csv" --json | ConvertFrom-Json
+PS> if ($LASTEXITCODE -eq 0 -and $res.success) { Write-Host "Peak HHT displacement (m):" $res.peakDispNorm }
+PS> Get-ChildItem "C:\Projects\*.omniframe" | ForEach-Object { $name = $_.BaseName; omniframe-cli --analyze $_.FullName --nbr-audit --export dxf "$name.dxf" --export ifc "$name.ifc" --report md "$name.md" --output "$name.json"; Write-Host "$($_.Name) -> ExitCode=$LASTEXITCODE" }
+PS> OmniFrame.exe --example truss --analysis buckling --modes 4 --json | Out-String
+PS> .\register_cli_windows.ps1 -CheckOnly

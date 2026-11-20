@@ -396,14 +396,18 @@ DofClassification DofManager::classifyDofs(const SpMat& K_orig,
         }
     }
 
-    for (int k = 0; k < K_orig.outerSize(); ++k) {
+    for (Eigen::Index k = 0; k < K_orig.outerSize(); ++k) {
         for (SpMat::InnerIterator it(K_orig, k); it; ++it) {
             if (std::abs(it.value()) <= 1e-12) continue;
-            const int r = it.row();
-            const int c = it.col();
-            if (!isRotDof[r] || !isRotDof[c]) {
-                if (r >= 0 && r < m_totalDofs) isPureRotFree[r] = false;
-                if (c >= 0 && c < m_totalDofs) isPureRotFree[c] = false;
+            const Eigen::Index row = it.row();
+            const Eigen::Index col = it.col();
+            const bool rValid = (row >= 0 && row < m_totalDofs);
+            const bool cValid = (col >= 0 && col < m_totalDofs);
+            const int r = rValid ? static_cast<int>(row) : -1;
+            const int c = cValid ? static_cast<int>(col) : -1;
+            if (!rValid || !cValid || !isRotDof[r] || !isRotDof[c]) {
+                if (rValid) isPureRotFree[r] = false;
+                if (cValid) isPureRotFree[c] = false;
             }
         }
     }
@@ -412,12 +416,15 @@ DofClassification DofManager::classifyDofs(const SpMat& K_orig,
     std::vector<double> rotRowSum(m_totalDofs, 0.0);
     std::vector<double> rotDiag(m_totalDofs, 0.0);
     std::vector<bool> couplesOutsidePureRot(m_totalDofs, false);
-    for (int k = 0; k < K_orig.outerSize(); ++k) {
+    for (Eigen::Index k = 0; k < K_orig.outerSize(); ++k) {
         for (SpMat::InnerIterator it(K_orig, k); it; ++it) {
             const double val = it.value();
             if (std::abs(val) <= 1e-12) continue;
-            const int r = it.row();
-            const int c = it.col();
+            const Eigen::Index row = it.row();
+            const Eigen::Index col = it.col();
+            if (row < 0 || row >= m_totalDofs || col < 0 || col >= m_totalDofs) continue;
+            const int r = static_cast<int>(row);
+            const int c = static_cast<int>(col);
             if (isPureRotFree[r]) {
                 if (r == c) rotDiag[r] = val;
                 if (!isPureRotFree[c]) {

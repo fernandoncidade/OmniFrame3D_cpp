@@ -2,7 +2,10 @@
 #include "core/StructuralModel.hpp"
 #include "io/PdfReportGenerator.hpp"
 #include "io/ProjectSerializer.hpp"
+#include "kernel/analysis/NonlinearSolver.hpp"
 #include "kernel/codes/NbrCodeChecks.hpp"
+#include "kernel/mesh/MeshGenerator.hpp"
+#include "kernel/solver/LinearSolverSuite.hpp"
 #include "solver/FemSolver3D.hpp"
 
 #include <QFile>
@@ -396,6 +399,154 @@ void testExecutivePdfAndCliEndToEnd() {
               << ", Steel=" << steelAudit.steelMembers.size() << ")\n";
 }
 
+void testValidationIssuesFallbackEnergyAndSection9Reports() {
+    // 1. ModelValidation::issues estruturado em modelo desconexo e sem apoios
+    {
+        StructuralModel badModel;
+        const int matId = badModel.addMaterial(Material::makeStructuralSteel(1));
+        const int secId = badModel.addCrossSection(CrossSection::makeRectangular(1, "Viga", 0.2, 0.4));
+        const int n0 = badModel.addNode(0.0, 0.0, 0.0);
+        const int n1 = badModel.addNode(2.0, 0.0, 0.0);
+        const int n2 = badModel.addNode(10.0, 0.0, 0.0);
+        const int n3 = badModel.addNode(12.0, 0.0, 0.0);
+        badModel.addElement(n0, n1, matId, secId);
+        badModel.addElement(n2, n3, matId, secId);
+
+        const ModelValidation val = badModel.validate();
+        TEST_ASSERT(!val.valid && !val.errors.empty() && !val.issues.empty(),
+                    "Modelo sem apoios e desconexo deve gerar ModelValidation::issues");
+        bool hasStructuredError = false;
+        for (const auto& iss : val.issues) {
+            if (iss.severity == IssueSeverity::Error && !iss.code.empty() && !iss.category.empty()) {
+                hasStructuredError = true;
+                break;
+            }
+        }
+        TEST_ASSERT(hasStructuredError, "ValidationIssue deve conter severidade Error, code e category");
+    }
+
+    // 2. Fallback explicito e rastreado no LinearSolverSuite (LLT em matriz indefinida)
+    {
+        omniframe::kernel::SpMat A(2, 2);
+        A.insert(0, 0) = 2.0;
+        A.insert(1, 1) = -3.0;
+        A.makeCompressed();
+        omniframe::kernel::VecX b(2);
+        b << 4.0, 6.0;
+
+        omniframe::kernel::LinearSolverOptions fbOpts;
+        fbOpts.type = omniframe::kernel::LinearSolverType::SimplicialLLT;
+        fbOpts.allowFallback = true;
+        omniframe::kernel::LinearSolverStats fbStats;
+        const omniframe::kernel::VecX x = omniframe::kernel::LinearSolverSuite::solve(A, b, fbOpts, fbStats);
+        TEST_ASSERT(fbStats.success &&
+                    fbStats.solverUsed == omniframe::kernel::LinearSolverType::SimplicialLDLT &&
+                    fbStats.message.find("fallback") != std::string::npos &&
+                    std::abs(x(0) - 2.0) < 1e-10 && std::abs(x(1) + 2.0) < 1e-10,
+                    "LLT com allowFallback=true deve recorrer ao LDLT e registrar fallback em stats.message");
+
+        fbOpts.allowFallback = false;
+        omniframe::kernel::LinearSolverStats noFbStats;
+        omniframe::kernel::LinearSolverSuite::solve(A, b, fbOpts, noFbStats);
+        TEST_ASSERT(!noFbStats.success && noFbStats.errorCode == "NOT_SPD",
+                    "LLT com allowFallback=false deve falhar explicitamente em matriz indefinida");
+    }
+
+    // 3. NonlinearOptions::energyTol e NonlinearResult::convergenceDiagnostic
+    {
+        StructuralModel cantModel;
+        cantModel.getMaterials().clear();
+        cantModel.getCrossSections().clear();
+        const int matId = cantModel.addMaterial(Material::makeStructuralSteel(1));
+        const int secId = cantModel.addCrossSection(CrossSection::makeRectangular(1, "B 20x40", 0.20, 0.40));
+        const int n0 = cantModel.addNode(0.0, 0.0, 0.0);
+        const int n1 = cantModel.addNode(3.0, 0.0, 0.0);
+        cantModel.findNode(n0)->support = SupportRestraint::makeFixed();
+        cantModel.findNode(n1)->load.force = {0.0, 0.0, -20.0};
+        cantModel.addElement(n0, n1, matId, secId);
+
+        omniframe::kernel::NonlinearOptions nlo;
+        nlo.numSteps = 5;
+        nlo.energyTol = 1e-10;
+        const auto nlRes = FemSolver3D::solveNonlinear(cantModel, nlo);
+        TEST_ASSERT(nlRes.success && !nlRes.history.empty() && !nlRes.convergenceDiagnostic.empty(),
+                    "solveNonlinear deve preencher convergenceDiagnostic e energyRatio");
+        TEST_ASSERT(nlRes.history.back().energyRatio <= 1e-6,
+                    "Criterio energetico no ultimo passo deve convergir abaixo de 1e-6");
+    }
+
+    // 4. Relatorios Secao 9 (HTML, Markdown e PDF A4) em modelo 1D + 2D continuo
+    {
+        StructuralModel coupled;
+        coupled.getMaterials().clear();
+        coupled.getCrossSections().clear();
+        coupled.metadata().projectName = "Laje+Portico Secao 9";
+        const int matId = coupled.addMaterial(Material::makeConcreteC30(1));
+        const int secId = coupled.addCrossSection(CrossSection::makeRectangular(1, "Pilar 30x30", 0.30, 0.30));
+
+        const std::array<std::pair<double, double>, 4> corners = {
+            std::make_pair(0.0, 0.0), std::make_pair(4.0, 0.0),
+            std::make_pair(4.0, 4.0), std::make_pair(0.0, 4.0)
+        };
+        for (const auto& c : corners) {
+            const int b = coupled.addNode(c.first, c.second, 0.0);
+            const int t = coupled.addNode(c.first, c.second, 3.0);
+            coupled.findNode(b)->support = SupportRestraint::makeFixed();
+            coupled.addElement(b, t, matId, secId);
+        }
+        coupled.surfaceMesh() = omniframe::kernel::MeshGenerator::generateStructuredQuadGrid(
+            omniframe::kernel::Vec3(0.0, 0.0, 3.0),
+            omniframe::kernel::Vec3(4.0, 0.0, 0.0),
+            omniframe::kernel::Vec3(0.0, 4.0, 0.0),
+            2, 2, false, "Laje2D");
+        for (auto& me : coupled.surfaceMesh().elements) {
+            me.materialId = matId;
+            me.thickness = 0.20;
+            me.normalPressure = -10.0;
+        }
+
+        const SolverResult cRes = FemSolver3D::solve(coupled);
+        TEST_ASSERT(cRes.success && cRes.totalSurfaceElements == 4,
+                    "Modelo 1D+2D deve resolver antes da exportacao de relatorios");
+
+        QTemporaryDir tmp;
+        TEST_ASSERT(tmp.isValid(), "QTemporaryDir deve ser criado para relatorios Secao 9");
+        const QString htmlPath = tmp.filePath("sec9_report.html");
+        const QString mdPath = tmp.filePath("sec9_report.md");
+        const QString pdfPath = tmp.filePath("sec9_report.pdf");
+
+        TEST_ASSERT(ProjectSerializer::exportTechnicalReportHtml(htmlPath, coupled, cRes),
+                    "Exportar HTML Secao 9 deve suceder");
+        TEST_ASSERT(ProjectSerializer::exportTechnicalReportMarkdown(mdPath, coupled, cRes),
+                    "Exportar Markdown Secao 9 deve suceder");
+
+        QFile hf(htmlPath);
+        TEST_ASSERT(hf.open(QIODevice::ReadOnly | QIODevice::Text), "Abrir HTML gerado");
+        const QString htmlStr = QString::fromUtf8(hf.readAll());
+        TEST_ASSERT(htmlStr.contains(QStringLiteral("Parâmetros do Solver")) &&
+                    htmlStr.contains(QStringLiteral("Fallback ativado")) &&
+                    htmlStr.contains(QStringLiteral("2D/3D")),
+                    "HTML Secao 9 deve conter metadados do solver, fallback e resultados 2D/3D");
+
+        QFile mf(mdPath);
+        TEST_ASSERT(mf.open(QIODevice::ReadOnly | QIODevice::Text), "Abrir Markdown gerado");
+        const QString mdStr = QString::fromUtf8(mf.readAll());
+        TEST_ASSERT(mdStr.contains(QStringLiteral("Identificação da Execução")) &&
+                    mdStr.contains(QStringLiteral("Fallback permitido")) &&
+                    mdStr.contains(QStringLiteral("Malha 2D/3D")),
+                    "Markdown Secao 9 deve conter timestamp, fallback e resumo da malha 2D/3D");
+
+        io::PdfReportOptions pdfOpts;
+        pdfOpts.projectTitle = QStringLiteral("Auditoria Secao 9 1D+2D");
+        QString pdfErr;
+        TEST_ASSERT(io::PdfReportGenerator::generateExecutivePdf(pdfPath, coupled, cRes, pdfOpts, &pdfErr) &&
+                    pdfErr.isEmpty() && verifyPdfMagicAndSize(pdfPath, 15000),
+                    "PDF Executivo A4 de modelo 1D+2D deve ser gerado com > 15 KB");
+    }
+
+    std::cout << "[OK] ValidationIssues + SolverFallback + EnergyTol + Section9 Reports (HTML/MD/PDF)\n";
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -409,6 +560,7 @@ int main(int argc, char* argv[]) {
     testConcreteBeamAndColumnNbr6118();
     testServiceability6118AndFoundation6122();
     testExecutivePdfAndCliEndToEnd();
+    testValidationIssuesFallbackEnergyAndSection9Reports();
 
     std::cout << "\nTodos os testes da Fase 8 (Conformidade ABNT NBR + Relatorio PDF Executivo + CLI) passaram!\n";
     return 0;

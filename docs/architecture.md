@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Arquitetura de Sistema e Especificações Técnicas
 
-**Versão:** `2026.11.14.0`  
-**Data:** `14 de novembro de 2026`  
+**Versão:** `2026.11.15.0`  
+**Data:** `15 de novembro de 2027`  
 **Padrão:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Plataforma Alvo:** Windows 11 / Windows 10 x64  
 **Autor:** Fernando Nillsson Cidade  
@@ -32,6 +32,7 @@ O **OmniFrame 3D** combina alto desempenho computacional com independência e tr
 |           OmniFrame.exe (Qt 6.11.1, DWM)  |  omniframe-cli.exe          |
 |   MainWindow   |   EngineeringDialogs   |   GuidedSessionDialog (F2)    |
 |      Dialogs      |       ManualDialog       |       AboutDialog        |
+|   source/os/WindowsCliIntegration (CMD / PowerShell / HKCU / Forwarding)  |
 +-------------------------------------------------------------------------+
                                     |
                                     v
@@ -122,9 +123,10 @@ A montagem do sistema global $[K] \{U\} = \{F\}$ utiliza armazenamento esparso c
 Graus de liberdade com deslocamento prescrito $u_k = \bar{u}_k$ e molas elásticas são tratados com preservação da simetria estrita da matriz $[K]$ e cálculo exato das reações de apoio:
 $$\{R_{apoio}\} = [K_{livre-prescrito}]^T \{U_{livre}\} - \{F_{prescrito}\}$$
 
-### 3.2. Suíte de Solvers (`LinearSolverSuite`) e Solvers Não Lineares / Dinâmicos
-- **Solvers Lineares (`LinearSolverSuite`):** `SimplicialLDLT` (padrão, com reordenação simbólica AMD), `SimplicialLLT`, `SparseLU`, `ConjugateGradient` e `BiCGSTAB`, com detecção imediata de mecanismos cinemáticos e singularidades.
-- **Análises Avançadas:** Autovalores/autovetores **Modais** e **Flambagem Linear** (`BucklingSolver`), varredura **Harmônica FRF** e **Espectro de Resposta** (`DynamicSolver`), **P-Delta / Corrotacional** (`Corotational1D`, `NonlinearSolver` Newton-Raphson & Arc-Length) e **Plasticidade J2** (`J2PlasticityMaterial`: $\sigma_y, H_{iso}, H_{kin}$).
+### 3.2. Suíte de Solvers (`LinearSolverSuite`) e Fluxo Unificado 1D/2D/3D
+- **Montagem Unificada (`FemSolver3D`):** Elementos 1D (`BeamTruss1D`), cascas 2D (`Tri3-MITC3`, `Quad4-MITC4/QM6`, `Quad8`) e sólidos 3D (`Tet4`, `Tet10`, `Hex8-Bbar`, `Hex20`) presentes em `StructuralModel::surfaceMesh()` compartilham o mesmo `DofManager` e sistema global; nós 1D/2D/3D espacialmente coincidentes são fundidos automaticamente, enquanto nós sólidos puros recebem máscara `mask3` ($u_x, u_y, u_z$) e pós-processamento `ContinuumElementResult` (tensões de von Mises, principais e resultantes de placa/membrana).
+- **Solvers Lineares (`LinearSolverSuite`):** `SimplicialLDLT` (padrão, com reordenação simbólica AMD), `SimplicialLLT`, `SparseLU`, `ConjugateGradient` e `BiCGSTAB`, com detecção imediata de mecanismos cinemáticos, singularidades e política explícita/rastreável de *fallback* (`LinearSolverOptions::allowFallback` + diagnóstico em `stats.message`).
+- **Análises Avançadas:** Autovalores/autovetores **Modais** e **Flambagem Linear** (`BucklingSolver` + `applyBucklingImperfection`), varredura **Harmônica FRF**, **Espectro de Resposta**, integração **Transiente/Sísmica Newmark/HHT** (`solveTransient`/`solveSeismic`), **P-Delta / Corrotacional** (`Corotational1D`, `NonlinearSolver` Newton-Raphson & Arc-Length com critério energético `energyTol`) e **Plasticidade J2** (`J2PlasticityMaterial`: $\sigma_y, H_{iso}, H_{kin}$ em 1D/constitutivo).
 - **Execução Assíncrona:** A interface gráfica executa o solver sobre cópia profunda de `StructuralModel` em *worker thread* (`QThread::create`) sem bloquear o *event loop*.
 
 ---
@@ -146,14 +148,16 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 - **Shaders Compilados In-Process:** Shaders modernos GLSL 330 com iluminação difusa Lambertiana e realce especular de Phong.
 - **Buffers Otimizados:** VBOs e VAOs dedicados para nós (esferas instanciadas), barras indeformadas (cilindros neutros) e barras deformadas amplificadas.
 - **Picking Espacial por Raycasting:** Ao clicar na tela nas coordenadas $(x_s, y_s)$, as matrizes de projeção inversa e visualização inversa mapeiam o raio do olho para o espaço de mundo ($Ray_{origem}, Ray_{direcao}$). A distância mínima entre o raio e cada segmento de reta de elemento tridimensional permite a seleção imediata da barra com tolerância em pixels.
+- **Janelas Filhas Modeless, Estilo Vetorial e Plano Inicial:** O `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes da primeira exibição para impedir contornos fantasmas transitórios na abertura por clique único; o `ThemeManager` utiliza `QProxyStyle::drawPrimitive` para renderizar setas vetoriais de `QComboBox`/`QAbstractSpinBox` diretamente no tema ativo sem gravar PNGs temporários; a janela `GuidedSessionDialog` organiza controles em layout redimensionado sem truncamento de rótulos; `ManualDialog` inclui o botão de atalho para o Capítulo 10 da CLI (`CMD`/`PowerShell`); e `MainWindow::applyDefaultExampleWorkPlane()` padroniza os 3 exemplos no plano `XY (Planta)`.
 
 ---
 
 ## 6. Persistência em `.omniframe` (Schema 2.1.0), Interoperabilidade & Relatórios
 
-- **Formato `.omniframe` (Schema `2.1.0`, retrocompatível com `1.0` e `2.0`):** JSON UTF-8 auditável (`materials` com $\rho$ e plasticidade J2, `sections`, `nodes`, `elements`, casos e combinações `LoadSystem`, análises avançadas e parâmetros ABNT).
-- **Interoperabilidade & Exportação:** Importação/exportação bidirecional **DXF** (`DxfInterop`) e **IFC4** (`IfcInterop`), exportação **CSV** / **VTK**, auditoria normativa **ABNT NBR** (`NbrCodeChecks`: escopo `LocalPdfVerified` para `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` para normas ausentes) e geração de relatórios em **HTML**, **Markdown** e **PDF executivo A4** (`PdfReportGenerator`).
-- **Validação estrita:** Checagem de finitude (`std::isfinite`) e topologia consistente no carregamento.
+- **Formato `.omniframe` (Schema `2.1.0`, retrocompatível com `1.0` e `2.0`):** JSON UTF-8 auditável (`materials` com $\rho$ e plasticidade J2, `sections`, `nodes`, `elements`, malha contínua 2D/3D `"surfaceMesh"` com apoios/cargas/tensões, casos e combinações `LoadSystem`, análises avançadas e parâmetros ABNT).
+- **Interoperabilidade & Exportação:** Importação/exportação bidirecional **DXF** (`DxfInterop`) e **IFC4** (`IfcInterop`), exportação **CSV** (1D + nós/tensões 2D/3D) e **VTK `UNSTRUCTURED_GRID`** (células 1D/2D/3D + campos `von_mises_kPa`), auditoria normativa **ABNT NBR** (`NbrCodeChecks`: escopo `LocalPdfVerified` para `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` para normas ausentes) e geração de relatórios Seção 9 em **HTML**, **Markdown** e **PDF executivo A4** (`PdfReportGenerator`). Veja a auditoria técnica, ADRs e matriz V&V completa em [`docs/technical-audit-and-roadmap.md`](technical-audit-and-roadmap.md).
+- **Validação estrita:** Checagem de finitude (`std::isfinite`), conectividade BFS e topologia 1D/2D/3D em `ModelValidation::issues`.
+- **Integração CLI & OS (`source/cli/`, `source/os/`, `Utf8Path.hpp`):** `OmniFrame.exe` delega flags *headless* ao binário irmão `omniframe-cli.exe` via `forwardGuiArgsToCliIfRequested` ou abre diretamente `.omniframe`/`.dxf`/`.ifc` via argumento; `WindowsCliIntegration` gerencia console UTF-8 (`CP_UTF8`), `CommandLineToArgvW`, registro não administrativo `HKCU` (`PATH`, `App Paths`, `.omniframe`), abertura de terminais CMD/PowerShell (`Configurações > CLI Windows`) e leitura/escrita Unicode via `pathFromUtf8`.
 
 </details>
 
@@ -166,8 +170,8 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 
 # OmniFrame 3D — System Architecture & Technical Specifications
 
-**Version:** `2026.11.14.0`  
-**Date:** `November 14, 2026`  
+**Version:** `2026.11.15.0`  
+**Date:** `November 15, 2027`  
 **Standards:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Target Platform:** Windows 11 / Windows 10 x64  
 **Author:** Fernando Nillsson Cidade  
@@ -184,6 +188,7 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 |           OmniFrame.exe (Qt 6.11.1, DWM)  |  omniframe-cli.exe          |
 |   MainWindow   |   EngineeringDialogs   |   GuidedSessionDialog (F2)    |
 |      Dialogs      |       ManualDialog       |       AboutDialog        |
+|   source/os/WindowsCliIntegration (CMD / PowerShell / HKCU / Forwarding)  |
 +-------------------------------------------------------------------------+
                                     |
                                     v
@@ -274,9 +279,10 @@ Assembly of the global system $[K] \{U\} = \{F\}$ utilizes Compressed Column Sto
 Degrees of freedom with prescribed displacement $u_k = \bar{u}_k$ and elastic springs are handled while preserving strict symmetry of matrix $[K]$ and recovering exact support reactions:
 $$\{R_{support}\} = [K_{free-prescribed}]^T \{U_{free}\} - \{F_{prescribed}\}$$
 
-### 3.2. Solver Suite (`LinearSolverSuite`) & Dynamic / Nonlinear Solvers
-- **Linear Solvers (`LinearSolverSuite`):** `SimplicialLDLT` (default, with AMD symbolic ordering), `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, and `BiCGSTAB`, with immediate mechanism and singularity detection.
-- **Advanced Analyses:** **Modal** and **Linear Buckling** eigenvalues/vectors (`BucklingSolver`), **Harmonic FRF** sweep and **Response Spectrum** (`DynamicSolver`), **P-Delta / Corotational** (`Corotational1D`, `NonlinearSolver` Newton-Raphson & Arc-Length), and **J2 Plasticity** (`J2PlasticityMaterial`: $\sigma_y, H_{iso}, H_{kin}$).
+### 3.2. Solver Suite (`LinearSolverSuite`) & Unified 1D/2D/3D Flow
+- **Unified Assembly (`FemSolver3D`):** 1D frame/truss members (`BeamTruss1D`), 2D shells (`Tri3-MITC3`, `Quad4-MITC4/QM6`, `Quad8`), and 3D solids (`Tet4`, `Tet10`, `Hex8-Bbar`, `Hex20`) inside `StructuralModel::surfaceMesh()` share a single `DofManager` and global sparse assembly; spatially coincident 1D/2D/3D nodes merge automatically, pure solid nodes use translational `mask3` DOFs ($u_x, u_y, u_z$), and post-processing computes `ContinuumElementResult` fields (von Mises, principal stresses, and plate/membrane resultants).
+- **Linear Solvers (`LinearSolverSuite`):** `SimplicialLDLT` (default, with AMD symbolic ordering), `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, and `BiCGSTAB`, with immediate mechanism/singularity detection and explicit tracked fallback (`LinearSolverOptions::allowFallback` + `stats.message`).
+- **Advanced Analyses:** **Modal** and **Linear Buckling** eigenvalues/vectors (`BucklingSolver` + `applyBucklingImperfection`), **Harmonic FRF** sweep and **Response Spectrum** (`DynamicSolver`), **Transient / Seismic** Newmark-$\beta$/HHT time-history (`solveTransient`/`solveSeismic`), **P-Delta / Corotational** (`Corotational1D`, `NonlinearSolver` Newton-Raphson & Arc-Length with energy tolerance `energyTol`), and **J2 Plasticity** (`J2PlasticityMaterial`: $\sigma_y, H_{iso}, H_{kin}$ for 1D/constitutive scope).
 - **Asynchronous Execution:** The GUI executes solvers on a deep copy of `StructuralModel` on a worker thread (`QThread::create`) so the viewport remains responsive.
 
 ---
@@ -298,13 +304,15 @@ The 3D Viewport is implemented using the `QOpenGLWidget` component:
 - **In-Process Compiled Shaders:** Modern GLSL 330 shaders with Lambertian diffuse illumination and Phong specular highlights.
 - **Optimized Buffers:** Dedicated VBOs and VAOs for nodes (instanced spheres), undeformed members (neutral cylinders), and amplified deformed members.
 - **Spatial Raycasting Picking:** Clicking screen coordinates $(x_s, y_s)$ uses inverse projection and inverse view matrices to cast a ray from eye to world space ($Ray_{origin}, Ray_{direction}$). Minimum distance between the ray and each 3D member segment enables instant bar picking within pixel tolerance.
+- **Ghost-Free Modeless Windows, Native Vector Styling & Default Work Plane:** `WindowZOrderManager` prepares hidden native window handles (`Qt::WA_DontShowOnScreen`) prior to first on-screen mapping to prevent transient ghost frames on single-click dialog launch; `ThemeManager` uses `QProxyStyle::drawPrimitive` to draw vector combo/spin arrows natively per active theme without emitting temporary PNG files; `GuidedSessionDialog` uses an enlarged two-row transport layout with unclipped strings; `ManualDialog` provides a quick-jump toolbar button directly to Chapter 10 CLI reference (`CMD`/`PowerShell`); and `MainWindow::applyDefaultExampleWorkPlane()` defaults all three built-in examples to the `XY (Plan)` work plane.
 
 ---
 
 ## 6. `.omniframe` Persistence (Schema 2.1.0), Interoperability & Reports
 
-- **`.omniframe` Format (Schema `2.1.0`, backward-compatible with `1.0` and `2.0`):** Auditable UTF-8 JSON layout (`materials` with $\rho$ and J2 plasticity, `sections`, `nodes`, `elements`, `LoadSystem` cases/combinations, advanced analyses, and ABNT site parameters).
-- **Interoperability & Export:** Bidirectional **DXF** (`DxfInterop`) and **IFC4** (`IfcInterop`) exchange, **CSV** / **VTK** export, **ABNT NBR** code checks (`NbrCodeChecks`: `LocalPdfVerified` scope for `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explicitly flagged for absent standards), and native **HTML**, **Markdown**, and **executive A4 PDF** (`PdfReportGenerator`) reports.
-- **Strict Validation:** Coordinate finiteness (`std::isfinite`) and consistent topology checks upon loading.
+- **`.omniframe` Format (Schema `2.1.0`, backward-compatible with `1.0` and `2.0`):** Auditable UTF-8 JSON layout (`materials` with $\rho$ and J2 plasticity, `sections`, `nodes`, `elements`, continuous 2D/3D `"surfaceMesh"` with BCs/loads/stresses, `LoadSystem` cases/combinations, advanced analyses, and ABNT site parameters).
+- **Interoperability & Export:** Bidirectional **DXF** (`DxfInterop`) and **IFC4** (`IfcInterop`) exchange, **CSV** (1D + 2D/3D continuum node/stress tables) and **VTK `UNSTRUCTURED_GRID`** (`1D/2D/3D` cells + `von_mises_kPa` scalar fields), **ABNT NBR** code checks (`NbrCodeChecks`: `LocalPdfVerified` scope for `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explicitly flagged for absent standards), and native **HTML**, **Markdown**, and **executive A4 PDF** (`PdfReportGenerator`) reports. Full technical audit, ADRs, V&V matrix, and roadmap are documented in [`docs/technical-audit-and-roadmap.md`](technical-audit-and-roadmap.md).
+- **Strict Validation:** Coordinate finiteness (`std::isfinite`), BFS connectivity, and 1D/2D/3D topology checks (`ModelValidation::issues`) upon loading and analysis.
+- **CLI & OS Integration (`source/cli/`, `source/os/`, `Utf8Path.hpp`):** `OmniFrame.exe` forwards headless flags to sibling `omniframe-cli.exe` via `forwardGuiArgsToCliIfRequested` or opens `.omniframe`/`.dxf`/`.ifc` directly from command-line arguments; `WindowsCliIntegration` manages UTF-8 consoles (`CP_UTF8`), `CommandLineToArgvW`, non-admin `HKCU` registry entries (`PATH`, `App Paths`, `.omniframe`), CMD/PowerShell launch (`Settings > Windows CLI`), and Unicode file I/O via `pathFromUtf8`.
 
 </details>

@@ -33,7 +33,7 @@ Ao participar deste projeto, você concorda em cumprir nosso [Código de Conduta
 
 Você pode colaborar com o OmniFrame 3D de diversas maneiras:
 - **Relatar Bugs:** Identifique inconsistências na matriz de rigidez, problemas em condições de contorno, artefatos gráficos ou crashes de memória.
-- **Propor Formulações e Heurísticas:** Sugira elementos de viga Timoshenko (com deformação por cisalhamento), análise geométrica não linear (efeitos P-Delta), métodos dinâmicos modais ou novas seções transversais.
+- **Propor Formulações e Heurísticas:** Sugira leis constitutivas avançadas de materiais (elastoplasticidade, dano), elementos de interface/contato, verificações normativas automatizadas ou novas bibliotecas de seções transversais.
 - **Melhorar a Documentação:** Aprimore as deduções matemáticas em `docs/architecture.md`, deduza casos de teste de referência em `docs/compliance.md` ou documente novos atalhos.
 - **Enviar Pull Requests:** Implemente novas ferramentas de modelagem, aprimoramentos de performance no solver esparso Cholesky (`SimplicialLDLT`) ou refinamento de shaders GLSL.
 - **Internacionalização (i18n):** Auxilie na tradução e localização da interface gráfica.
@@ -90,8 +90,9 @@ cmake --build build/OmniFrame3D --config Release
    - `solver/`: Ponte de orquestração conectando `StructuralModel` ao `OmniFrameKernel` (`FemSolver3D`).
    - `render/`: Shaders OpenGL 3.3 Core Profile, VBO/VAO/EBO, câmera de órbita 3D, planos de corte, contornos DCR e algoritmos de raycasting.
    - `ui/`: Interface Qt Widgets, docking, inspetores de propriedades editáveis em linha, sessão guiada (`GuidedSessionDialog`) e diálogos de engenharia modeless com gerenciamento `Z-Order`.
-   - `io/`: Serialização `.omniframe` (JSON Schema `2.1.0`), intercâmbio DXF/IFC4 e exportação de relatórios em HTML/Markdown/PDF A4.
-   - `cli/`: Executável headless `omniframe-cli.exe` compartilhando `OmniFrameCore` e `OmniFrameKernel`.
+   - `io/`: Serialização `.omniframe` (JSON Schema `2.1.0`), intercâmbio DXF/IFC4 com suporte a caminhos UTF-8 (`Utf8Path.hpp`) e exportação de relatórios em HTML/Markdown/PDF A4.
+   - `os/`: Integração Windows 10/11 (`WindowsCliIntegration`) para argumentos UTF-8 no console, registro não administrativo `HKCU` (`PATH` / `App Paths` / `.omniframe`), abertura de terminais CMD/PowerShell e delegação de flags CLI a partir de `OmniFrame.exe`.
+   - `cli/`: Executável console nativo `omniframe-cli.exe` integrado ao `OmniFrame.exe`, compartilhando `OmniFrameCore` e `OmniFrameKernel` com os mesmos exemplos, validações e auditoria ABNT NBR.
 3. **Gerenciamento de Memória e RAII:** Proibido o uso de ponteiros brutos proprietários (`new`/`delete` manuais). Utilize `std::unique_ptr`, `std::shared_ptr` ou gerenciamento por árvore de objetos `QObject`.
 4. **Tratamento de Exceções e Resiliência Numérica:** Condicionamento de matrizes singulares ou mecanismos estruturais devem ser detectados e sinalizados graciosamente ao usuário sem abortar a aplicação.
 
@@ -135,7 +136,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 You can contribute to OmniFrame 3D in several ways:
 - **Reporting Bugs:** Identify stiffness matrix discrepancies, boundary condition issues, graphics artifacts, or memory crashes.
-- **Formulations & Heuristics:** Propose Timoshenko beam elements (with shear deformation), geometric nonlinearity (P-Delta effects), modal dynamic methods, or new cross-sections.
+- **Formulations & Heuristics:** Propose advanced constitutive material laws (elastoplasticity, damage), contact/interface elements, automated design-code checks, or new cross-section libraries.
 - **Improving Documentation:** Enhance mathematical derivations in `docs/architecture.md`, reference verification test cases in `docs/compliance.md`, or document new shortcuts.
 - **Sending Pull Requests:** Implement new modeling tools, performance improvements in the sparse Cholesky solver (`SimplicialLDLT`), or refine GLSL shaders.
 - **Internationalization (i18n):** Assist in translating and localizing the graphical user interface.
@@ -192,8 +193,9 @@ cmake --build build/OmniFrame3D --config Release
    - `solver/`: Orchestration bridge connecting `StructuralModel` to `OmniFrameKernel` (`FemSolver3D`).
    - `render/`: OpenGL 3.3 Core Profile shaders, VBO/VAO/EBO, 3D orbit camera, clip planes, DCR contours, and raycasting algorithms.
    - `ui/`: Qt Widgets interface, docking, inline-editable property inspectors, guided session (`GuidedSessionDialog`), and modeless engineering dialogs with `Z-Order` management.
-   - `io/`: `.omniframe` JSON Schema `2.1.0` serialization, DXF/IFC4 interoperability, and HTML/Markdown/A4 PDF report export.
-   - `cli/`: Dedicated headless binary `omniframe-cli.exe` sharing `OmniFrameCore` and `OmniFrameKernel`.
+   - `io/`: `.omniframe` JSON Schema `2.1.0` serialization, UTF-8 path-aware DXF/IFC4 interoperability (`Utf8Path.hpp`), and HTML/Markdown/A4 PDF report export.
+   - `os/`: Windows 10/11 integration (`WindowsCliIntegration`) providing UTF-8 console argv handling, non-admin `HKCU` registry integration (`PATH` / `App Paths` / `.omniframe`), CMD/PowerShell session launch, and CLI forwarding from `OmniFrame.exe`.
+   - `cli/`: Dedicated native console executable `omniframe-cli.exe` integrated with `OmniFrame.exe`, sharing `OmniFrameCore`, `OmniFrameKernel`, built-in examples, validation, and ABNT NBR auditing.
 3. **Memory Management & RAII:** Manual owning raw pointers (`new`/`delete`) are prohibited. Use `std::unique_ptr`, `std::shared_ptr`, or `QObject` parent-child object tree ownership.
 4. **Exception Handling & Numerical Resilience:** Singular matrix conditioning or structural mechanisms must be detected and gracefully reported to the user without aborting the application.
 

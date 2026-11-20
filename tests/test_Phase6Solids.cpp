@@ -2,11 +2,15 @@
 #define ASSERT_TRUE(cond, msg) TEST_ASSERT((cond), (msg))
 #define ASSERT_NEAR(a, b, tol, msg) TEST_ASSERT(std::abs((a) - (b)) <= (tol), (msg))
 
+#include "core/StructuralModel.hpp"
+#include "kernel/analysis/BucklingSolver.hpp"
 #include "kernel/assembly/GlobalAssembler.hpp"
 #include "kernel/core/DofManager.hpp"
 #include "kernel/elements/SolidElements.hpp"
 #include "kernel/materials/LinearElasticMaterial.hpp"
+#include "kernel/mesh/MeshGenerator.hpp"
 #include "kernel/solver/LinearSolverSuite.hpp"
+#include "solver/FemSolver3D.hpp"
 
 #include <Eigen/Eigenvalues>
 #include <cmath>
@@ -406,6 +410,113 @@ void testSolidMassThermalAndGravity() {
     std::cout << "[OK] SolidMassThermal (M=" << unitZ.dot(M * unitZ) << " t, s_th=" << stTh.sxx << " kPa)\n";
 }
 
+void testUnifiedEndToEndSolidMeshMask3AndTransientBuckling() {
+    // 1) Solido 3D Hex8 via StructuralModel::surfaceMesh() verificando mask3 (3 DOFs/no) e tensao axial exata
+    {
+        omniframe::StructuralModel solidModel;
+        solidModel.getMaterials().clear();
+        const int matId = solidModel.addMaterial(
+            omniframe::Material(1, "SteelHex", 2.0e8, 0.30, 1.2e-5, 78.5, 7850.0));
+        solidModel.surfaceMesh() = MeshGenerator::generateStructuredHexGrid(
+            Vec3(0.0, 0.0, 0.0), Vec3(2.0, 0.5, 0.5), 4, 1, 1, false, "HexBar");
+
+        const double P_total = 100.0; // kN -> 25 kN por vertice da face x=2.0
+        for (auto& mn : solidModel.surfaceMesh().nodes) {
+            if (std::abs(mn.position.x()) < 1e-6) {
+                mn.fixed[0] = true;
+                if (std::abs(mn.position.y()) < 1e-6) mn.fixed[1] = true;
+                if (std::abs(mn.position.y()) < 1e-6 && std::abs(mn.position.z()) < 1e-6) mn.fixed[2] = true;
+            }
+            if (std::abs(mn.position.x() - 2.0) < 1e-6) {
+                mn.nodalForce = Vec3(0.25 * P_total, 0.0, 0.0);
+            }
+        }
+        for (auto& me : solidModel.surfaceMesh().elements) {
+            me.materialId = matId;
+        }
+
+        const omniframe::SolverResult res = omniframe::FemSolver3D::solve(solidModel);
+        ASSERT_TRUE(res.success, "Solver unificado deve convergir para malha solida Hex8");
+        ASSERT_TRUE(res.totalSurfaceNodes == 20 && res.totalSurfaceElements == 4,
+                    "Contadores 3D Hex8 devem refletir malha 4x1x1");
+        ASSERT_TRUE(res.totalDofs == 60,
+                    "Nos solidos puros devem receber mask3 (3 DOFs translacionais por no -> 60 DOFs)");
+        ASSERT_TRUE(res.equilibrium.isBalanced, "Barra solida Hex8 deve fechar equilibrio estatico global");
+
+        const double L = 2.0;
+        const double A = 0.5 * 0.5;
+        const double E = 2.0e8;
+        const double uExact = (P_total * L) / (E * A);
+        const double sigmaExact = P_total / A; // 400 kPa
+        for (const auto& mn : solidModel.surfaceMesh().nodes) {
+            if (std::abs(mn.position.x() - L) < 1e-6) {
+                ASSERT_NEAR(mn.displacement[0], uExact, 1e-10, "Alongamento axial E2E Hex8 deve bater PL/EA");
+            }
+        }
+        ASSERT_NEAR(res.maxSolidVonMises, sigmaExact, 1e-5,
+                    "Tensao von Mises maxima do solido Hex8 deve bater P/A");
+    }
+
+    // 2) E2E Dinamica transiente Newmark + Flambagem + Imperfeicao geometrica inicial
+    {
+        omniframe::StructuralModel colModel;
+        colModel.getMaterials().clear();
+        colModel.getCrossSections().clear();
+        const int matId = colModel.addMaterial(omniframe::Material::makeStructuralSteel(1));
+        const int secId = colModel.addCrossSection(
+            omniframe::CrossSection::makeRectangular(1, "Col 20x20", 0.20, 0.20));
+
+        const int n0 = colModel.addNode(0.0, 0.0, 0.0);
+        const int n1 = colModel.addNode(0.0, 0.0, 2.0);
+        const int n2 = colModel.addNode(0.0, 0.0, 4.0);
+        if (auto* b = colModel.findNode(n0)) {
+            b->support = omniframe::SupportRestraint::makeFixed();
+        }
+        if (auto* top = colModel.findNode(n2)) {
+            top->load.force = {10.0, 0.0, -100.0};
+        }
+        colModel.addElement(n0, n1, matId, secId);
+        colModel.addElement(n1, n2, matId, secId);
+
+        TransientOptions trOpts;
+        trOpts.dt = 0.005;
+        trOpts.numSteps = 20;
+        const TransientResult tr = omniframe::FemSolver3D::solveTransient(
+            colModel,
+            [](double t, int) { return (t <= 0.05) ? 1.0 : 0.0; },
+            0,
+            trOpts);
+        ASSERT_TRUE(tr.success && tr.history.size() == 21,
+                    "FemSolver3D::solveTransient deve executar todos os 20 passos (+ t=0)");
+        ASSERT_TRUE(tr.peakDisplacementFull.norm() > 0.0,
+                    "Resposta transiente sob impulso lateral deve ser nao nula");
+
+        BucklingOptions bOpts;
+        bOpts.numModes = 2;
+        const BucklingResult bRes = omniframe::FemSolver3D::solveBuckling(colModel, bOpts);
+        ASSERT_TRUE(bRes.success && !bRes.loadFactors.empty() && bRes.loadFactors.front() > 0.0,
+                    "FemSolver3D::solveBuckling deve retornar fator critico positivo");
+
+        std::vector<omniframe::Vec3> origCoords;
+        for (const auto& nd : colModel.getNodes()) origCoords.push_back(nd.position);
+
+        std::string impErr;
+        const double amp = 0.02;
+        ASSERT_TRUE(omniframe::FemSolver3D::applyBucklingImperfection(colModel, bRes, 0, amp, &impErr),
+                    "applyBucklingImperfection deve aplicar modo critico ao modelo");
+
+        double maxDelta = 0.0;
+        const auto& newNodes = colModel.getNodes();
+        for (size_t i = 0; i < newNodes.size(); ++i) {
+            maxDelta = std::max(maxDelta, newNodes[i].position.distanceTo(origCoords[i]));
+        }
+        ASSERT_NEAR(maxDelta, amp, 1e-9,
+                    "Amplitude maxima da imperfeicao geometrica aplicada deve corresponder ao solicitado");
+    }
+
+    std::cout << "[OK] UnifiedE2E SolidHex8(mask3) + Transient + BucklingImperfection\n";
+}
+
 } // namespace
 
 int main() {
@@ -414,6 +525,7 @@ int main() {
     testNearIncompressibilityHex8BBar();
     testLameThickCylinderHex20();
     testSolidMassThermalAndGravity();
-    std::cout << "\nTodos os testes da Fase 6 (Sólidos TET4, TET10, HEX8-Bbar, HEX20) passaram!\n";
+    testUnifiedEndToEndSolidMeshMask3AndTransientBuckling();
+    std::cout << "\nTodos os testes da Fase 6 (Sólidos TET4, TET10, HEX8-Bbar, HEX20 + Fluxo E2E) passaram!\n";
     return 0;
 }

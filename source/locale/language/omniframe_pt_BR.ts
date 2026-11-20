@@ -1696,8 +1696,8 @@
             <translation>Inspetor e Entrada Rápida</translation>
         </message>
         <message>
-            <source>Instruções detalhadas de modelagem 3D, análise FEM, interface modeless e configurações.</source>
-            <translation>Instruções detalhadas de modelagem 3D, análise FEM, interface modeless e configurações.</translation>
+            <source>Instruções detalhadas de modelagem 3D, análise FEM, CLI (CMD/PowerShell), interface modeless e configurações.</source>
+            <translation>Instruções detalhadas de modelagem 3D, análise FEM, CLI (CMD/PowerShell), interface modeless e configurações.</translation>
         </message>
         <message>
             <source>Integração temporal concluída.</source>
@@ -4574,6 +4574,378 @@
         <message>
             <source>Sessão Guiada concluída com sucesso! Exemplo selecionado restaurado ao estado inicial.</source>
             <translation>Sessão Guiada concluída com sucesso! Exemplo selecionado restaurado ao estado inicial.</translation>
+        </message>
+        <message>
+            <source>Abas de Resultados (4 Abas: Deslocamentos / Reações / Esforços / 2D/3D)</source>
+            <translation>Abas de Resultados (4 Abas: Deslocamentos / Reações / Esforços / 2D/3D)</translation>
+        </message>
+        <message>
+            <source>Abre a Suíte Avançada, seleciona o solver linear esparso (SimplicialLDLT/SparseLU/PCG), resolve envoltórias NBR, frequências naturais (Modal) e fatores críticos de flambagem com suporte a imperfeições geométricas.</source>
+            <translation>Abre a Suíte Avançada, seleciona o solver linear esparso (SimplicialLDLT/SparseLU/PCG), resolve envoltórias NBR, frequências naturais (Modal) e fatores críticos de flambagem com suporte a imperfeições geométricas.</translation>
+        </message>
+        <message>
+            <source>Abre o Gerador de Malha, enquadra os limites do modelo, configura material, espessura de casca, contorno engastado e pressão normal, gera a malha e resolve tensões 2D/3D na Aba 4.</source>
+            <translation>Abre o Gerador de Malha, enquadra os limites do modelo, configura material, espessura de casca, contorno engastado e pressão normal, gera a malha e resolve tensões 2D/3D na Aba 4.</translation>
+        </message>
+        <message>
+            <source>Abre o controle de Pós-Processamento 3D, alterna mapas de contorno de deslocamentos |u| e tensão de von Mises da casca 2D, exibe a malha gerada, aplica plano de corte Z e demonstra a animação.</source>
+            <translation>Abre o controle de Pós-Processamento 3D, alterna mapas de contorno de deslocamentos |u| e tensão de von Mises da casca 2D, exibe a malha gerada, aplica plano de corte Z e demonstra a animação.</translation>
+        </message>
+        <message>
+            <source>Acelerograma Sísmico (a_g)</source>
+            <translation>Acelerograma Sísmico (a_g)</translation>
+        </message>
+        <message>
+            <source>Aplicar Imperfeição à Geometria</source>
+            <translation>Aplicar Imperfeição à Geometria</translation>
+        </message>
+        <message>
+            <source>Apresenta modelo 1D/2D completo pronto para salvar .omniframe ou exportar PDF/HTML/MD/BIM</source>
+            <translation>Apresenta modelo 1D/2D completo pronto para salvar .omniframe ou exportar PDF/HTML/MD/BIM</translation>
+        </message>
+        <message>
+            <source>Ativa contornos |u| / von Mises (Casca/Sólido), malha, corte Z e animação</source>
+            <translation>Ativa contornos |u| / von Mises (Casca/Sólido), malha, corte Z e animação</translation>
+        </message>
+        <message>
+            <source>Barra 2: Avançadas... &gt; Sísmica/F(t) HHT-α / Não Linear Corrotacional</source>
+            <translation>Barra 2: Avançadas... &gt; Sísmica/F(t) HHT-α / Não Linear Corrotacional</translation>
+        </message>
+        <message>
+            <source>Base inferior (Zmin) engastada</source>
+            <translation>Base inferior (Zmin) engastada</translation>
+        </message>
+        <message>
+            <source>Bordas externas apoiadas (uX,uY,uZ=0)</source>
+            <translation>Bordas externas apoiadas (uX,uY,uZ=0)</translation>
+        </message>
+        <message>
+            <source>Bordas externas engastadas</source>
+            <translation>Bordas externas engastadas</translation>
+        </message>
+        <message>
+            <source>Botão Avançadas... &gt; Solver Linear &amp; Abas Combinações / Modal / Flambagem</source>
+            <translation>Botão Avançadas... &gt; Solver Linear &amp; Abas Combinações / Modal / Flambagem</translation>
+        </message>
+        <message>
+            <source>Botão Corte/Contornos... &gt; Contorno von Mises &amp; Controles 3D</source>
+            <translation>Botão Corte/Contornos... &gt; Contorno von Mises &amp; Controles 3D</translation>
+        </message>
+        <message>
+            <source>Botão Malha 2D/3D... &gt; Gerador de Malha + Aba Esforços 2D/3D</source>
+            <translation>Botão Malha 2D/3D... &gt; Gerador de Malha + Aba Esforços 2D/3D</translation>
+        </message>
+        <message>
+            <source>Cargas Ativas do Modelo (Todas)</source>
+            <translation>Cargas Ativas do Modelo (Todas)</translation>
+        </message>
+        <message>
+            <source>Caso Base F(t):</source>
+            <translation>Caso Base F(t):</translation>
+        </message>
+        <message>
+            <source>Condição de Contorno:</source>
+            <translation>Condição de Contorno:</translation>
+        </message>
+        <message>
+            <source>Controles 3D Avançados: Contornos |u| e von Mises σ_vM, Malha, Corte Z e Animação</source>
+            <translation>Controles 3D Avançados: Contornos |u| e von Mises σ_vM, Malha, Corte Z e Animação</translation>
+        </message>
+        <message>
+            <source>Desligado</source>
+            <translation>Desligado</translation>
+        </message>
+        <message>
+            <source>Elemento</source>
+            <translation>Elemento</translation>
+        </message>
+        <message>
+            <source>Encerra a montagem apresentando o modelo reconstruído completo com resultados 1D/2D/3D ativos e destaca o menu Arquivo para gravação .omniframe e exportação de memoriais e BIM.</source>
+            <translation>Encerra a montagem apresentando o modelo reconstruído completo com resultados 1D/2D/3D ativos e destaca o menu Arquivo para gravação .omniframe e exportação de memoriais e BIM.</translation>
+        </message>
+        <message>
+            <source>Esforços 2D/3D (Casca/Sólido)</source>
+            <translation>Esforços 2D/3D (Casca/Sólido)</translation>
+        </message>
+        <message>
+            <source>Espessura (Casca 2D):</source>
+            <translation>Espessura (Casca 2D):</translation>
+        </message>
+        <message>
+            <source>Execute a análise de flambagem antes de aplicar uma imperfeição geométrica.</source>
+            <translation>Execute a análise de flambagem antes de aplicar uma imperfeição geométrica.</translation>
+        </message>
+        <message>
+            <source>Executa a integração direta no tempo (Newmark-β / HHT-α, sismo ou histórico F(t)) na Aba 6 e o solver incremental não linear geométrico Newton-Raphson / Corrotacional 3D com Line Search na Aba 7.</source>
+            <translation>Executa a integração direta no tempo (Newmark-β / HHT-α, sismo ou histórico F(t)) na Aba 6 e o solver incremental não linear geométrico Newton-Raphson / Corrotacional 3D com Line Search na Aba 7.</translation>
+        </message>
+        <message>
+            <source>Face esquerda (Xmin) engastada</source>
+            <translation>Face esquerda (Xmin) engastada</translation>
+        </message>
+        <message>
+            <source>Falha ao aplicar imperfeição: %1</source>
+            <translation>Falha ao aplicar imperfeição: %1</translation>
+        </message>
+        <message>
+            <source>Fator de Escala (A₀):</source>
+            <translation>Fator de Escala (A₀):</translation>
+        </message>
+        <message>
+            <source>Foca o painel de resultados, alterna entre Deslocamentos, Reações de Apoio, Esforços Internos 1D e Esforços 2D/3D (Casca/Sólido), rolando as tabelas até o somatório de reações.</source>
+            <translation>Foca o painel de resultados, alterna entre Deslocamentos, Reações de Apoio, Esforços Internos 1D e Esforços 2D/3D (Casca/Sólido), rolando as tabelas até o somatório de reações.</translation>
+        </message>
+        <message>
+            <source>Gera malha Quad4 com espessura/apoios/pressão e resolve tensões E2E na Aba 4</source>
+            <translation>Gera malha Quad4 com espessura/apoios/pressão e resolve tensões E2E na Aba 4</translation>
+        </message>
+        <message>
+            <source>Gerador de Malha 1D/2D/3D E2E: Material, Espessura, Apoios, Carga e Tensões</source>
+            <translation>Gerador de Malha 1D/2D/3D E2E: Material, Espessura, Apoios, Carga e Tensões</translation>
+        </message>
+        <message>
+            <source>Histórico de Força F(t)</source>
+            <translation>Histórico de Força F(t)</translation>
+        </message>
+        <message>
+            <source>Imperfeição Inicial (amp):</source>
+            <translation>Imperfeição Inicial (amp):</translation>
+        </message>
+        <message>
+            <source>Imperfeição geométrica (Modo %1, amplitude = %2 m) aplicada ao modelo.</source>
+            <translation>Imperfeição geométrica (Modo %1, amplitude = %2 m) aplicada ao modelo.</translation>
+        </message>
+        <message>
+            <source>Integra histórico HHT-α e resolve análise não linear corrotacional 3D</source>
+            <translation>Integra histórico HHT-α e resolve análise não linear corrotacional 3D</translation>
+        </message>
+        <message>
+            <source>Integrando histórico temporal de forças F(t) (Newmark / HHT)...</source>
+            <translation>Integrando histórico temporal de forças F(t) (Newmark / HHT)...</translation>
+        </message>
+        <message>
+            <source>Mapa de Tensão de von Mises (Casca/Sólido) aplicado ao Viewport 3D.</source>
+            <translation>Mapa de Tensão de von Mises (Casca/Sólido) aplicado ao Viewport 3D.</translation>
+        </message>
+        <message>
+            <source>Material da Malha:</source>
+            <translation>Material da Malha:</translation>
+        </message>
+        <message>
+            <source>Menu Arquivo e Entrega Final: Salvar, Memorial PDF A4, Relatórios HTML/Markdown, DXF e IFC4</source>
+            <translation>Menu Arquivo e Entrega Final: Salvar, Memorial PDF A4, Relatórios HTML/Markdown, DXF e IFC4</translation>
+        </message>
+        <message>
+            <source>Painel Inferior de Resultados (QDockWidget): 4 Abas e Rolagem de Tabelas</source>
+            <translation>Painel Inferior de Resultados (QDockWidget): 4 Abas e Rolagem de Tabelas</translation>
+        </message>
+        <message>
+            <source>Painel Inferior: Deslocamentos / Reações / Esforços 1D / Esforços 2D/3D</source>
+            <translation>Painel Inferior: Deslocamentos / Reações / Esforços 1D / Esforços 2D/3D</translation>
+        </message>
+        <message>
+            <source>Percorre as 4 abas de resultados e rola tabelas até a soma Σ Reações</source>
+            <translation>Percorre as 4 abas de resultados e rola tabelas até a soma Σ Reações</translation>
+        </message>
+        <message>
+            <source>Pressão / Carga Z (2D/3D):</source>
+            <translation>Pressão / Carga Z (2D/3D):</translation>
+        </message>
+        <message>
+            <source>Reproduzindo histórico transiente (%1 frames) no Viewport 3D.</source>
+            <translation>Reproduzindo histórico transiente (%1 frames) no Viewport 3D.</translation>
+        </message>
+        <message>
+            <source>Seleciona SimplicialLDLT, resolve Envoltória NBR, Modos e Flambagem λ_cr</source>
+            <translation>Seleciona SimplicialLDLT, resolve Envoltória NBR, Modos e Flambagem λ_cr</translation>
+        </message>
+        <message>
+            <source>Sem apoios (Livre)</source>
+            <translation>Sem apoios (Livre)</translation>
+        </message>
+        <message>
+            <source>Serve para avaliar histórico sísmico/transiente com amortecimento numérico e efeitos corrotacionais de grande rotação e segunda ordem nas barras 1D.</source>
+            <translation>Serve para avaliar histórico sísmico/transiente com amortecimento numérico e efeitos corrotacionais de grande rotação e segunda ordem nas barras 1D.</translation>
+        </message>
+        <message>
+            <source>Serve para comparar solvers de sistemas esparsos, diagnosticar rigidez dinâmica global e verificar estabilidade elástica.</source>
+            <translation>Serve para comparar solvers de sistemas esparsos, diagnosticar rigidez dinâmica global e verificar estabilidade elástica.</translation>
+        </message>
+        <message>
+            <source>Serve para documentar o cálculo estrutural com memorial A4 completo ou relatórios web/Markdown editáveis e continuar editando livremente o projeto.</source>
+            <translation>Serve para documentar o cálculo estrutural com memorial A4 completo ou relatórios web/Markdown editáveis e continuar editando livremente o projeto.</translation>
+        </message>
+        <message>
+            <source>Serve para inspecionar concentrações de tensão σ_vM na malha contínua, avaliar seções de corte e animar a resposta deformada.</source>
+            <translation>Serve para inspecionar concentrações de tensão σ_vM na malha contínua, avaliar seções de corte e animar a resposta deformada.</translation>
+        </message>
+        <message>
+            <source>Serve para integrar elementos finitos 2D/3D (Quad4/Tri3/Hex8/Tet4) ao solver MEF E2E e inspecionar σ_vM, σ_1, σ_3 e esforços Mxx/Nxx.</source>
+            <translation>Serve para integrar elementos finitos 2D/3D (Quad4/Tri3/Hex8/Tet4) ao solver MEF E2E e inspecionar σ_vM, σ_1, σ_3 e esforços Mxx/Nxx.</translation>
+        </message>
+        <message>
+            <source>Serve para validar equilíbrio ΣF = 0 e ΣM = 0 e consultar valores máximos exatos em barras e elementos contínuos.</source>
+            <translation>Serve para validar equilíbrio ΣF = 0 e ΣM = 0 e consultar valores máximos exatos em barras e elementos contínuos.</translation>
+        </message>
+        <message>
+            <source>Suíte Avançada (Abas 1–3): Solver Esparso (LDLT/LU/PCG), Combinações, Modal e Flambagem</source>
+            <translation>Suíte Avançada (Abas 1–3): Solver Esparso (LDLT/LU/PCG), Combinações, Modal e Flambagem</translation>
+        </message>
+        <message>
+            <source>Suíte Avançada (Abas 6–7): Transiente HHT-α / Newmark-β e Não Linear Corrotacional 3D</source>
+            <translation>Suíte Avançada (Abas 6–7): Transiente HHT-α / Newmark-β e Não Linear Corrotacional 3D</translation>
+        </message>
+        <message>
+            <source>Suíte de Análises &gt; Abas Transiente HHT-α e Não Linear Corrotacional</source>
+            <translation>Suíte de Análises &gt; Abas Transiente HHT-α e Não Linear Corrotacional</translation>
+        </message>
+        <message>
+            <source>Tensão de von Mises (Casca/Sólido)</source>
+            <translation>Tensão de von Mises (Casca/Sólido)</translation>
+        </message>
+        <message>
+            <source>Tipo de Excitação:</source>
+            <translation>Tipo de Excitação:</translation>
+        </message>
+        <message>
+            <source>Abrir PowerShell com CLI...</source>
+            <translation>Abrir PowerShell com CLI...</translation>
+        </message>
+        <message>
+            <source>Abrir Prompt de Comando (CMD) com CLI...</source>
+            <translation>Abrir Prompt de Comando (CMD) com CLI...</translation>
+        </message>
+        <message>
+            <source>As entradas de usuário (HKCU PATH, App Paths e associação .omniframe) deste diretório foram removidas com segurança.
+
+%1</source>
+            <translation>As entradas de usuário (HKCU PATH, App Paths e associação .omniframe) deste diretório foram removidas com segurança.
+
+%1</translation>
+        </message>
+        <message>
+            <source>CLI Windows (CMD / PowerShell)</source>
+            <translation>CLI Windows (CMD / PowerShell)</translation>
+        </message>
+        <message>
+            <source>CLI integrada ao PATH do Windows (CMD e PowerShell).</source>
+            <translation>CLI integrada ao PATH do Windows (CMD e PowerShell).</translation>
+        </message>
+        <message>
+            <source>Comandos CLI (CMD/PowerShell)</source>
+            <translation>Comandos CLI (CMD/PowerShell)</translation>
+        </message>
+        <message>
+            <source>Erro ao Abrir CMD</source>
+            <translation>Erro ao Abrir CMD</translation>
+        </message>
+        <message>
+            <source>Erro ao Abrir PowerShell</source>
+            <translation>Erro ao Abrir PowerShell</translation>
+        </message>
+        <message>
+            <source>Falha na Integração CLI Windows</source>
+            <translation>Falha na Integração CLI Windows</translation>
+        </message>
+        <message>
+            <source>Integração CLI Removida</source>
+            <translation>Integração CLI Removida</translation>
+        </message>
+        <message>
+            <source>Integração CLI Windows Concluída</source>
+            <translation>Integração CLI Windows Concluída</translation>
+        </message>
+        <message>
+            <source>Ir diretamente ao capítulo completo de Linha de Comando (omniframe-cli.exe) no Windows 10/11.</source>
+            <translation>Ir diretamente ao capítulo completo de Linha de Comando (omniframe-cli.exe) no Windows 10/11.</translation>
+        </message>
+        <message>
+            <source>Não foi possível concluir o registro completo da CLI no Windows.
+
+Detalhes: %1</source>
+            <translation>Não foi possível concluir o registro completo da CLI no Windows.
+
+Detalhes: %1</translation>
+        </message>
+        <message>
+            <source>Não foi possível iniciar o PowerShell com a CLI.
+
+Detalhes: %1</source>
+            <translation>Não foi possível iniciar o PowerShell com a CLI.
+
+Detalhes: %1</translation>
+        </message>
+        <message>
+            <source>Não foi possível iniciar o Prompt de Comando com a CLI.
+
+Detalhes: %1</source>
+            <translation>Não foi possível iniciar o Prompt de Comando com a CLI.
+
+Detalhes: %1</translation>
+        </message>
+        <message>
+            <source>O binário omniframe-cli.exe foi registrado no Windows 10/11 (HKCU Environment PATH, App Paths e extensão .omniframe).
+
+Diretório: %1
+
+Novos terminais CMD e PowerShell já podem executar 'omniframe-cli --help' diretamente.</source>
+            <translation>O binário omniframe-cli.exe foi registrado no Windows 10/11 (HKCU Environment PATH, App Paths e extensão .omniframe).
+
+Diretório: %1
+
+Novos terminais CMD e PowerShell já podem executar 'omniframe-cli --help' diretamente.</translation>
+        </message>
+        <message>
+            <source>PowerShell iniciado com omniframe-cli ativo.</source>
+            <translation>PowerShell iniciado com omniframe-cli ativo.</translation>
+        </message>
+        <message>
+            <source>Prompt de Comando (CMD) iniciado com omniframe-cli ativo.</source>
+            <translation>Prompt de Comando (CMD) iniciado com omniframe-cli ativo.</translation>
+        </message>
+        <message>
+            <source>Registrar omniframe-cli no Windows (PATH e App Paths)...</source>
+            <translation>Registrar omniframe-cli no Windows (PATH e App Paths)...</translation>
+        </message>
+        <message>
+            <source>Registro HKCU da CLI removido.</source>
+            <translation>Registro HKCU da CLI removido.</translation>
+        </message>
+        <message>
+            <source>Remover Registro da CLI no Windows...</source>
+            <translation>Remover Registro da CLI no Windows...</translation>
+        </message>
+        <message>
+            <source>Sim</source>
+            <translation>Sim</translation>
+        </message>
+        <message>
+            <source>Status da CLI Windows (CMD / PowerShell)</source>
+            <translation>Status da CLI Windows (CMD / PowerShell)</translation>
+        </message>
+        <message>
+            <source>Status da Integração omniframe-cli.exe no Windows 10/11:
+
+• Diretório ativo: %1
+• omniframe-cli.exe encontrado: %2
+• PATH do Usuário (HKCU): %3
+• PATH do Sistema (HKLM): %4
+• App Paths (omniframe-cli.exe): %5
+• Associação .omniframe: %6
+• Pronto para CMD e PowerShell: %7</source>
+            <translation>Status da Integração omniframe-cli.exe no Windows 10/11:
+
+• Diretório ativo: %1
+• omniframe-cli.exe encontrado: %2
+• PATH do Usuário (HKCU): %3
+• PATH do Sistema (HKLM): %4
+• App Paths (omniframe-cli.exe): %5
+• Associação .omniframe: %6
+• Pronto para CMD e PowerShell: %7</translation>
+        </message>
+        <message>
+            <source>Verificar Status da CLI no Windows...</source>
+            <translation>Verificar Status da CLI no Windows...</translation>
         </message>
     </context>
 </TS>

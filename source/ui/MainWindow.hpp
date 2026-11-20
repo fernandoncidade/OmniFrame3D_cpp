@@ -68,6 +68,7 @@ public:
     void loadExampleBuilding();
     void loadExampleCantilever();
     void loadExampleSpaceTruss();
+    bool openProjectFileFromCommandLine(const QString& filePath);
 
     WindowZOrderManager* windowZOrderManager() const { return m_windowManager; }
     GuidedSessionDialog* guidedSessionDialog() const;
@@ -137,6 +138,11 @@ private slots:
     void onRestoreDefaultRenderSettings();
     void onChangeGuiTheme(UiTheme theme);
     void onChangeLanguage(const QString& langCode);
+    void onInstallWindowsCliIntegration();
+    void onUninstallWindowsCliIntegration();
+    void onCheckWindowsCliIntegration();
+    void onOpenCliTerminalCmd();
+    void onOpenCliTerminalPowerShell();
     void retranslateUi();
 
 protected:
@@ -157,6 +163,7 @@ private:
     void setupToolbars();
     void setupDocks();
     void setupStatusBar();
+    void applyDefaultExampleWorkPlane();
     void translateComboPreservingData();
 
     QString translateCoreMessage(const QString& rawMsg) const;
@@ -205,6 +212,7 @@ private:
     QMenu* m_activePlaneAppearanceMenu = nullptr;
     QMenu* m_themeMenu = nullptr;
     QMenu* m_langMenu = nullptr;
+    QMenu* m_cliWindowsMenu = nullptr;
     QMenu* m_helpMenu = nullptr;
     QToolBar* m_tb1 = nullptr;
     QToolBar* m_tb2 = nullptr;
@@ -252,6 +260,11 @@ private:
     QAction* m_actManual = nullptr;
     QAction* m_actGuidedSession = nullptr;
     QAction* m_actAbout = nullptr;
+    QAction* m_actCliInstallWin = nullptr;
+    QAction* m_actCliUninstallWin = nullptr;
+    QAction* m_actCliCheckWin = nullptr;
+    QAction* m_actCliOpenCmd = nullptr;
+    QAction* m_actCliOpenPowerShell = nullptr;
 
     WindowZOrderManager* m_windowManager = nullptr;
     RenderQualitySettings m_renderSettingsSnapshot;
@@ -360,6 +373,7 @@ private:
     QTableWidget* m_dispTable = nullptr;
     QTableWidget* m_reacTable = nullptr;
     QTableWidget* m_forcesTable = nullptr;
+    QTableWidget* m_continuumTable = nullptr;
 
     // Labels da Barra de Status
     QLabel* m_cursorCoordLabel = nullptr;

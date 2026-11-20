@@ -9,6 +9,7 @@
 #include "kernel/materials/LinearElasticMaterial.hpp"
 #include "kernel/mesh/MeshGenerator.hpp"
 #include "kernel/solver/LinearSolverSuite.hpp"
+#include "solver/FemSolver3D.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -341,6 +342,301 @@ void testHeadlessCliEndToEnd() {
 #endif
 }
 
+void testContinuumSerializationAndCliTransientCase() {
+    QTemporaryDir tmp;
+    TEST_ASSERT(tmp.isValid(), "QTemporaryDir deve ser criado para E2E continuo/CLI");
+
+    // 1. Roundtrip JSON .omniframe para malha 2D Quad4 (CCs, carregamentos e resultados)
+    StructuralModel contModel;
+    contModel.getMaterials().clear();
+    const int matId = contModel.addMaterial(Material::makeConcreteC30(1));
+    contModel.surfaceMesh() = MeshGenerator::generateStructuredQuadGrid(
+        KVec3::Zero(), KVec3(2.0, 0.0, 0.0), KVec3(0.0, 2.0, 0.0), 2, 2, false, "ContSlab");
+
+    for (auto& mn : contModel.surfaceMesh().nodes) {
+        const bool onEdge = (std::abs(mn.position.x()) < 1e-6 || std::abs(mn.position.x() - 2.0) < 1e-6 ||
+                             std::abs(mn.position.y()) < 1e-6 || std::abs(mn.position.y() - 2.0) < 1e-6);
+        if (onEdge) {
+            mn.fixed = {true, true, true, false, false, false};
+        } else {
+            mn.springStiffness[2] = 500.0;
+            mn.nodalForce = KVec3(0.0, 0.0, -5.0);
+        }
+        if (std::abs(mn.position.x()) < 1e-6 && std::abs(mn.position.y() - 1.0) < 1e-6) {
+            mn.prescribedDisplacement[2] = -0.001;
+        }
+    }
+    for (size_t i = 0; i < contModel.surfaceMesh().elements.size(); ++i) {
+        auto& me = contModel.surfaceMesh().elements[i];
+        me.materialId = matId;
+        me.thickness = 0.20;
+        me.normalPressure = -10.0;
+        if (i == 0) me.deltaT = 5.0;
+    }
+
+    const SolverResult contSolve = FemSolver3D::solve(contModel);
+    TEST_ASSERT(contSolve.success && contSolve.maxShellVonMises > 0.0,
+                "Modelo continuo 2D deve resolver antes da serializacao");
+
+    const QString contPath = tmp.filePath("continuum_slab.omniframe");
+    TEST_ASSERT(ProjectSerializer::saveToFile(contPath, contModel),
+                "Salvar .omniframe com surfaceMesh e resultados deve suceder");
+
+    StructuralModel reloadedCont;
+    TEST_ASSERT(ProjectSerializer::loadFromFile(contPath, reloadedCont),
+                "Recarregar .omniframe com surfaceMesh deve suceder");
+    TEST_ASSERT(reloadedCont.surfaceMesh().nodes.size() == contModel.surfaceMesh().nodes.size() &&
+                reloadedCont.surfaceMesh().elements.size() == contModel.surfaceMesh().elements.size(),
+                "Contagens de nos e elementos da malha continua devem sobreviver ao roundtrip");
+
+    bool foundSpring = false, foundPresc = false;
+    for (const auto& mn : reloadedCont.surfaceMesh().nodes) {
+        TEST_ASSERT(mn.hasResults, "Resultados nodais da malha continua devem sobreviver ao roundtrip");
+        if (mn.springStiffness[2] > 499.0 && std::abs(mn.nodalForce.z() + 5.0) < 1e-6) {
+            foundSpring = true;
+        }
+        if (mn.fixed[2] && std::abs(mn.prescribedDisplacement[2] + 0.001) < 1e-9) {
+            foundPresc = true;
+        }
+    }
+    TEST_ASSERT(foundSpring && foundPresc,
+                "Molas nodais, forcas nodais e recalques prescritos de MeshNode devem preservar no JSON");
+    TEST_ASSERT(std::abs(reloadedCont.surfaceMesh().elements[0].deltaT - 5.0) < 1e-9 &&
+                std::abs(reloadedCont.surfaceMesh().elements[0].thickness - 0.20) < 1e-9 &&
+                std::abs(reloadedCont.surfaceMesh().elements[0].normalPressure + 10.0) < 1e-9 &&
+                reloadedCont.surfaceMesh().elements[0].hasResults &&
+                reloadedCont.surfaceMesh().elements[0].vonMisesStress > 0.0,
+                "Propriedades, cargas, deltaT e tensoes de MeshElement devem preservar no JSON");
+
+#ifdef OMNIFRAME_CLI_PATH
+    const QString cliExe = QString::fromUtf8(OMNIFRAME_CLI_PATH);
+    auto runCli = [&](const QStringList& args, QByteArray& outBytes) -> int {
+        QProcess proc;
+        proc.start(cliExe, args);
+        TEST_ASSERT(proc.waitForStarted(10000), "CLI deve iniciar");
+        TEST_ASSERT(proc.waitForFinished(30000), "CLI deve finalizar no prazo");
+        outBytes = proc.readAllStandardOutput();
+        if (proc.exitCode() != 0) {
+            std::cerr << "[CLI stderr]: " << proc.readAllStandardError().toStdString() << "\n";
+        }
+        return proc.exitCode();
+    };
+
+    // 2. CLI estatico continuo + verificacao de conteudo VTK UNSTRUCTURED_GRID e CSV continuo
+    const QString contVtk = tmp.filePath("continuum.vtk");
+    const QString contCsv = tmp.filePath("continuum.csv");
+    QByteArray contCliOut;
+    TEST_ASSERT(runCli({
+        "--analyze", contPath,
+        "--analysis", "static",
+        "--export", "vtk", contVtk,
+        "--export", "csv", contCsv,
+        "--json"
+    }, contCliOut) == 0, "CLI --analyze static para malha continua deve retornar 0");
+
+    const QJsonDocument contDoc = QJsonDocument::fromJson(contCliOut);
+    TEST_ASSERT(contDoc.isObject() && contDoc.object()["success"].toBool() &&
+                contDoc.object()["totalSurfaceElements"].toInt() == 4 &&
+                contDoc.object()["maxShellVonMises"].toDouble() > 0.0,
+                "JSON da CLI deve reportar totalSurfaceElements e maxShellVonMises");
+
+    {
+        QFile vf(contVtk);
+        TEST_ASSERT(vf.open(QIODevice::ReadOnly | QIODevice::Text), "Abrir VTK continuo gerado");
+        const QByteArray vtkBytes = vf.readAll();
+        TEST_ASSERT(vtkBytes.contains("DATASET UNSTRUCTURED_GRID") &&
+                    vtkBytes.contains("CELL_TYPES") &&
+                    vtkBytes.contains("POINT_DATA") &&
+                    vtkBytes.contains("CELL_DATA") &&
+                    vtkBytes.contains("von_mises_kPa"),
+                    "VTK deve usar UNSTRUCTURED_GRID com campos escalares von_mises_kPa");
+    }
+    {
+        QFile cf(contCsv);
+        TEST_ASSERT(cf.open(QIODevice::ReadOnly | QIODevice::Text), "Abrir CSV continuo gerado");
+        const QByteArray csvBytes = cf.readAll();
+        TEST_ASSERT(csvBytes.contains("Continuum Surface/Solid Mesh Nodes") &&
+                    csvBytes.contains("Continuum 2D/3D Element Stresses & Resultants"),
+                    "CSV deve incluir secoes nodais e de tensoes continuas 2D/3D");
+    }
+
+    // 3. CLI --case, --combo, --analysis transient --dt e --analysis seismic --dt
+    StructuralModel caseModel;
+    caseModel.getMaterials().clear();
+    caseModel.getCrossSections().clear();
+    const int sMat = caseModel.addMaterial(Material::makeStructuralSteel(1));
+    const int sSec = caseModel.addCrossSection(CrossSection::makeRectangular(1, "Viga 20x40", 0.20, 0.40));
+    const int n1 = caseModel.addNode(0.0, 0.0, 0.0);
+    const int n2 = caseModel.addNode(4.0, 0.0, 0.0);
+    caseModel.findNode(n1)->support = SupportRestraint::makeFixed();
+    caseModel.findNode(n2)->load.force = {0.0, 0.0, -15.0};
+    caseModel.addElement(n1, n2, sMat, sSec);
+
+    LoadCase lc;
+    lc.id = 1;
+    lc.name = "CargaPonta";
+    NodalLoadPatternEntry nlEntry;
+    nlEntry.nodeId = n2;
+    nlEntry.forceMoment = {0.0, 0.0, -15.0, 0.0, 0.0, 0.0};
+    lc.nodalLoads.push_back(nlEntry);
+    caseModel.addLoadCase(lc);
+
+    LoadCombination lcomb;
+    lcomb.id = 1;
+    lcomb.name = "ELU-Teste";
+    lcomb.factors.push_back(LoadCombinationFactor{1, 1.4});
+    caseModel.addLoadCombination(lcomb);
+
+    const QString caseProjPath = tmp.filePath("case_beam.omniframe");
+    TEST_ASSERT(ProjectSerializer::saveToFile(caseProjPath, caseModel), "Salvar projeto para CLI case/transient");
+
+    QByteArray outCase;
+    TEST_ASSERT(runCli({"--analyze", caseProjPath, "--analysis", "static", "--case", "1", "--json"}, outCase) == 0,
+                "CLI --case 1 deve retornar 0");
+    const QJsonObject objCase = QJsonDocument::fromJson(outCase).object();
+    TEST_ASSERT(objCase["success"].toBool() && objCase["selectedCaseOrComboId"].toInt() == 1 &&
+                objCase["selectedCaseOrComboMaxDisp"].toDouble() > 0.0,
+                "CLI --case 1 deve resolver deslocamento maximo nao nulo");
+
+    QByteArray outCombo;
+    TEST_ASSERT(runCli({"--analyze", caseProjPath, "--analysis", "static", "--combo", "1", "--json"}, outCombo) == 0,
+                "CLI --combo 1 deve retornar 0");
+    const QJsonObject objCombo = QJsonDocument::fromJson(outCombo).object();
+    TEST_ASSERT(objCombo["success"].toBool() && objCombo["selectedCaseOrComboId"].toInt() == 1 &&
+                objCombo["selectedCaseOrComboMaxDisp"].toDouble() > objCase["selectedCaseOrComboMaxDisp"].toDouble() * 1.35,
+                "CLI --combo 1 (gamma=1.4) deve escalar o deslocamento em 1.4x");
+
+    QByteArray outTrans;
+    TEST_ASSERT(runCli({"--analyze", caseProjPath, "--analysis", "transient", "--steps", "8", "--dt", "0.02", "--json"}, outTrans) == 0,
+                "CLI --analysis transient deve retornar 0");
+    const QJsonObject objTrans = QJsonDocument::fromJson(outTrans).object();
+    TEST_ASSERT(objTrans["success"].toBool() && objTrans["steps"].toInt() == 9 &&
+                std::abs(objTrans["dt"].toDouble() - 0.02) < 1e-9,
+                "CLI transient deve executar 8 passos (+ t=0 => 9 registros) com dt=0.02");
+
+    QByteArray outSeis;
+    TEST_ASSERT(runCli({"--analyze", caseProjPath, "--analysis", "seismic", "--steps", "8", "--dt", "0.02", "--json"}, outSeis) == 0,
+                "CLI --analysis seismic deve retornar 0");
+    const QJsonObject objSeis = QJsonDocument::fromJson(outSeis).object();
+    TEST_ASSERT(objSeis["success"].toBool() && objSeis["steps"].toInt() == 9 &&
+                std::abs(objSeis["dt"].toDouble() - 0.02) < 1e-9,
+                "CLI seismic deve executar 8 passos (+ t=0 => 9 registros) com dt=0.02");
+#endif
+
+    std::cout << "[OK] ContinuumSerialization + CLI VTK/CSV/case/combo/transient/seismic\n";
+}
+
+void testCliOmniFrameIntegrationAndUtf8Paths() {
+#ifndef OMNIFRAME_CLI_PATH
+    TEST_ASSERT(false, "OMNIFRAME_CLI_PATH nao definido no CMake");
+#else
+    const QString cliExe = QString::fromUtf8(OMNIFRAME_CLI_PATH);
+    auto runCli = [&](const QStringList& args, QByteArray& outBytes) -> int {
+        QProcess proc;
+        proc.start(cliExe, args);
+        TEST_ASSERT(proc.waitForStarted(10000), "CLI deve iniciar");
+        TEST_ASSERT(proc.waitForFinished(30000), "CLI deve finalizar no prazo");
+        outBytes = proc.readAllStandardOutput();
+        if (proc.exitCode() != 0) {
+            std::cerr << "[CLI stderr]: " << proc.readAllStandardError().toStdString() << "\n";
+        }
+        return proc.exitCode();
+    };
+
+    // 1. --list-examples --json
+    QByteArray exListOut;
+    TEST_ASSERT(runCli({"--list-examples", "--json"}, exListOut) == 0,
+                "CLI --list-examples --json deve retornar 0");
+    const QJsonObject exListObj = QJsonDocument::fromJson(exListOut).object();
+    TEST_ASSERT(exListObj["success"].toBool() && exListObj["examples"].toArray().size() == 3,
+                "CLI deve listar os 3 exemplos embutidos do OmniFrame 3D");
+
+    // 2. --validate --example truss
+    QByteArray exValOut;
+    TEST_ASSERT(runCli({"--validate", "--example", "truss"}, exValOut) == 0,
+                "CLI --validate --example truss deve retornar 0");
+    const QJsonObject exValObj = QJsonDocument::fromJson(exValOut).object();
+    TEST_ASSERT(exValObj["success"].toBool() && exValObj["valid"].toBool() &&
+                exValObj["exampleName"].toString() == "truss",
+                "CLI --validate --example truss deve validar o exemplo 3");
+
+    // 3. --example building --nbr-audit --json
+    QByteArray nbrOut;
+    TEST_ASSERT(runCli({"--example", "building", "--nbr-audit", "--json"}, nbrOut) == 0,
+                "CLI --example building --nbr-audit deve retornar 0");
+    const QJsonObject nbrObj = QJsonDocument::fromJson(nbrOut).object();
+    TEST_ASSERT(nbrObj["success"].toBool() && nbrObj["nbrAudit"].isObject() &&
+                !nbrObj["nbrAudit"].toObject()["coverageMatrix"].toArray().isEmpty(),
+                "CLI --nbr-audit deve emitir matriz normativa e resumo NBR");
+
+    // 4. --scheme hht + --imperfection + --modified-newton + --no-line-search
+    QByteArray hhtOut;
+    TEST_ASSERT(runCli({
+        "--example", "building", "--analysis", "transient",
+        "--scheme", "hht", "--steps", "6", "--dt", "0.015", "--json"
+    }, hhtOut) == 0, "CLI --scheme hht deve retornar 0");
+    const QJsonObject hhtObj = QJsonDocument::fromJson(hhtOut).object();
+    TEST_ASSERT(hhtObj["success"].toBool() && hhtObj["scheme"].toString() == "hht",
+                "CLI deve registrar scheme=hht");
+
+    QByteArray nlOut;
+    TEST_ASSERT(runCli({
+        "--example", "building", "--analysis", "nonlinear",
+        "--steps", "6", "--load-factor", "0.5",
+        "--modified-newton", "--no-line-search",
+        "--imperfection", "0.002", "--imperfection-mode", "1", "--json"
+    }, nlOut) == 0, "CLI nonlinear com imperfeicao e opcoes avancadas deve retornar 0");
+    const QJsonObject nlObj = QJsonDocument::fromJson(nlOut).object();
+    TEST_ASSERT(nlObj["success"].toBool() &&
+                nlObj["appliedImperfection"].isObject() &&
+                !nlObj["fullNewtonTangent"].toBool() &&
+                !nlObj["enableLineSearch"].toBool(),
+                "CLI deve respeitar imperfection, modified-newton e no-line-search");
+
+    // 5. --check-windows-integration --json
+    QByteArray winOut;
+    TEST_ASSERT(runCli({"--check-windows-integration", "--json"}, winOut) == 0,
+                "CLI --check-windows-integration --json deve retornar 0");
+    const QJsonObject winObj = QJsonDocument::fromJson(winOut).object();
+    TEST_ASSERT(winObj["success"].toBool() && winObj["cliBinaryExists"].toBool(),
+                "CLI --check-windows-integration deve localizar omniframe-cli");
+
+    // 6. Caminhos UTF-8 com acentos e espacos (CMD/PowerShell Windows 10/11)
+    QTemporaryDir tmp;
+    TEST_ASSERT(tmp.isValid(), "QTemporaryDir deve ser criado");
+    const QString utf8DirPath = tmp.filePath(QString::fromUtf8("P\u00F3rtico S\u00E3o Paulo"));
+    TEST_ASSERT(QDir().mkpath(utf8DirPath), "Diretorio UTF-8 com acentos e espacos deve ser criado");
+
+    const QString utf8Proj = utf8DirPath + QString::fromUtf8("/modelo_t\u00E9cnico.omniframe");
+    const QString utf8Dxf = utf8DirPath + QString::fromUtf8("/sa\u00EDda_cad.dxf");
+    const QString utf8Ifc = utf8DirPath + QString::fromUtf8("/sa\u00EDda_bim.ifc");
+    const QString utf8Csv = utf8DirPath + QString::fromUtf8("/resultados_n\u00F3s.csv");
+    const QString utf8Vtk = utf8DirPath + QString::fromUtf8("/malha_t\u00E9rmica.vtk");
+    const QString utf8Json = utf8DirPath + QString::fromUtf8("/resumo_s\u00EDntese.json");
+
+    const StructuralModel ex = StructuralModel::createBuildingFrameExample();
+    TEST_ASSERT(ProjectSerializer::saveToFile(utf8Proj, ex), "Salvar projeto em pasta UTF-8 deve suceder");
+
+    QByteArray utf8Out;
+    TEST_ASSERT(runCli({
+        "--analyze", utf8Proj,
+        "--export", "dxf", utf8Dxf,
+        "--export", "ifc", utf8Ifc,
+        "--export", "csv", utf8Csv,
+        "--export", "vtk", utf8Vtk,
+        "--output", utf8Json,
+        "--json"
+    }, utf8Out) == 0, "CLI com caminhos UTF-8 acentuados deve concluir com codigo 0");
+
+    for (const QString& p : {utf8Dxf, utf8Ifc, utf8Csv, utf8Vtk, utf8Json}) {
+        QFile f(p);
+        TEST_ASSERT(f.exists() && f.size() > 32, "Arquivo exportado em caminho UTF-8 deve existir e nao estar vazio");
+    }
+
+    std::cout << "[OK] testCliOmniFrameIntegrationAndUtf8Paths\n";
+#endif
+}
+
 } // namespace
 
 int main() {
@@ -348,6 +644,8 @@ int main() {
     testDxfRoundtripAndMeshExport();
     testIfc4RoundtripAndDeterministicGuids();
     testHeadlessCliEndToEnd();
+    testContinuumSerializationAndCliTransientCase();
+    testCliOmniFrameIntegrationAndUtf8Paths();
     std::cout << "\nTodos os testes da Fase 7 (Malha 1D/2D/3D, DXF, IFC4 BIM e CLI headless) passaram!\n";
     return 0;
 }

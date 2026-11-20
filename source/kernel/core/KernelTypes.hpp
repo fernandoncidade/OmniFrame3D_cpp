@@ -92,6 +92,7 @@ struct LinearSolverOptions {
     int refinementSteps = 2;
     double pivotZeroTolerance = 1e-12;
     bool checkSymmetry = true;
+    bool allowFallback = true;
 };
 
 struct LinearSolverStats {

@@ -748,8 +748,8 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
       m_overlay(new GuidedTargetOverlay(nullptr)),
       m_childOverlay(new GuidedTargetOverlay(nullptr)) {
     setObjectName(QStringLiteral("GuidedSessionDialog"));
-    setMinimumWidth(480);
-    resize(500, 500);
+    setMinimumSize(540, 620);
+    resize(560, 660);
     if (m_overlay) {
         m_overlay->setObjectName(QStringLiteral("guided_target_overlay"));
         m_overlay->setShowCalloutCard(true);
@@ -776,21 +776,31 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
 
     // Configuração de Exemplo e Perfil Científico de Leitura (PPM)
     m_setupGroup = new QGroupBox(this);
-    auto* setupForm = new QFormLayout(m_setupGroup);
+    auto* setupLayout = new QVBoxLayout(m_setupGroup);
+    setupLayout->setSpacing(6);
+
     m_exampleLabel = new QLabel(m_setupGroup);
+    m_exampleLabel->setWordWrap(true);
     m_exampleCombo = new QComboBox(m_setupGroup);
     m_exampleCombo->addItem(QString(), 1);
     m_exampleCombo->addItem(QString(), 2);
     m_exampleCombo->addItem(QString(), 3);
+    m_exampleCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_exampleCombo->setMinimumContentsLength(24);
+    m_exampleCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_exampleCombo->setObjectName(QStringLiteral("guided_example_combo"));
 
     m_readingProfileLabel = new QLabel(m_setupGroup);
+    m_readingProfileLabel->setWordWrap(true);
     m_readingProfileCombo = new QComboBox(m_setupGroup);
     m_readingProfileCombo->addItem(QString(), static_cast<int>(ReadingProfile::FluentTypical));
     m_readingProfileCombo->addItem(QString(), static_cast<int>(ReadingProfile::TechnicalTypical));
     m_readingProfileCombo->addItem(QString(), static_cast<int>(ReadingProfile::ReadAloud));
     m_readingProfileCombo->addItem(QString(), static_cast<int>(ReadingProfile::DyslexiaAccessible));
     m_readingProfileCombo->setCurrentIndex(static_cast<int>(ReadingProfile::TechnicalTypical));
+    m_readingProfileCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_readingProfileCombo->setMinimumContentsLength(24);
+    m_readingProfileCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_readingProfileCombo->setObjectName(QStringLiteral("guided_reading_profile_combo"));
     connect(m_readingProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
         if (idx >= 0 && m_readingProfileCombo) {
@@ -802,11 +812,14 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
 
     m_readingInfoLabel = new QLabel(m_setupGroup);
     m_readingInfoLabel->setWordWrap(true);
+    m_readingInfoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     m_readingInfoLabel->setObjectName(QStringLiteral("guided_reading_info"));
 
-    setupForm->addRow(m_exampleLabel, m_exampleCombo);
-    setupForm->addRow(m_readingProfileLabel, m_readingProfileCombo);
-    setupForm->addRow(QString(), m_readingInfoLabel);
+    setupLayout->addWidget(m_exampleLabel);
+    setupLayout->addWidget(m_exampleCombo);
+    setupLayout->addWidget(m_readingProfileLabel);
+    setupLayout->addWidget(m_readingProfileCombo);
+    setupLayout->addWidget(m_readingInfoLabel);
     rootLayout->addWidget(m_setupGroup);
 
     // Painel de Progresso, Controle em Foco, Cronômetro e Cartão Sincronizado
@@ -830,13 +843,26 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
     m_timerCountdownLabel->setObjectName(QStringLiteral("guided_countdown_label"));
     progLayout->addWidget(m_timerCountdownLabel);
 
-    m_targetActionBannerLabel = new QLabel(m_progressGroup);
+    auto* bannerScroll = new QScrollArea(m_progressGroup);
+    bannerScroll->setFrameShape(QFrame::NoFrame);
+    bannerScroll->setWidgetResizable(true);
+    bannerScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    bannerScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    bannerScroll->setMinimumHeight(185);
+    bannerScroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+    if (bannerScroll->viewport()) {
+        bannerScroll->viewport()->setAutoFillBackground(false);
+        bannerScroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
+    }
+
+    m_targetActionBannerLabel = new QLabel(bannerScroll);
     m_targetActionBannerLabel->setWordWrap(true);
     m_targetActionBannerLabel->setTextFormat(Qt::RichText);
-    m_targetActionBannerLabel->setMinimumHeight(140);
     m_targetActionBannerLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    m_targetActionBannerLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
     m_targetActionBannerLabel->setObjectName(QStringLiteral("guided_target_action_banner"));
-    progLayout->addWidget(m_targetActionBannerLabel);
+    bannerScroll->setWidget(m_targetActionBannerLabel);
+    progLayout->addWidget(bannerScroll, 1);
 
     // Mantém os widgets legados ocultos para que apenas a versão moderna unificada seja exibida
     m_stepTitleLabel = new QLabel(m_progressGroup);
@@ -847,20 +873,31 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
     m_tooltipCardLabel->setObjectName(QStringLiteral("guided_tooltip_card"));
     m_tooltipCardLabel->hide();
 
-    rootLayout->addWidget(m_progressGroup);
+    rootLayout->addWidget(m_progressGroup, 1);
 
-    // Botões de Controle
-    auto* btnRow = new QHBoxLayout();
+    // Botões de Controle organizados em duas linhas para evitar qualquer truncamento de texto
+    auto* btnContainer = new QVBoxLayout();
+    btnContainer->setSpacing(6);
+    auto* primaryBtnRow = new QHBoxLayout();
+    primaryBtnRow->setSpacing(8);
+    auto* secondaryBtnRow = new QHBoxLayout();
+    secondaryBtnRow->setSpacing(8);
+
     m_btnStart = new QPushButton(this);
     m_btnStart->setObjectName(QStringLiteral("guided_btn_start"));
+    m_btnStart->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
     m_btnPauseResume = new QPushButton(this);
     m_btnPauseResume->setObjectName(QStringLiteral("guided_btn_pause"));
+    m_btnPauseResume->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
     m_btnNextStep = new QPushButton(this);
     m_btnNextStep->setObjectName(QStringLiteral("guided_btn_next"));
+    m_btnNextStep->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
     m_btnStop = new QPushButton(this);
     m_btnStop->setObjectName(QStringLiteral("guided_btn_stop"));
+    m_btnStop->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     m_btnClose = new QPushButton(this);
     m_btnClose->setObjectName(QStringLiteral("guided_btn_close"));
+    m_btnClose->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
 
     connect(m_btnStart, &QPushButton::clicked, this, &GuidedSessionDialog::onStartClicked);
     connect(m_btnPauseResume, &QPushButton::clicked, this, &GuidedSessionDialog::onPauseResumeClicked);
@@ -868,12 +905,15 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
     connect(m_btnStop, &QPushButton::clicked, this, &GuidedSessionDialog::onStopClicked);
     connect(m_btnClose, &QPushButton::clicked, this, &QDialog::close);
 
-    btnRow->addWidget(m_btnStart);
-    btnRow->addWidget(m_btnPauseResume);
-    btnRow->addWidget(m_btnNextStep);
-    btnRow->addWidget(m_btnStop);
-    btnRow->addWidget(m_btnClose);
-    rootLayout->addLayout(btnRow);
+    primaryBtnRow->addWidget(m_btnStart);
+    primaryBtnRow->addWidget(m_btnPauseResume);
+    primaryBtnRow->addWidget(m_btnNextStep);
+    secondaryBtnRow->addWidget(m_btnStop);
+    secondaryBtnRow->addStretch(1);
+    secondaryBtnRow->addWidget(m_btnClose);
+    btnContainer->addLayout(primaryBtnRow);
+    btnContainer->addLayout(secondaryBtnRow);
+    rootLayout->addLayout(btnContainer);
 
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this](UiTheme) {
         applyCardTheme();
@@ -1007,13 +1047,23 @@ bool GuidedSessionDialog::isTargetHighlightVisible() const {
 
 void GuidedSessionDialog::positionHudNearMainWindow() {
     if (!m_mainWindow) return;
-    adjustSize();
-    if (width() > 500) {
-        resize(500, height());
+    ensurePolished();
+    if (layout()) {
+        layout()->activate();
     }
     const QRect mainRect = m_mainWindow->frameGeometry();
     const QScreen* screen = m_mainWindow->screen() ? m_mainWindow->screen() : QGuiApplication::primaryScreen();
     const QRect avail = screen ? screen->availableGeometry() : mainRect;
+
+    const QSize desiredSize = size()
+                                  .expandedTo(sizeHint())
+                                  .expandedTo(minimumSizeHint())
+                                  .expandedTo(QSize(560, 660));
+    const int targetW = std::min(desiredSize.width(), std::max(540, avail.width() - 32));
+    const int targetH = std::min(desiredSize.height(), std::max(560, avail.height() - 32));
+    if (size() != QSize(targetW, targetH)) {
+        resize(targetW, targetH);
+    }
 
     int targetX = mainRect.right() - width() - 16;
     int targetY = mainRect.top() + 84;
@@ -1224,6 +1274,15 @@ void GuidedSessionDialog::retranslateUi() {
     m_btnClose->setText(GerenciadorTraducao::trText("Fechar"));
 
     refreshCurrentStepTexts();
+    if (isVisible()) {
+        if (layout()) {
+            layout()->activate();
+        }
+        const QSize needed = size().expandedTo(sizeHint()).expandedTo(minimumSizeHint());
+        if (needed != size()) {
+            resize(needed);
+        }
+    }
     if (m_running && m_currentStep > 0) {
         updateVisualHighlight();
     }
@@ -1746,12 +1805,12 @@ GuidedSessionDialog::StepSpec GuidedSessionDialog::specForStep(int step) const {
             };
         case 22:
             return {
-                QStringLiteral("Painel Inferior de Resultados (QDockWidget): Abas e Rolagem de Tabelas"),
-                QStringLiteral("Foca o painel de resultados, alterna entre Deslocamentos, Reações de Apoio e Esforços Internos e aciona as barras de rolagem das tabelas numéricas até o rodapé de soma."),
-                QStringLiteral("Serve para validar equilíbrio ΣF = 0 e ΣM = 0 e consultar valores máximos numéricos exatos de projeto."),
-                QStringLiteral("Painel Inferior: Deslocamentos / Reações / Esforços (Rolagem)"),
-                QStringLiteral("Abas de Resultados (Deslocamentos / Reações / Esforços)"),
-                QStringLiteral("Percorre as 3 abas de resultados e rola tabelas até a soma Σ Reações")
+                QStringLiteral("Painel Inferior de Resultados (QDockWidget): 4 Abas e Rolagem de Tabelas"),
+                QStringLiteral("Foca o painel de resultados, alterna entre Deslocamentos, Reações de Apoio, Esforços Internos 1D e Esforços 2D/3D (Casca/Sólido), rolando as tabelas até o somatório de reações."),
+                QStringLiteral("Serve para validar equilíbrio ΣF = 0 e ΣM = 0 e consultar valores máximos exatos em barras e elementos contínuos."),
+                QStringLiteral("Painel Inferior: Deslocamentos / Reações / Esforços 1D / Esforços 2D/3D"),
+                QStringLiteral("Abas de Resultados (4 Abas: Deslocamentos / Reações / Esforços / 2D/3D)"),
+                QStringLiteral("Percorre as 4 abas de resultados e rola tabelas até a soma Σ Reações")
             };
         case 23:
             return {
@@ -1764,21 +1823,21 @@ GuidedSessionDialog::StepSpec GuidedSessionDialog::specForStep(int step) const {
             };
         case 24:
             return {
-                QStringLiteral("Gerador de Malha 1D/2D/3D (Enquadramento nos Limites e Discretização)"),
-                QStringLiteral("Abre o Gerador de Malha, ajusta os limites geométricos automaticamente ao redor da estrutura modelada e gera uma malha superficial discretizada."),
-                QStringLiteral("Serve para produzir elementos superficiais de laje/parede ou refinar visualizações de contorno de deslocamentos."),
+                QStringLiteral("Gerador de Malha 1D/2D/3D E2E: Material, Espessura, Apoios, Carga e Tensões"),
+                QStringLiteral("Abre o Gerador de Malha, enquadra os limites do modelo, configura material, espessura de casca, contorno engastado e pressão normal, gera a malha e resolve tensões 2D/3D na Aba 4."),
+                QStringLiteral("Serve para integrar elementos finitos 2D/3D (Quad4/Tri3/Hex8/Tet4) ao solver MEF E2E e inspecionar σ_vM, σ_1, σ_3 e esforços Mxx/Nxx."),
                 QStringLiteral("Estrutura > Gerador de Malha 1D/2D/3D... (Barra 2: Malha...)"),
-                QStringLiteral("Botão Malha 2D/3D... > Gerador de Malha"),
-                QStringLiteral("Enquadra limites da estrutura e discretiza malha 2D superficial")
+                QStringLiteral("Botão Malha 2D/3D... > Gerador de Malha + Aba Esforços 2D/3D"),
+                QStringLiteral("Gera malha Quad4 com espessura/apoios/pressão e resolve tensões E2E na Aba 4")
             };
         case 25:
             return {
-                QStringLiteral("Suíte de Análises Avançadas (Abas 1–3): Envoltória NBR, Modal e Flambagem"),
-                QStringLiteral("Abre a Suíte Avançada, executa a envoltória de combinações NBR, resolve frequências naturais e modos de vibração (Modal) e calcula cargas críticas de flambagem linear."),
-                QStringLiteral("Serve para diagnosticar rigidez dinâmica global, frequências fundamentais de serviço e margens de estabilidade elástica."),
+                QStringLiteral("Suíte Avançada (Abas 1–3): Solver Esparso (LDLT/LU/PCG), Combinações, Modal e Flambagem"),
+                QStringLiteral("Abre a Suíte Avançada, seleciona o solver linear esparso (SimplicialLDLT/SparseLU/PCG), resolve envoltórias NBR, frequências naturais (Modal) e fatores críticos de flambagem com suporte a imperfeições geométricas."),
+                QStringLiteral("Serve para comparar solvers de sistemas esparsos, diagnosticar rigidez dinâmica global e verificar estabilidade elástica."),
                 QStringLiteral("Barra 2: Avançadas... > Combinações / Modal / Flambagem"),
-                QStringLiteral("Botão Avançadas... > Abas Combinações / Modal / Flambagem"),
-                QStringLiteral("Executa Envoltória NBR, Modos Naturais e Fatores Críticos de Flambagem")
+                QStringLiteral("Botão Avançadas... > Solver Linear & Abas Combinações / Modal / Flambagem"),
+                QStringLiteral("Seleciona SimplicialLDLT, resolve Envoltória NBR, Modos e Flambagem λ_cr")
             };
         case 26:
             return {
@@ -1791,21 +1850,21 @@ GuidedSessionDialog::StepSpec GuidedSessionDialog::specForStep(int step) const {
             };
         case 27:
             return {
-                QStringLiteral("Suíte Avançada (Abas 6–7): Sísmica Temporal Newmark-β e Não Linear P-Δ"),
-                QStringLiteral("Executa a integração direta no tempo Newmark-β na Aba 6 e o solucionador incremental não linear geométrico P-Δ (Newton-Raphson) na Aba 7."),
-                QStringLiteral("Serve para avaliar histórico sísmico transiente e efeitos de segunda ordem geométricos por carregamento axial elevado."),
-                QStringLiteral("Barra 2: Avançadas... > Sísmica Newmark-β / Não Linear P-Δ"),
-                QStringLiteral("Suíte de Análises > Abas Sísmica Newmark-β e Não Linear P-Δ"),
-                QStringLiteral("Executa integração sísmica temporal e análise não linear P-Δ")
+                QStringLiteral("Suíte Avançada (Abas 6–7): Transiente HHT-α / Newmark-β e Não Linear Corrotacional 3D"),
+                QStringLiteral("Executa a integração direta no tempo (Newmark-β / HHT-α, sismo ou histórico F(t)) na Aba 6 e o solver incremental não linear geométrico Newton-Raphson / Corrotacional 3D com Line Search na Aba 7."),
+                QStringLiteral("Serve para avaliar histórico sísmico/transiente com amortecimento numérico e efeitos corrotacionais de grande rotação e segunda ordem nas barras 1D."),
+                QStringLiteral("Barra 2: Avançadas... > Sísmica/F(t) HHT-α / Não Linear Corrotacional"),
+                QStringLiteral("Suíte de Análises > Abas Transiente HHT-α e Não Linear Corrotacional"),
+                QStringLiteral("Integra histórico HHT-α e resolve análise não linear corrotacional 3D")
             };
         case 28:
             return {
-                QStringLiteral("Controles 3D Avançados: Contornos |u|, Malha, Plano de Corte Z e Animação"),
-                QStringLiteral("Abre o controle de Pós-Processamento 3D, habilita mapa de contorno colorido de deslocamentos, exibe a malha gerada, aplica plano de corte Z e demonstra a animação."),
-                QStringLiteral("Serve para inspecionar interiores estruturais em seções de corte e visualizar dinamicamente a resposta deformada."),
+                QStringLiteral("Controles 3D Avançados: Contornos |u| e von Mises σ_vM, Malha, Corte Z e Animação"),
+                QStringLiteral("Abre o controle de Pós-Processamento 3D, alterna mapas de contorno de deslocamentos |u| e tensão de von Mises da casca 2D, exibe a malha gerada, aplica plano de corte Z e demonstra a animação."),
+                QStringLiteral("Serve para inspecionar concentrações de tensão σ_vM na malha contínua, avaliar seções de corte e animar a resposta deformada."),
                 QStringLiteral("Estrutura > Controles 3D... (Barra 2: Corte/Contornos...)"),
-                QStringLiteral("Botão Corte/Contornos... > Controles 3D"),
-                QStringLiteral("Ativa contornos |u|, exibe malha, aplica corte Z e anima deformada")
+                QStringLiteral("Botão Corte/Contornos... > Contorno von Mises & Controles 3D"),
+                QStringLiteral("Ativa contornos |u| / von Mises (Casca/Sólido), malha, corte Z e animação")
             };
         case 29:
             return {
@@ -1819,12 +1878,12 @@ GuidedSessionDialog::StepSpec GuidedSessionDialog::specForStep(int step) const {
         case 30:
         default:
             return {
-                QStringLiteral("Menu Arquivo e Entrega Final: Salvar, Memorial Executivo PDF A4, HTML/MD, DXF e IFC4"),
-                QStringLiteral("Encerra a montagem apresentando o modelo reconstruído completo com resultados ativos e destaca o menu Arquivo para gravação .omniframe e exportação de memoriais e BIM."),
-                QStringLiteral("Serve para documentar o cálculo estrutural com memorial A4 completo ou continuar editando livremente cada nó, apoio, material e carga."),
+                QStringLiteral("Menu Arquivo e Entrega Final: Salvar, Memorial PDF A4, Relatórios HTML/Markdown, DXF e IFC4"),
+                QStringLiteral("Encerra a montagem apresentando o modelo reconstruído completo com resultados 1D/2D/3D ativos e destaca o menu Arquivo para gravação .omniframe e exportação de memoriais e BIM."),
+                QStringLiteral("Serve para documentar o cálculo estrutural com memorial A4 completo ou relatórios web/Markdown editáveis e continuar editando livremente o projeto."),
                 QStringLiteral("Arquivo > Salvar / Exportar PDF A4 / HTML / Markdown / DXF / IFC4"),
                 QStringLiteral("Menu Arquivo (Gravação e Exportação)"),
-                QStringLiteral("Apresenta modelo completo pronto para salvar .omniframe ou exportar PDF/BIM")
+                QStringLiteral("Apresenta modelo 1D/2D completo pronto para salvar .omniframe ou exportar PDF/HTML/MD/BIM")
             };
     }
 }
@@ -2710,6 +2769,10 @@ void GuidedSessionDialog::executeStepAction(int step) {
                 scrollTableToBottomAndTop(m_mainWindow->m_reacTable);
                 m_mainWindow->m_resultsTabs->setCurrentIndex(2);
                 scrollTableToBottomAndTop(m_mainWindow->m_forcesTable);
+                if (m_mainWindow->m_resultsTabs->count() >= 4 && m_mainWindow->m_continuumTable) {
+                    m_mainWindow->m_resultsTabs->setCurrentIndex(3);
+                    scrollTableToBottomAndTop(m_mainWindow->m_continuumTable);
+                }
             }
             break;
         }
@@ -2739,9 +2802,27 @@ void GuidedSessionDialog::executeStepAction(int step) {
                 if (dlg->m_meshTypeCombo && dlg->m_meshTypeCombo->count() > 1) {
                     dlg->m_meshTypeCombo->setCurrentIndex(1);
                 }
+                if (dlg->m_matCombo && dlg->m_matCombo->count() > 0) {
+                    dlg->m_matCombo->setCurrentIndex(0);
+                }
+                if (dlg->m_thicknessSpin) {
+                    dlg->m_thicknessSpin->setValue(0.20);
+                }
+                if (dlg->m_bcPresetCombo && dlg->m_bcPresetCombo->count() > 1) {
+                    dlg->m_bcPresetCombo->setCurrentIndex(1);
+                }
+                if (dlg->m_pressureSpin) {
+                    dlg->m_pressureSpin->setValue(-5.0);
+                }
                 dlg->onGenerateMesh();
             }
             waitForBackgroundSolvers();
+            m_mainWindow->ensureStaticSolvedSync();
+            m_mainWindow->updateResultsTables();
+            if (m_mainWindow->m_resultsTabs && m_mainWindow->m_resultsTabs->count() >= 4 && m_mainWindow->m_continuumTable) {
+                m_mainWindow->m_resultsTabs->setCurrentIndex(3);
+                scrollTableToBottomAndTop(m_mainWindow->m_continuumTable);
+            }
             break;
         }
         case 25: {
@@ -2750,6 +2831,10 @@ void GuidedSessionDialog::executeStepAction(int step) {
             if (auto* dlg = m_mainWindow->m_analysisSuiteDialog.data()) {
                 positionChildDialogForGuidedSession(dlg);
                 if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(0);
+                if (dlg->m_linearSolverCombo) {
+                    const int ldltIdx = dlg->m_linearSolverCombo->findData(static_cast<int>(kernel::LinearSolverType::SimplicialLDLT));
+                    if (ldltIdx >= 0) dlg->m_linearSolverCombo->setCurrentIndex(ldltIdx);
+                }
                 dlg->onRunCombosAsync();
                 waitForBackgroundSolvers();
                 dlg->onPlotSelectedCombo();
@@ -2794,19 +2879,49 @@ void GuidedSessionDialog::executeStepAction(int step) {
             if (auto* dlg = m_mainWindow->m_analysisSuiteDialog.data()) {
                 positionChildDialogForGuidedSession(dlg);
                 if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(5);
+                if (dlg->m_seisModeCombo) dlg->m_seisModeCombo->setCurrentIndex(0);
+                if (dlg->m_seisSchemeCombo) {
+                    const int hhtIdx = dlg->m_seisSchemeCombo->findData(static_cast<int>(kernel::TransientScheme::HHTAlpha));
+                    if (hhtIdx >= 0) dlg->m_seisSchemeCombo->setCurrentIndex(hhtIdx);
+                }
                 if (dlg->m_seisStepsSpin) dlg->m_seisStepsSpin->setValue(25);
                 dlg->onRunSeismicAsync();
                 waitForBackgroundSolvers();
 
                 if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(6);
+                if (dlg->m_nlMethodCombo) {
+                    const int nrIdx = dlg->m_nlMethodCombo->findData(static_cast<int>(kernel::NonlinearMethod::NewtonRaphson));
+                    if (nrIdx >= 0) dlg->m_nlMethodCombo->setCurrentIndex(nrIdx);
+                }
+                if (dlg->m_nlKinCombo) {
+                    const int coroIdx = dlg->m_nlKinCombo->findData(static_cast<int>(kernel::NonlinearKinematics::Corotational3D));
+                    if (coroIdx >= 0) dlg->m_nlKinCombo->setCurrentIndex(coroIdx);
+                }
+                if (dlg->m_nlFullNewtonCheck) dlg->m_nlFullNewtonCheck->setChecked(true);
+                if (dlg->m_nlLineSearchCheck) dlg->m_nlLineSearchCheck->setChecked(true);
                 if (dlg->m_nlStepsSpin) dlg->m_nlStepsSpin->setValue(4);
+
+                // O solver não linear corrotacional/J2 opera apenas sobre barras 1D; preserva/restaura
+                // temporariamente a malha contínua da Etapa 24 para que ambas as demonstrações E2E concluam.
+                const kernel::MeshContainer savedSurfaceMesh = m_mainWindow->m_model.surfaceMesh();
+                if (!savedSurfaceMesh.elements.empty()) {
+                    m_mainWindow->m_model.surfaceMesh() = kernel::MeshContainer{};
+                }
                 dlg->onRunNonlinearAsync();
                 waitForBackgroundSolvers();
+                dlg->onPlayNonlinearHistory();
+                if (!savedSurfaceMesh.elements.empty()) {
+                    m_mainWindow->m_model.surfaceMesh() = savedSurfaceMesh;
+                    if (m_mainWindow->m_lastSolverResult.continuumElementResults.empty()) {
+                        m_mainWindow->m_lastSolverResult.success = false;
+                    }
+                }
             }
             break;
         }
         case 28: {
             m_mainWindow->ensureStaticSolvedSync();
+            m_mainWindow->updateResultsTables();
             m_mainWindow->onOpenPostControls();
             m_activeDialogStep = 28;
             if (auto* dlg = m_mainWindow->m_postProcessControlDialog.data()) {
@@ -2814,6 +2929,10 @@ void GuidedSessionDialog::executeStepAction(int step) {
                 if (dlg->m_contourCombo) {
                     const int dispIdx = dlg->m_contourCombo->findData(static_cast<int>(Viewport3D::PostContourMode::Displacement));
                     if (dispIdx >= 0) dlg->m_contourCombo->setCurrentIndex(dispIdx);
+                    if (!m_mainWindow->m_model.surfaceMesh().elements.empty()) {
+                        const int vmIdx = dlg->m_contourCombo->findData(static_cast<int>(Viewport3D::PostContourMode::VonMisesStress));
+                        if (vmIdx >= 0) dlg->m_contourCombo->setCurrentIndex(vmIdx);
+                    }
                 }
                 if (dlg->m_showMeshCheck) dlg->m_showMeshCheck->setChecked(true);
                 if (dlg->m_clipAxisCombo) {
@@ -2879,8 +2998,8 @@ void GuidedSessionDialog::restoreSelectedExampleToInitialState() {
     }
 
     if (m_mainWindow->m_planeCombo) {
-        const int xzIdx = m_mainWindow->m_planeCombo->findData(static_cast<int>(WorkPlane::XZ_Frontal));
-        if (xzIdx >= 0) m_mainWindow->m_planeCombo->setCurrentIndex(xzIdx);
+        const int xyIdx = m_mainWindow->m_planeCombo->findData(static_cast<int>(WorkPlane::XY_Top));
+        if (xyIdx >= 0) m_mainWindow->m_planeCombo->setCurrentIndex(xyIdx);
     }
     if (m_mainWindow->m_planeOffsetSpin) m_mainWindow->m_planeOffsetSpin->setValue(0.0);
     if (m_mainWindow->m_gridStepSpin) m_mainWindow->m_gridStepSpin->setValue(0.5);

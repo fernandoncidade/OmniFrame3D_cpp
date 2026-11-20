@@ -292,7 +292,27 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         }
 
         if (!ok) {
-            // Se falhou em Auto ou pivô nulo, tenta fallback apenas para reportar falha limpa em LDLT
+            if (opts.allowFallback) {
+                bool luOk = false;
+                if (opts.ordering == SparseOrderingType::AMD) {
+                    luOk = solveWithCachedOrNewFactor(activeCache->m_impl->luAmd, LinearSolverType::SparseLU, SparseOrderingType::AMD);
+                } else if (opts.ordering == SparseOrderingType::Natural) {
+                    luOk = solveWithCachedOrNewFactor(activeCache->m_impl->luNat, LinearSolverType::SparseLU, SparseOrderingType::Natural);
+                } else {
+                    luOk = solveWithCachedOrNewFactor(activeCache->m_impl->luColamd, LinearSolverType::SparseLU, SparseOrderingType::COLAMD);
+                }
+                if (luOk) {
+                    stats.solverUsed = LinearSolverType::SparseLU;
+                    stats.message = "LDLT falhou; fallback seguro para SparseLU concluído com sucesso.";
+                    populatePivotDiagnosticsFromMatrix(A, stats);
+                    const auto tEndFallback = std::chrono::high_resolution_clock::now();
+                    stats.solveTimeMs = std::chrono::duration<double, std::milli>(tEndFallback - t0).count();
+                    if (stats.factorTimeMs <= 0.0) stats.factorTimeMs = stats.solveTimeMs;
+                    computeResidualStats(A, b, x, stats);
+                    stats.success = x.allFinite();
+                    return x;
+                }
+            }
             stats.success = false;
             stats.errorCode = "SINGULAR_MATRIX";
             stats.message = "Falha na fatoração LDLT (matriz singular, mecanismo ou pivô próximo de zero).";
@@ -301,6 +321,29 @@ VecX LinearSolverSuite::solve(const SpMat& A,
     } else if (chosen == LinearSolverType::SimplicialLLT) {
         auto& s = activeCache->m_impl->lltAmd;
         if (!solveWithCachedOrNewFactor(s, chosen, SparseOrderingType::AMD)) {
+            if (opts.allowFallback) {
+                // Fallback seguro para LDLT (matriz simétrica indefinida / pivô não-positivo) ou SparseLU
+                LinearSolverOptions fallbackOpts = opts;
+                fallbackOpts.type = sym ? LinearSolverType::SimplicialLDLT : LinearSolverType::SparseLU;
+                fallbackOpts.allowFallback = false;
+                LinearSolverStats fbStats;
+                VecX fbX = solve(A, b, fallbackOpts, fbStats, cache);
+                if (fbStats.success) {
+                    stats = fbStats;
+                    stats.message = "Cholesky LLT não aplicável (matriz não-SPD); fallback seguro para "
+                                  + std::string(sym ? "SimplicialLDLT" : "SparseLU") + " concluído.";
+                    return fbX;
+                }
+                if (sym) {
+                    fallbackOpts.type = LinearSolverType::SparseLU;
+                    fbX = solve(A, b, fallbackOpts, fbStats, cache);
+                    if (fbStats.success) {
+                        stats = fbStats;
+                        stats.message = "Cholesky LLT/LDLT falhou; fallback seguro para SparseLU concluído.";
+                        return fbX;
+                    }
+                }
+            }
             stats.success = false;
             stats.errorCode = "NOT_SPD";
             stats.message = "Falha na fatoração Cholesky LLT (matriz não é simétrica definida positiva).";

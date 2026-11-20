@@ -1,4 +1,5 @@
 #include "IfcInterop.hpp"
+#include "Utf8Path.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -374,7 +375,7 @@ bool IfcInterop::exportToFile(const std::string& filePath,
                               IfcGuidMap* guidMap,
                               IfcInteropReport* report)
 {
-    std::ofstream ofs(filePath, std::ios::binary);
+    std::ofstream ofs(pathFromUtf8(filePath), std::ios::binary);
     if (!ofs.is_open()) {
         if (report) {
             report->success = false;
@@ -624,7 +625,7 @@ bool IfcInterop::importFromFile(const std::string& filePath,
                                 IfcGuidMap* outGuidMap,
                                 IfcInteropReport* report)
 {
-    std::ifstream ifs(filePath, std::ios::binary);
+    std::ifstream ifs(pathFromUtf8(filePath), std::ios::binary);
     if (!ifs.is_open()) {
         if (report) {
             report->success = false;

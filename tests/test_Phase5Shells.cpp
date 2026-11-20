@@ -2,12 +2,15 @@
 #define ASSERT_TRUE(cond, msg) TEST_ASSERT((cond), (msg))
 #define ASSERT_NEAR(a, b, tol, msg) TEST_ASSERT(std::abs((a) - (b)) <= (tol), (msg))
 
+#include "core/StructuralModel.hpp"
 #include "kernel/analysis/BucklingSolver.hpp"
 #include "kernel/assembly/GlobalAssembler.hpp"
 #include "kernel/core/DofManager.hpp"
 #include "kernel/elements/ShellElements.hpp"
 #include "kernel/materials/LinearElasticMaterial.hpp"
+#include "kernel/mesh/MeshGenerator.hpp"
 #include "kernel/solver/LinearSolverSuite.hpp"
+#include "solver/FemSolver3D.hpp"
 
 #include <Eigen/Eigenvalues>
 #include <cmath>
@@ -528,6 +531,117 @@ void testPlateBucklingTimoshenkoAndConsistentMass() {
               << ", Mass=" << totalMassComputed << " t)\n";
 }
 
+void testUnifiedEndToEndShellPlateAndCoupledFrame() {
+    // 1) Fluxo integrado via StructuralModel::surfaceMesh() + FemSolver3D::solve() em placa Navier 4x4m
+    {
+        omniframe::StructuralModel plateModel;
+        plateModel.getMaterials().clear();
+        const int matId = plateModel.addMaterial(omniframe::Material::makeConcreteC30(1));
+        plateModel.surfaceMesh() = MeshGenerator::generateStructuredQuadGrid(
+            Vec3(0.0, 0.0, 0.0), Vec3(4.0, 0.0, 0.0), Vec3(0.0, 4.0, 0.0), 4, 4, false, "PlateQuad");
+
+        for (auto& mn : plateModel.surfaceMesh().nodes) {
+            const bool onEdge = (std::abs(mn.position.x()) < 1e-6 || std::abs(mn.position.x() - 4.0) < 1e-6 ||
+                                 std::abs(mn.position.y()) < 1e-6 || std::abs(mn.position.y() - 4.0) < 1e-6);
+            if (onEdge) {
+                mn.fixed = {true, true, true, false, false, false};
+            }
+        }
+        for (auto& me : plateModel.surfaceMesh().elements) {
+            me.materialId = matId;
+            me.thickness = 0.20;
+            me.normalPressure = -10.0; // 10 kPa em -Z
+        }
+
+        const omniframe::SolverResult res = omniframe::FemSolver3D::solve(plateModel);
+        ASSERT_TRUE(res.success, "Solver unificado deve resolver placa Quad4 isolada");
+        ASSERT_TRUE(res.totalSurfaceNodes == 25 && res.totalSurfaceElements == 16,
+                    "Contadores de superficie 2D devem refletir malha 4x4");
+        ASSERT_TRUE(res.maxNodalDisplacement > 0.0 && res.maxShellVonMises > 0.0,
+                    "Deslocamento maximo e tensao von Mises 2D devem ser positivos");
+        ASSERT_TRUE(res.continuumElementResults.size() == 16,
+                    "Resultados por elemento continuo devem estar preenchidos");
+        ASSERT_TRUE(res.equilibrium.isBalanced, "Placa 2D deve satisfazer equilibrio estatico global");
+
+        double centerW = 0.0;
+        for (const auto& mn : plateModel.surfaceMesh().nodes) {
+            ASSERT_TRUE(mn.hasResults, "Cada MeshNode deve receber displacement/reaction");
+            if (std::abs(mn.position.x() - 2.0) < 1e-6 && std::abs(mn.position.y() - 2.0) < 1e-6) {
+                centerW = std::abs(mn.displacement[2]);
+            }
+        }
+        const double E = 3.0e7, nu = 0.20, t = 0.20;
+        const double D = E * std::pow(t, 3) / (12.0 * (1.0 - nu * nu));
+        const double wNavier = navierSquarePlateCenterW(10.0, 4.0, D);
+        ASSERT_TRUE(centerW > 0.80 * wNavier && centerW < 1.25 * wNavier,
+                    "Flecha central E2E Quad4 deve acompanhar solucao analitica de Navier");
+    }
+
+    // 2) Acoplamento automatico 1D (4 pilares) + 2D (laje Quad4 no topo z=3m)
+    {
+        omniframe::StructuralModel coupledModel;
+        coupledModel.getMaterials().clear();
+        coupledModel.getCrossSections().clear();
+        const int matId = coupledModel.addMaterial(omniframe::Material::makeConcreteC30(1));
+        const int secId = coupledModel.addCrossSection(
+            omniframe::CrossSection::makeRectangular(1, "Pilar 30x30", 0.30, 0.30));
+
+        const std::array<std::pair<double, double>, 4> corners = {
+            std::make_pair(0.0, 0.0), std::make_pair(4.0, 0.0),
+            std::make_pair(4.0, 4.0), std::make_pair(0.0, 4.0)
+        };
+        std::vector<int> baseIds;
+        std::vector<int> topIds;
+        for (const auto& c : corners) {
+            const int b = coupledModel.addNode(c.first, c.second, 0.0);
+            const int t = coupledModel.addNode(c.first, c.second, 3.0);
+            if (auto* nb = coupledModel.findNode(b)) {
+                nb->support = omniframe::SupportRestraint::makeFixed();
+            }
+            coupledModel.addElement(b, t, matId, secId);
+            baseIds.push_back(b);
+            topIds.push_back(t);
+        }
+
+        coupledModel.surfaceMesh() = MeshGenerator::generateStructuredQuadGrid(
+            Vec3(0.0, 0.0, 3.0), Vec3(4.0, 0.0, 0.0), Vec3(0.0, 4.0, 0.0), 4, 4, false, "RoofSlab");
+        for (auto& me : coupledModel.surfaceMesh().elements) {
+            me.materialId = matId;
+            me.thickness = 0.20;
+            me.normalPressure = -12.0; // -12 kPa * 16 m2 = -192 kN total
+        }
+
+        const omniframe::SolverResult res = omniframe::FemSolver3D::solve(coupledModel);
+        ASSERT_TRUE(res.success, "Modelo acoplado 1D+2D deve convergir");
+        ASSERT_TRUE(res.totalNodes == 8 && res.totalElements == 4, "Pilares 1D devem permanecer contabilizados");
+        ASSERT_TRUE(res.totalSurfaceNodes == 25 && res.totalSurfaceElements == 16,
+                    "Laje 2D acoplada deve estar contabilizada");
+        ASSERT_TRUE(res.equilibrium.isBalanced, "Acoplamento 1D+2D deve fechar equilibrio estatico global");
+        ASSERT_TRUE(res.maxShellVonMises > 0.0, "Tensão von Mises da laje acoplada deve ser positiva");
+
+        double sumBaseRz = 0.0;
+        for (int b : baseIds) {
+            const auto* nb = coupledModel.findNode(b);
+            ASSERT_TRUE(nb != nullptr, "No da base deve existir");
+            sumBaseRz += nb->reaction[2];
+        }
+        ASSERT_NEAR(sumBaseRz, 192.0, 0.1,
+                    "Somatorio das reacoes verticais na base dos pilares deve equilibrar integralmente a pressao da laje");
+
+        const auto* top0 = coupledModel.findNode(topIds[0]);
+        ASSERT_TRUE(top0 != nullptr && top0->displacement[2] < 0.0,
+                    "Topo do pilar deve sofrer recalque axial compativel com a carga da laje");
+        for (const auto& mn : coupledModel.surfaceMesh().nodes) {
+            if ((mn.position - Vec3(0.0, 0.0, 3.0)).norm() < 1e-6) {
+                ASSERT_NEAR(mn.displacement[2], top0->displacement[2], 1e-10,
+                            "No coincidente da casca 2D deve compartilhar DOF exato com o topo do pilar 1D");
+            }
+        }
+    }
+
+    std::cout << "[OK] UnifiedE2E ShellPlate & CoupledFrame1D+2D\n";
+}
+
 } // namespace
 
 int main() {
@@ -536,6 +650,7 @@ int main() {
     testShearLockingThinNavierPlate();
     testScordelisLoCylindricalRoof();
     testPlateBucklingTimoshenkoAndConsistentMass();
-    std::cout << "\nTodos os testes da Fase 5 (Cascas TRI3-MITC3, QUAD4-MITC4/QM6, QUAD8) passaram!\n";
+    testUnifiedEndToEndShellPlateAndCoupledFrame();
+    std::cout << "\nTodos os testes da Fase 5 (Cascas TRI3-MITC3, QUAD4-MITC4/QM6, QUAD8 + Fluxo E2E) passaram!\n";
     return 0;
 }

@@ -286,48 +286,71 @@ void StructuralModel::deleteSelected() {
 ModelValidation StructuralModel::validate() const {
     ModelValidation res;
 
+    auto addError = [&](const std::string& code, const std::string& msg,
+                        const std::string& cat = "Model", const std::string& ent = "") {
+        res.valid = false;
+        res.errors.push_back(msg);
+        res.issues.push_back({IssueSeverity::Error, code, msg, cat, ent});
+    };
+    auto addWarning = [&](const std::string& code, const std::string& msg,
+                          const std::string& cat = "Model", const std::string& ent = "") {
+        res.warnings.push_back(msg);
+        res.issues.push_back({IssueSeverity::Warning, code, msg, cat, ent});
+    };
+
     auto isFiniteVec3 = [](const Vec3& v) {
         return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
     };
+    auto isFiniteKVec3 = [](const kernel::Vec3& v) {
+        return std::isfinite(v.x()) && std::isfinite(v.y()) && std::isfinite(v.z());
+    };
 
-    if (m_nodes.size() < 2) {
-        res.valid = false;
-        res.errors.push_back("O modelo precisa ter pelo menos 2 nós.");
-    }
+    const bool hasBars = !m_elements.empty();
+    const bool hasMesh = !m_surfaceMesh.elements.empty();
 
-    if (m_elements.empty()) {
-        res.valid = false;
-        res.errors.push_back("O modelo precisa ter pelo menos 1 barra.");
+    if (!hasBars && !hasMesh) {
+        if (m_nodes.size() < 2) {
+            addError("ERR_TOO_FEW_NODES", "O modelo precisa ter pelo menos 2 nós.", "Geometry");
+        }
+        addError("ERR_NO_ELEMENTS",
+                 "O modelo precisa ter pelo menos 1 barra ou 1 elemento de malha 2D/3D.",
+                 "Topology");
+    } else if (hasBars && !hasMesh && m_nodes.size() < 2) {
+        addError("ERR_TOO_FEW_NODES", "O modelo precisa ter pelo menos 2 nós.", "Geometry");
     }
 
     std::unordered_set<MaterialId> matIds;
     for (const auto& m : m_materials) {
         if (m.id <= 0 || !matIds.insert(m.id).second) {
-            res.valid = false;
-            res.errors.push_back("Material " + std::to_string(m.id) + " possui ID inválido ou duplicado.");
+            addError("ERR_MATERIAL_ID",
+                     "Material " + std::to_string(m.id) + " possui ID inválido ou duplicado.",
+                     "Material", std::to_string(m.id));
         }
         if (!std::isfinite(m.E) || m.E <= 0.0 ||
             !std::isfinite(m.nu) || m.nu <= -1.0 || m.nu >= 0.5 ||
             !std::isfinite(m.alpha) || m.alpha < 0.0 ||
             !std::isfinite(m.gamma) || m.gamma < 0.0 ||
             !std::isfinite(m.rho) || m.rho < 0.0) {
-            res.valid = false;
-            res.errors.push_back("Material " + std::to_string(m.id) + " possui parâmetros físicos inválidos.");
+            addError("ERR_MATERIAL_PARAMS",
+                     "Material " + std::to_string(m.id) + " possui parâmetros físicos inválidos.",
+                     "Material", std::to_string(m.id));
         }
     }
 
     std::unordered_set<SectionId> secIds;
     for (const auto& s : m_sections) {
         if (s.id <= 0 || !secIds.insert(s.id).second) {
-            res.valid = false;
-            res.errors.push_back("Seção " + std::to_string(s.id) + " possui ID inválido ou duplicado.");
+            addError("ERR_SECTION_ID",
+                     "Seção " + std::to_string(s.id) + " possui ID inválido ou duplicado.",
+                     "Section", std::to_string(s.id));
         }
         if (!std::isfinite(s.A) || s.A <= 0.0 ||
             !std::isfinite(s.Iy) || s.Iy <= 0.0 ||
             !std::isfinite(s.Iz) || s.Iz <= 0.0 ||
             !std::isfinite(s.J) || s.J <= 0.0) {
-            res.valid = false;
-            res.errors.push_back("Seção " + std::to_string(s.id) + " possui propriedades geométricas inválidas.");
+            addError("ERR_SECTION_PARAMS",
+                     "Seção " + std::to_string(s.id) + " possui propriedades geométricas inválidas.",
+                     "Section", std::to_string(s.id));
         }
     }
 
@@ -336,28 +359,27 @@ ModelValidation StructuralModel::validate() const {
     nodeIds.reserve(m_nodes.size());
     for (const auto& n : m_nodes) {
         if (n.id <= 0 || !nodeIds.insert(n.id).second) {
-            res.valid = false;
-            res.errors.push_back("Nó " + std::to_string(n.id) + " possui ID inválido ou duplicado.");
+            addError("ERR_NODE_ID",
+                     "Nó " + std::to_string(n.id) + " possui ID inválido ou duplicado.",
+                     "Node", std::to_string(n.id));
         }
         if (!isFiniteVec3(n.position) || !isFiniteVec3(n.load.force) || !isFiniteVec3(n.load.moment)) {
-            res.valid = false;
-            res.errors.push_back("Nó " + std::to_string(n.id) + " possui coordenadas ou forças não finitas.");
+            addError("ERR_NODE_NONFINITE",
+                     "Nó " + std::to_string(n.id) + " possui coordenadas ou forças não finitas.",
+                     "Node", std::to_string(n.id));
         }
         for (int i = 0; i < 6; ++i) {
             if (!std::isfinite(n.support.springStiffness[i]) || n.support.springStiffness[i] < 0.0 ||
                 !std::isfinite(n.support.prescribedValue[i])) {
-                res.valid = false;
-                res.errors.push_back("Nó " + std::to_string(n.id) + " possui molas ou recalques inválidos.");
+                addError("ERR_NODE_SUPPORT_PARAMS",
+                         "Nó " + std::to_string(n.id) + " possui molas ou recalques inválidos.",
+                         "BoundaryCondition", std::to_string(n.id));
                 break;
             }
         }
         if (n.isSupported()) {
             hasSupport = true;
         }
-    }
-    if (!hasSupport) {
-        res.valid = false;
-        res.errors.push_back("Nenhum apoio definido no modelo. A estrutura terá movimento de corpo rígido.");
     }
 
     std::unordered_set<NodeId> connectedNodes;
@@ -367,45 +389,298 @@ ModelValidation StructuralModel::validate() const {
 
     for (const auto& e : m_elements) {
         if (e.id <= 0 || !elemIds.insert(e.id).second) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " possui ID inválido ou duplicado.");
+            addError("ERR_ELEMENT_ID",
+                     "Barra " + std::to_string(e.id) + " possui ID inválido ou duplicado.",
+                     "Element", std::to_string(e.id));
         }
         const Node* n1 = findNode(e.nodeStart);
         const Node* n2 = findNode(e.nodeEnd);
         if (!n1 || !n2) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " conecta a nó inexistente.");
+            addError("ERR_ELEMENT_MISSING_NODE",
+                     "Barra " + std::to_string(e.id) + " conecta a nó inexistente.",
+                     "Topology", std::to_string(e.id));
             continue;
         }
         if (e.nodeStart == e.nodeEnd) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " tem comprimento nulo.");
+            addError("ERR_ELEMENT_ZERO_LEN",
+                     "Barra " + std::to_string(e.id) + " tem comprimento nulo.",
+                     "Geometry", std::to_string(e.id));
         }
         connectedNodes.insert(e.nodeStart);
         connectedNodes.insert(e.nodeEnd);
         double len = e.computeLength(*this);
         if (!std::isfinite(len) || len < 1e-6) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " tem comprimento nulo.");
+            addError("ERR_ELEMENT_ZERO_LEN",
+                     "Barra " + std::to_string(e.id) + " tem comprimento nulo.",
+                     "Geometry", std::to_string(e.id));
         }
         if (!std::isfinite(e.rollAngle) || !isFiniteVec3(e.distLoad.w) || !std::isfinite(e.thermalLoad.deltaT)) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " possui parâmetros numéricos não finitos.");
+            addError("ERR_ELEMENT_NONFINITE",
+                     "Barra " + std::to_string(e.id) + " possui parâmetros numéricos não finitos.",
+                     "Element", std::to_string(e.id));
         }
         if (!findMaterial(e.materialId)) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " referencia material inexistente.");
+            addError("ERR_ELEMENT_MISSING_MATERIAL",
+                     "Barra " + std::to_string(e.id) + " referencia material inexistente.",
+                     "Material", std::to_string(e.id));
         }
         if (!findCrossSection(e.sectionId)) {
-            res.valid = false;
-            res.errors.push_back("Barra " + std::to_string(e.id) + " referencia seção transversal inexistente.");
+            addError("ERR_ELEMENT_MISSING_SECTION",
+                     "Barra " + std::to_string(e.id) + " referencia seção transversal inexistente.",
+                     "Section", std::to_string(e.id));
         }
     }
 
+    // Validação da malha contínua 2D/3D (surfaceMesh)
+    std::unordered_map<NodeId, const kernel::MeshNode*> meshNodeMap;
+    meshNodeMap.reserve(m_surfaceMesh.nodes.size());
+    std::unordered_set<NodeId> connectedMeshNodes;
+    connectedMeshNodes.reserve(m_surfaceMesh.nodes.size());
+
+    for (const auto& mn : m_surfaceMesh.nodes) {
+        if (mn.id <= 0 || !meshNodeMap.emplace(mn.id, &mn).second) {
+            addError("ERR_MESH_NODE_ID",
+                     "Nó de malha M" + std::to_string(mn.id) + " possui ID inválido ou duplicado.",
+                     "SurfaceMesh", "M" + std::to_string(mn.id));
+        }
+        if (!isFiniteKVec3(mn.position) || !isFiniteKVec3(mn.nodalForce) || !isFiniteKVec3(mn.nodalMoment)) {
+            addError("ERR_MESH_NODE_NONFINITE",
+                     "Nó de malha M" + std::to_string(mn.id) + " possui coordenadas ou carregamentos não finitos.",
+                     "SurfaceMesh", "M" + std::to_string(mn.id));
+        }
+        for (int i = 0; i < 6; ++i) {
+            if (!std::isfinite(mn.springStiffness[i]) || mn.springStiffness[i] < 0.0 ||
+                !std::isfinite(mn.prescribedDisplacement[i])) {
+                addError("ERR_MESH_SUPPORT_PARAMS",
+                         "Nó de malha M" + std::to_string(mn.id) + " possui molas ou recalques inválidos.",
+                         "BoundaryCondition", "M" + std::to_string(mn.id));
+                break;
+            }
+        }
+        if (mn.isRestrained()) {
+            hasSupport = true;
+        }
+    }
+
+    auto minNodesForCell = [](kernel::MeshCellType t) -> size_t {
+        switch (t) {
+            case kernel::MeshCellType::Line2: return 2;
+            case kernel::MeshCellType::Tri3:  return 3;
+            case kernel::MeshCellType::Quad4: return 4;
+            case kernel::MeshCellType::Quad8: return 8;
+            case kernel::MeshCellType::Tet4:  return 4;
+            case kernel::MeshCellType::Tet10: return 10;
+            case kernel::MeshCellType::Hex8:  return 8;
+            case kernel::MeshCellType::Hex20: return 20;
+        }
+        return 3;
+    };
+
+    std::unordered_set<ElementId> meshElemIds;
+    meshElemIds.reserve(m_surfaceMesh.elements.size());
+    for (const auto& me : m_surfaceMesh.elements) {
+        if (me.id <= 0 || !meshElemIds.insert(me.id).second) {
+            addError("ERR_MESH_ELEM_ID",
+                     "Elemento de malha E" + std::to_string(me.id) + " possui ID inválido ou duplicado.",
+                     "SurfaceMesh", "E" + std::to_string(me.id));
+        }
+        const size_t reqN = minNodesForCell(me.type);
+        if (me.nodeIds.size() < reqN) {
+            addError("ERR_MESH_ELEM_NODES",
+                     "Elemento de malha E" + std::to_string(me.id) + " tem menos nós do que o exigido para sua topologia.",
+                     "SurfaceMesh", "E" + std::to_string(me.id));
+        }
+        for (NodeId nid : me.nodeIds) {
+            if (meshNodeMap.find(nid) == meshNodeMap.end()) {
+                addError("ERR_MESH_MISSING_NODE",
+                         "Elemento de malha E" + std::to_string(me.id) + " referencia nó de malha inexistente (" + std::to_string(nid) + ").",
+                         "SurfaceMesh", "E" + std::to_string(me.id));
+            } else {
+                connectedMeshNodes.insert(nid);
+            }
+        }
+        if (!findMaterial(me.materialId)) {
+            addError("ERR_MESH_MISSING_MATERIAL",
+                     "Elemento de malha E" + std::to_string(me.id) + " referencia material inexistente (" + std::to_string(me.materialId) + ").",
+                     "Material", "E" + std::to_string(me.id));
+        }
+        if (me.isShell() && (!std::isfinite(me.thickness) || me.thickness <= 1e-6)) {
+            addError("ERR_SHELL_THICKNESS",
+                     "Elemento de casca E" + std::to_string(me.id) + " possui espessura nula ou inválida.",
+                     "SurfaceMesh", "E" + std::to_string(me.id));
+        }
+        if (!std::isfinite(me.normalPressure) || !std::isfinite(me.deltaT) || !isFiniteKVec3(me.distributedLoad)) {
+            addError("ERR_MESH_NONFINITE_LOAD",
+                     "Elemento de malha E" + std::to_string(me.id) + " possui carregamento distribuído/térmico não finito.",
+                     "SurfaceMesh", "E" + std::to_string(me.id));
+        }
+    }
+
+    if (hasMesh) {
+        const auto qm = kernel::MeshGenerator::evaluateQuality(m_surfaceMesh);
+        if (qm.invertedOrDegenerateCount > 0) {
+            addError("ERR_MESH_DEGENERATE",
+                     "A malha 2D/3D contém " + std::to_string(qm.invertedOrDegenerateCount) +
+                     " elemento(s) invertido(s) ou degenerado(s) (Jacobiano mínimo = " +
+                     std::to_string(qm.minJacobian) + ").",
+                     "MeshQuality");
+        } else if (qm.maxAspectRatio > 25.0 || qm.maxSkewness > 0.88) {
+            addWarning("WARN_MESH_QUALITY",
+                       "Malha 2D/3D com distorção elevada (razão de aspecto máx. = " +
+                       std::to_string(qm.maxAspectRatio) + ", skewness máx. = " +
+                       std::to_string(qm.maxSkewness) + ").",
+                       "MeshQuality");
+        }
+        for (const auto& mn : m_surfaceMesh.nodes) {
+            if (connectedMeshNodes.find(mn.id) == connectedMeshNodes.end()) {
+                addWarning("WARN_MESH_ISOLATED_NODE",
+                           "Nó de malha M" + std::to_string(mn.id) + " não está conectado a nenhum elemento de malha.",
+                           "SurfaceMesh", "M" + std::to_string(mn.id));
+            }
+        }
+    }
+
+    if (!hasSupport) {
+        addError("ERR_NO_SUPPORT",
+                 "Nenhum apoio definido no modelo. A estrutura terá movimento de corpo rígido.",
+                 "BoundaryCondition");
+    }
+
+    // Nós 1D isolados (tolerando nós que coincidem com nós ativos da malha 2D/3D acoplada)
     for (const auto& n : m_nodes) {
-        if (connectedNodes.find(n.id) == connectedNodes.end()) {
-            res.valid = false;
-            res.errors.push_back("Nó " + std::to_string(n.id) + " está isolado sem nenhuma barra conectada.");
+        if (connectedNodes.find(n.id) != connectedNodes.end()) continue;
+        bool coupledToActiveMesh = false;
+        if (hasMesh) {
+            for (const auto& mn : m_surfaceMesh.nodes) {
+                if (connectedMeshNodes.find(mn.id) == connectedMeshNodes.end()) continue;
+                const double dx = n.position.x - mn.position.x();
+                const double dy = n.position.y - mn.position.y();
+                const double dz = n.position.z - mn.position.z();
+                if (dx * dx + dy * dy + dz * dz <= 1e-10) {
+                    coupledToActiveMesh = true;
+                    break;
+                }
+            }
+        }
+        if (!coupledToActiveMesh) {
+            addError("ERR_ISOLATED_NODE",
+                     "Nó " + std::to_string(n.id) + " está isolado sem nenhuma barra ou elemento conectado.",
+                     "Topology", std::to_string(n.id));
+        }
+    }
+
+    // Checagem de componentes desconectadas / subestruturas sem apoio
+    if ((hasBars || hasMesh) && res.valid) {
+        struct VNode {
+            bool isSupported = false;
+            bool isActive = false;
+            std::vector<size_t> adj;
+        };
+        std::vector<VNode> vNodes;
+        std::unordered_map<NodeId, size_t> barToV;
+        std::unordered_map<NodeId, size_t> meshToV;
+
+        auto quantKey = [](double x, double y, double z) -> std::string {
+            const long long qx = std::llround(x * 1e5);
+            const long long qy = std::llround(y * 1e5);
+            const long long qz = std::llround(z * 1e5);
+            return std::to_string(qx) + ":" + std::to_string(qy) + ":" + std::to_string(qz);
+        };
+        std::unordered_map<std::string, size_t> posToV;
+
+        for (const auto& n : m_nodes) {
+            const std::string key = quantKey(n.position.x, n.position.y, n.position.z);
+            auto it = posToV.find(key);
+            size_t idx = 0;
+            if (it == posToV.end()) {
+                idx = vNodes.size();
+                vNodes.push_back({n.isSupported(), connectedNodes.count(n.id) > 0, {}});
+                posToV[key] = idx;
+            } else {
+                idx = it->second;
+                vNodes[idx].isSupported = vNodes[idx].isSupported || n.isSupported();
+                vNodes[idx].isActive = vNodes[idx].isActive || (connectedNodes.count(n.id) > 0);
+            }
+            barToV[n.id] = idx;
+        }
+        for (const auto& mn : m_surfaceMesh.nodes) {
+            const std::string key = quantKey(mn.position.x(), mn.position.y(), mn.position.z());
+            auto it = posToV.find(key);
+            size_t idx = 0;
+            if (it == posToV.end()) {
+                idx = vNodes.size();
+                vNodes.push_back({mn.isRestrained(), connectedMeshNodes.count(mn.id) > 0, {}});
+                posToV[key] = idx;
+            } else {
+                idx = it->second;
+                vNodes[idx].isSupported = vNodes[idx].isSupported || mn.isRestrained();
+                vNodes[idx].isActive = vNodes[idx].isActive || (connectedMeshNodes.count(mn.id) > 0);
+            }
+            meshToV[mn.id] = idx;
+        }
+
+        auto linkV = [&](size_t a, size_t b) {
+            if (a != b) {
+                vNodes[a].adj.push_back(b);
+                vNodes[b].adj.push_back(a);
+            }
+        };
+        for (const auto& e : m_elements) {
+            auto i1 = barToV.find(e.nodeStart);
+            auto i2 = barToV.find(e.nodeEnd);
+            if (i1 != barToV.end() && i2 != barToV.end()) linkV(i1->second, i2->second);
+        }
+        for (const auto& me : m_surfaceMesh.elements) {
+            for (size_t k = 1; k < me.nodeIds.size(); ++k) {
+                auto i0 = meshToV.find(me.nodeIds[0]);
+                auto ik = meshToV.find(me.nodeIds[k]);
+                if (i0 != meshToV.end() && ik != meshToV.end()) linkV(i0->second, ik->second);
+            }
+        }
+        for (const auto& rl : m_rigidLinks) {
+            auto im = barToV.find(rl.masterNode);
+            auto is = barToV.find(rl.slaveNode);
+            if (im != barToV.end() && is != barToV.end()) linkV(im->second, is->second);
+        }
+        for (const auto& rd : m_rigidDiaphragms) {
+            auto im = barToV.find(rd.masterNode);
+            if (im == barToV.end()) continue;
+            for (NodeId sid : rd.slaveNodes) {
+                auto is = barToV.find(sid);
+                if (is != barToV.end()) linkV(im->second, is->second);
+            }
+        }
+
+        std::vector<bool> vis(vNodes.size(), false);
+        int activeComponents = 0;
+        for (size_t i = 0; i < vNodes.size(); ++i) {
+            if (vis[i] || !vNodes[i].isActive) continue;
+            ++activeComponents;
+            bool compSup = false;
+            std::vector<size_t> q{i};
+            vis[i] = true;
+            for (size_t head = 0; head < q.size(); ++head) {
+                size_t cur = q[head];
+                compSup = compSup || vNodes[cur].isSupported;
+                for (size_t nb : vNodes[cur].adj) {
+                    if (!vis[nb]) {
+                        vis[nb] = true;
+                        q.push_back(nb);
+                    }
+                }
+            }
+            if (!compSup) {
+                addError("ERR_UNRESTRAINED_COMPONENT",
+                         "Subestrutura/componente desconectada #" + std::to_string(activeComponents) +
+                         " não possui nenhum apoio (mecanismo de corpo rígido).",
+                         "Topology");
+            }
+        }
+        if (activeComponents > 1) {
+            addWarning("WARN_DISCONNECTED_COMPONENTS",
+                       "O modelo possui " + std::to_string(activeComponents) +
+                       " componentes estruturais desconectadas entre si.",
+                       "Topology");
         }
     }
 
@@ -591,6 +866,8 @@ void StructuralModel::clearAll() {
 void StructuralModel::clearResults() {
     for (auto& n : m_nodes) n.clearResults();
     for (auto& e : m_elements) e.clearResults();
+    for (auto& mn : m_surfaceMesh.nodes) mn.clearResults();
+    for (auto& me : m_surfaceMesh.elements) me.clearResults();
 }
 
 void StructuralModel::clearUndoHistory() {
