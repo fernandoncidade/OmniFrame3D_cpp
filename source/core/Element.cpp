@@ -1,5 +1,6 @@
 #include "Element.hpp"
 #include "StructuralModel.hpp"
+#include "kernel/elements/BeamTruss1D.hpp"
 #include <cmath>
 #include <vector>
 #include <Eigen/LU>
@@ -9,9 +10,9 @@ namespace omniframe {
 double Element::computeLength(const StructuralModel& model) const {
     const Node* n1 = model.findNode(nodeStart);
     const Node* n2 = model.findNode(nodeEnd);
-    if (!n1 || !n2) return 1.0;
+    if (!n1 || !n2) return 0.0;
     double len = n1->position.distanceTo(n2->position);
-    return std::max(len, 1e-6);
+    return std::isfinite(len) ? len : 0.0;
 }
 
 Vec3 Element::computeDirection(const StructuralModel& model) const {
@@ -19,7 +20,9 @@ Vec3 Element::computeDirection(const StructuralModel& model) const {
     const Node* n2 = model.findNode(nodeEnd);
     if (!n1 || !n2) return {1.0, 0.0, 0.0};
     Vec3 diff = n2->position - n1->position;
-    return diff.normalized();
+    double len = diff.norm();
+    if (!std::isfinite(len) || len <= 1e-12) return {1.0, 0.0, 0.0};
+    return diff / len;
 }
 
 Eigen::Matrix3d Element::computeRotationMatrix3x3(const StructuralModel& model) const {
@@ -137,58 +140,34 @@ Eigen::MatrixXd solveKbb(const Eigen::MatrixXd& Kbb, const Eigen::MatrixXd& rhs)
 
 } // namespace
 
+namespace {
+kernel::Beam1DProps makeBeamProps(const Element& elem, const StructuralModel& model, double L) {
+    const Material* mat = model.findMaterial(elem.materialId);
+    const CrossSection* sec = model.findCrossSection(elem.sectionId);
+    kernel::Beam1DProps p;
+    p.L = L;
+    p.E = mat ? mat->E : 2.0e8;
+    p.G = mat ? mat->G() : (p.E / (2.0 * (1.0 + 0.3)));
+    p.alpha = mat ? mat->alpha : 1.2e-5;
+    p.rhoConsistent = mat ? mat->consistentMassDensity() : 7.85;
+    p.gammaKNM3 = mat ? mat->gamma : 78.5;
+    p.A = sec ? sec->A : 0.08;
+    p.Iy = sec ? sec->Iy : 1e-3;
+    p.Iz = sec ? sec->Iz : 1e-3;
+    p.J = sec ? sec->J : 5e-4;
+    p.Asy = (sec && sec->Asy > 0.0) ? sec->Asy : ((5.0 / 6.0) * p.A);
+    p.Asz = (sec && sec->Asz > 0.0) ? sec->Asz : ((5.0 / 6.0) * p.A);
+    p.formulation = static_cast<kernel::Beam1DFormulation>(static_cast<int>(elem.formulation));
+    return p;
+}
+} // namespace
+
 Eigen::Matrix<double, 12, 12> Element::computeUncondensedLocalStiffnessMatrix(const StructuralModel& model) const {
     double L = computeLength(model);
-
-    const Material* mat = model.findMaterial(materialId);
-    double E = mat ? mat->E : 2.0e8;
-    double nu = mat ? mat->nu : 0.3;
-    double G = mat ? mat->G() : (E / (2.0 * (1.0 + nu)));
-
-    const CrossSection* sec = model.findCrossSection(sectionId);
-    double A = sec ? sec->A : 0.08;
-    double Iy = sec ? sec->Iy : 1e-3;
-    double Iz = sec ? sec->Iz : 1e-3;
-    double J = sec ? sec->J : 5e-4;
-
-    Eigen::Matrix<double, 12, 12> k0 = Eigen::Matrix<double, 12, 12>::Zero();
-
-    // 1. Rigidez Axial (DOFs 0 e 6)
-    double k_ax = (E * A) / L;
-    k0(0, 0) =  k_ax; k0(0, 6) = -k_ax;
-    k0(6, 0) = -k_ax; k0(6, 6) =  k_ax;
-
-    // 2. Rigidez à Torção (DOFs 3 e 9)
-    double k_tor = (G * J) / L;
-    k0(3, 3) =  k_tor; k0(3, 9) = -k_tor;
-    k0(9, 3) = -k_tor; k0(9, 9) =  k_tor;
-
-    // 3. Flexão no plano local x-y em torno do eixo local z (DOFs 1, 5, 7, 11)
-    double L2 = L * L;
-    double L3 = L2 * L;
-    double c1z = (12.0 * E * Iz) / L3;
-    double c2z = (6.0 * E * Iz) / L2;
-    double c3z = (4.0 * E * Iz) / L;
-    double c4z = (2.0 * E * Iz) / L;
-
-    k0(1, 1)  +=  c1z; k0(1, 5)  +=  c2z; k0(1, 7)  += -c1z; k0(1, 11) +=  c2z;
-    k0(5, 1)  +=  c2z; k0(5, 5)  +=  c3z; k0(5, 7)  += -c2z; k0(5, 11) +=  c4z;
-    k0(7, 1)  += -c1z; k0(7, 5)  += -c2z; k0(7, 7)  +=  c1z; k0(7, 11) += -c2z;
-    k0(11, 1) +=  c2z; k0(11, 5) +=  c4z; k0(11, 7) += -c2z; k0(11, 11) +=  c3z;
-
-    // 4. Flexão no plano local x-z em torno do eixo local y (DOFs 2, 4, 8, 10)
-    // Sinais com theta_y = -dw/dx:
-    double c1y = (12.0 * E * Iy) / L3;
-    double c2y = (6.0 * E * Iy) / L2;
-    double c3y = (4.0 * E * Iy) / L;
-    double c4y = (2.0 * E * Iy) / L;
-
-    k0(2, 2)  +=  c1y; k0(2, 4)  += -c2y; k0(2, 8)  += -c1y; k0(2, 10) += -c2y;
-    k0(4, 2)  += -c2y; k0(4, 4)  +=  c3y; k0(4, 8)  +=  c2y; k0(4, 10) +=  c4y;
-    k0(8, 2)  += -c1y; k0(8, 4)  +=  c2y; k0(8, 8)  +=  c1y; k0(8, 10) +=  c2y;
-    k0(10, 2) += -c2y; k0(10, 4) +=  c4y; k0(10, 8) +=  c2y; k0(10, 10) +=  c3y;
-
-    return k0;
+    if (!std::isfinite(L) || L <= 1e-12) {
+        return Eigen::Matrix<double, 12, 12>::Zero();
+    }
+    return kernel::BeamTruss1D::computeUncondensedLocalStiffness(makeBeamProps(*this, model, L));
 }
 
 Eigen::Matrix<double, 12, 12> Element::computeLocalStiffnessMatrix(const StructuralModel& model) const {
@@ -211,11 +190,6 @@ Eigen::Matrix<double, 12, 12> Element::computeLocalStiffnessMatrix(const Structu
                 kFinal(p.ret[i], p.ret[j]) = Kred(i, j);
             }
         }
-    }
-
-    // Mantém pequena rigidez diagonal residual para DOFs liberados evitando pivô nulo em nós rotulados
-    for (int idx : p.rel) {
-        kFinal(idx, idx) = 1e-9;
     }
 
     return kFinal;
@@ -252,17 +226,21 @@ Eigen::Matrix<double, 12, 1> Element::computeUncondensedLocalFixedEndForces(cons
     // 2. Flexão em x-y por qy
     if (std::abs(qLoc.y) > 1e-9) {
         f(1)  += -qLoc.y * L / 2.0;
-        f(5)  += -qLoc.y * L * L / 12.0;
         f(7)  += -qLoc.y * L / 2.0;
-        f(11) +=  qLoc.y * L * L / 12.0;
+        if (formulation != ElementFormulation::Truss3D) {
+            f(5)  += -qLoc.y * L * L / 12.0;
+            f(11) +=  qLoc.y * L * L / 12.0;
+        }
     }
 
     // 3. Flexão em x-z por qz
     if (std::abs(qLoc.z) > 1e-9) {
         f(2)  += -qLoc.z * L / 2.0;
-        f(4)  +=  qLoc.z * L * L / 12.0;
         f(8)  += -qLoc.z * L / 2.0;
-        f(10) += -qLoc.z * L * L / 12.0;
+        if (formulation != ElementFormulation::Truss3D) {
+            f(4)  +=  qLoc.z * L * L / 12.0;
+            f(10) += -qLoc.z * L * L / 12.0;
+        }
     }
 
     // 4. Variação Térmica deltaT
@@ -355,15 +333,9 @@ Eigen::Matrix<double, 12, 1> Element::computeGlobalFixedEndForces(const Structur
 InternalForces Element::evaluateAt(double xi, const StructuralModel& model) const {
     InternalForces res;
     double L = computeLength(model);
-    double x = std::clamp(xi, 0.0, 1.0) * L;
-    xi = std::clamp(xi, 0.0, 1.0);
-
-    const Material* mat = model.findMaterial(materialId);
-    double E = mat ? mat->E : 2.0e8;
-    const CrossSection* sec = model.findCrossSection(sectionId);
-    double A = sec ? sec->A : 0.08;
-    double Iy = sec ? sec->Iy : 1e-3;
-    double Iz = sec ? sec->Iz : 1e-3;
+    if (!std::isfinite(L) || L <= 1e-12) {
+        return res;
+    }
 
     // Cargas locais distribuídas
     Vec3 qLoc{0.0, 0.0, 0.0};
@@ -378,70 +350,21 @@ InternalForces Element::evaluateAt(double xi, const StructuralModel& model) cons
         }
     }
 
-    // Forças nas extremidades locais obtidas do solver:
-    // fLoc = [N1, Vy1, Vz1, Tx1, My1, Mz1, N2, Vy2, Vz2, Tx2, My2, Mz2]
-    double N1   = localEndForces(0);
-    double Vy1  = localEndForces(1);
-    double Vz1  = localEndForces(2);
-    double Tx1  = localEndForces(3);
-    double My1  = localEndForces(4);
-    double Mz1  = localEndForces(5);
+    const auto props = makeBeamProps(*this, model, L);
+    const auto ev = kernel::BeamTruss1D::evaluateLocalDistribution(
+        xi, props, {qLoc.x, qLoc.y, qLoc.z}, localDisplacements, localEndForces);
 
-    // Esforços internos no corte x:
-    res.N  = -N1 - qLoc.x * x;
-    res.Vy = -Vy1 - qLoc.y * x;
-    res.Vz = -Vz1 - qLoc.z * x;
-    res.Tx = -Tx1;
-    res.Mz = -Mz1 + Vy1 * x + 0.5 * qLoc.y * x * x;
-    res.My = -My1 - Vz1 * x - 0.5 * qLoc.z * x * x;
-
-    // Interpolação de Deslocamentos Locais via Polinômios Cúbicos de Hermite:
-    double u1   = localDisplacements(0);
-    double v1   = localDisplacements(1);
-    double w1   = localDisplacements(2);
-    double rotx1 = localDisplacements(3);
-    double th_y1 = localDisplacements(4); // theta_y = -dw/dx
-    double th_z1 = localDisplacements(5); // theta_z = +dv/dx
-
-    double u2   = localDisplacements(6);
-    double v2   = localDisplacements(7);
-    double w2   = localDisplacements(8);
-    double rotx2 = localDisplacements(9);
-    double th_y2 = localDisplacements(10);
-    double th_z2 = localDisplacements(11);
-    (void)rotx1;
-    (void)rotx2;
-
-    // Funções de forma de Hermite em xi in [0, 1]:
-    double N_1 = 1.0 - 3.0 * xi * xi + 2.0 * xi * xi * xi;
-    double N_2 = L * (xi - 2.0 * xi * xi + xi * xi * xi);
-    double N_3 = 3.0 * xi * xi - 2.0 * xi * xi * xi;
-    double N_4 = L * (-xi * xi + xi * xi * xi);
-
-    // Deslocamento axial u(x)
-    double ux = (1.0 - xi) * u1 + xi * u2;
-    if (std::abs(qLoc.x) > 1e-9 && E * A > 1e-6) {
-        ux += (qLoc.x * L * L) / (2.0 * E * A) * xi * (1.0 - xi);
-    }
-
-    // Deslocamento transversal local v(x) em y
-    double vy = N_1 * v1 + N_2 * th_z1 + N_3 * v2 + N_4 * th_z2;
-    if (std::abs(qLoc.y) > 1e-9 && E * Iz > 1e-6) {
-        vy += (qLoc.y * std::pow(L, 4)) / (24.0 * E * Iz) * (xi * xi) * std::pow(1.0 - xi, 2);
-    }
-
-    // Deslocamento transversal local w(x) em z (dw/dx = -th_y)
-    double wz = N_1 * w1 + N_2 * (-th_y1) + N_3 * w2 + N_4 * (-th_y2);
-    if (std::abs(qLoc.z) > 1e-9 && E * Iy > 1e-6) {
-        wz += (qLoc.z * std::pow(L, 4)) / (24.0 * E * Iy) * (xi * xi) * std::pow(1.0 - xi, 2);
-    }
-
-    res.defLocal = {ux, vy, wz};
+    res.N = ev.N;
+    res.Vy = ev.Vy;
+    res.Vz = ev.Vz;
+    res.Tx = ev.Tx;
+    res.My = ev.My;
+    res.Mz = ev.Mz;
+    res.defLocal = {ev.defLocal.x(), ev.defLocal.y(), ev.defLocal.z()};
 
     // Converte deslocamento local interpolado para coordenadas globais:
     Eigen::Matrix3d R = computeRotationMatrix3x3(model);
-    Eigen::Vector3d dLoc(ux, vy, wz);
-    Eigen::Vector3d dGlob = R.transpose() * dLoc;
+    Eigen::Vector3d dGlob = R.transpose() * ev.defLocal;
     res.defGlobal = {dGlob.x(), dGlob.y(), dGlob.z()};
 
     return res;

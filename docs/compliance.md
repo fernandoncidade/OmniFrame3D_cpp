@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Guia de Conformidade Normativa e Validação FEA
 
-**Versão:** `2026.11.13.0`  
-**Data:** `13 de novembro de 2026`  
+**Versão:** `2026.11.14.0`  
+**Data:** `14 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -28,29 +28,30 @@ Os resultados gerados pela aplicação fornecem os dados de entrada necessários
 
 | Norma Técnica | Jurisdição / Escopo | Aplicação no OmniFrame 3D |
 |---|---|---|
-| **ABNT NBR 8800:2008** | Brasil (Estruturas de Aço) | Análise elástica de primeira ordem para pórticos e treliças; extração de momentos fletores e forças axiais para verificação de instabilidade por flexo-compressão. |
-| **ABNT NBR 6118:2023** | Brasil (Estruturas de Concreto) | Modelagem elástica linear de pórticos espaciais e grelhas de edifícios; determinação de deslocamentos para avaliação de flechas e limites de vibração (ELS-DEF). |
-| **AISC 360-22** | Estados Unidos (Aço Estrutural) | Análise elástica preliminar de sistemas estruturais (Chapter C — Design for Stability); compatibilidade de rigidez para métodos de análise direta (Direct Analysis Method). |
-| **Eurocode 3 (EN 1993-1-1)** | União Europeia (Aço Estrutural) | Análise global elástica de estruturas espaciais; determinação de parâmetros de flambagem elástica de barras isoladas e pórticos contínuos. |
+| **ABNT NBR 6118:2023** | Brasil (`LocalPdfVerified` — Concreto) | Modelagem elástica linear de pórticos espaciais e grelhas; auxiliares de flexão ELU, verificação ELS (abertura de fissura / flecha) e combinações ELU/ELS verificados em PDF local. |
+| **ABNT NBR 6120:2019** | Brasil (`LocalPdfVerified` — Ações) | Pesos específicos, cargas acidentais de ocupação e parâmetros de ações variáveis verificados em PDF local. |
+| **ABNT NBR 6122:2022** | Brasil (`LocalPdfVerified` — Fundações) | Comparação de tensões em sapatas superficiais frente à tensão admissível do solo ($\sigma_{\text{adm}}$) verificada em PDF local. |
+| **ABNT NBR 6123:2023** | Brasil (`LocalPdfVerified` — Vento) | Velocidade básica $V_0$, fatores $S_1, S_2, S_3$, velocidade característica $V_k$ e pressão dinâmica $q$ verificados em PDF local. |
+| **ABNT NBR 7480:2022** | Brasil (`LocalPdfVerified` — Aço CA-50/CA-60) | Propriedades nominais de escoamento e massa linear de armaduras verificadas em PDF local. |
+| **ABNT NBR 8800:2024** | Brasil (`LocalPdfVerified` — Aço e Mistas) | Análise elástica/flambagem, coeficiente $\gamma_z$ / $B_2$, ponderações de resistência e checagens de tração/compressão/flexão/cortante verificadas em PDF local. |
+| **ABNT NBR 8681 / 14762 / 15421, AISC 360, EC3** | `OutOfLocalPdfScope` | Marcadas explicitamente como `OutOfLocalPdfScope` no relatório e em `NbrComplianceDialog` por ausência dos PDFs locais correspondentes; motores elásticos/dinâmicos/espectrais mantêm notas transparentes de rastreabilidade sem fabricar cláusulas não verificadas. |
 
 ---
 
-## 2. Requisitos para Análise Estrutural Elástica
+## 2. Escopo da Análise Estrutural e Auditoria Normativa
 
-### 2.1. ABNT NBR 8800:2008 — Análise Estrutural (Item 4.9)
-Conforme a NBR 8800:2008, a análise elástica de primeira ordem é válida para determinar as ações internas e deslocamentos de estruturas reticuladas, desde que os efeitos de segunda ordem (efeitos P-$\Delta$ e P-$\delta$) sejam avaliados ou desprezíveis ($\gamma_z \le 1,1$ ou $B_2 \le 1,1$). O OmniFrame 3D atende integralmente à formulação elástica matricial exigida no item 4.9.4.
+### 2.1. ABNT NBR 8800:2024 e NBR 6118:2023 — Linear, Segunda Ordem e Não Linearidade
+- **ABNT NBR 8800:2024:** Suporta análise elástica de primeira ordem, segunda ordem P-Delta / corrotacional geométrica, autovalores de flambagem linear ($\lambda_{cr}$) e plasticidade J2, além de verificações automáticas derivadas estritamente do PDF local da NBR 8800:2024.
+- **ABNT NBR 6118:2023:** Suporta análise espacial linear, parâmetros de concreto armado, multiplicadores de combinações ELU/ELS e checagens baseadas exclusivamente no PDF local da NBR 6118:2023.
 
-### 2.2. ABNT NBR 6118:2023 — Análise Linear (Item 14.5)
-A NBR 6118 admite a análise elástica linear baseada na teoria da elasticidade, assumindo comportamento linear dos materiais e seções com rigidezes equivalentes brutas ($EI$), adequada para a verificação de deslocamentos em serviço e distribuição inicial de esforços em vigas e pilares tridimensionais.
-
-### 2.3. AISC 360-22 — Elastic Analysis Framework
-O padrão norte-americano AISC 360-22 exige que a análise elástica espacial capture adequadamente todas as deformações axiais, de flexão e de torção, incluindo a compatibilidade cinemática em nós tridimensionais. O elemento espacial de 12 DOFs do OmniFrame 3D cumpre com exatidão as premissas mecânicas da AISC Specification.
+### 2.2. Vento, Cargas e Fundações (`NBR 6123:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 7480:2022`)
+- `NbrCodeChecks` avalia pressão dinâmica de vento $q = 0,613\,V_k^2$ (`NBR 6123:2023`), tensão de contato no solo frente a $\sigma_{\text{adm}}$ (`NBR 6122:2022`), parâmetros de carga (`NBR 6120:2019`) e propriedades do aço CA-50/CA-60 (`NBR 7480:2022`), sinalizando como **`OutOfLocalPdfScope`** qualquer norma ausente da biblioteca PDF local (`NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360-22`, `Eurocode 3`).
 
 ---
 
 ## 3. Casos de Teste Canônicos e Benchmarks Numéricos
 
-Para assegurar a máxima exatidão e confiabilidade, o solver FEA do OmniFrame 3D é validado contra soluções analíticas fechadas da Resistência dos Materiais e Teoria das Estruturas.
+Para assegurar a máxima exatidão e confiabilidade, o kernel FEA e a suíte de solvers do OmniFrame 3D são validados contra soluções analíticas fechadas em **20 testes automatizados CTest** (`ctest --preset testes-msvc-release --output-on-failure`).
 
 ### Benchmark 1: Viga em Balanço 3D sob Carga Transversal e Torção
 - **Propriedades Geométricas:** Comprimento $L = 6.0\text{ m}$; Seção tubular retangular ($A = 0.012\text{ m}^2$, $I_z = 8.5\times 10^{-5}\text{ m}^4$, $I_y = 4.2\times 10^{-5}\text{ m}^4$, $J = 9.8\times 10^{-5}\text{ m}^4$).
@@ -85,8 +86,8 @@ Para assegurar a máxima exatidão e confiabilidade, o solver FEA do OmniFrame 3
 
 # OmniFrame 3D — Normative Compliance & FEA Verification Benchmarks
 
-**Version:** `2026.11.13.0`  
-**Date:** `November 13, 2026`  
+**Version:** `2026.11.14.0`  
+**Date:** `November 14, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -99,29 +100,31 @@ The results generated by the application supply the required input data for chec
 
 | Technical Standard | Jurisdiction / Scope | Application in OmniFrame 3D |
 |---|---|---|
-| **ABNT NBR 8800:2008** | Brazil (Steel Structures) | First-order elastic analysis for space frames and trusses; recovery of bending moments and axial forces for flexural-torsional/buckling instability checks. |
-| **ABNT NBR 6118:2023** | Brazil (Concrete Structures) | Linear elastic modeling of 3D building frames and grids; displacement determination for deflection checks and vibration limits (SLS-DEF). |
-| **AISC 360-22** | United States (Structural Steel) | Preliminary elastic analysis of structural systems (Chapter C — Design for Stability); stiffness compatibility for the Direct Analysis Method. |
-| **Eurocode 3 (EN 1993-1-1)** | European Union (Structural Steel) | Global elastic analysis of spatial structures; determination of elastic buckling parameters for isolated members and continuous frames. |
+| **ABNT NBR 6118:2023** | `LocalPdfVerified` (Concrete Structures) | Linear elastic frame/grid modeling, flexural ULS equilibrium/design helpers, serviceability crack/deflection checks, and SLS/ULS combination handling verified against local PDF. |
+| **ABNT NBR 6120:2019** | `LocalPdfVerified` (Design Loads) | Self-weight unit weights, occupancy live load tables, and variable action parameters verified against local PDF. |
+| **ABNT NBR 6122:2022** | `LocalPdfVerified` (Foundations) | Shallow footing bearing pressure comparison against allowable soil stress ($\sigma_{\text{adm}}$) under SLS/characteristic reactions verified against local PDF. |
+| **ABNT NBR 6123:2023** | `LocalPdfVerified` (Wind Forces) | Basic wind speed $V_0$, topographic factor $S_1$, roughness/height factor $S_2$, statistical factor $S_3$, characteristic wind velocity $V_k$, and stagnation pressure $q$ verified against local PDF. |
+| **ABNT NBR 7480:2022** | `LocalPdfVerified` (Reinforcing Steel) | Rebar CA-50/CA-60 yield/mass specifications verified against local PDF. |
+| **ABNT NBR 8800:2024** | `LocalPdfVerified` (Steel & Composite) | Elastic/buckling structural analysis framework, stability index $\gamma_z$ / $B_2$, resistance factors, and member tension/compression/bending/shear checks verified against local PDF. |
+| **ABNT NBR 8681 / 14762 / 15421, AISC 360, EC3** | `OutOfLocalPdfScope` | Explicitly flagged as `OutOfLocalPdfScope` in normative audit reports and `NbrComplianceDialog` because reference PDFs for these standards are absent from the local library; elastic/dynamic/spectral engines provide transparent traceability notes without fabricating unverified normative clauses. |
 
 ---
 
-## 2. Requirements for Elastic Structural Analysis
+## 2. Requirements for Structural Analysis & Normative Audit Scope
 
-### 2.1. ABNT NBR 8800:2008 — Structural Analysis (Item 4.9)
-Under NBR 8800:2008, first-order elastic analysis is valid for determining internal forces and displacements in skeletal structures provided second-order effects (P-$\Delta$ and P-$\delta$) are evaluated or negligible ($\gamma_z \le 1.1$ or $B_2 \le 1.1$). OmniFrame 3D fully implements the matrix elastic formulation required in item 4.9.4.
+### 2.1. ABNT NBR 8800:2024 & NBR 6118:2023 — Linear, Second-Order & Nonlinear Modeling
+- **ABNT NBR 8800:2024:** Supports first-order elastic analysis, second-order P-Delta / geometric corotational nonlinearity, linearized buckling eigenvalues ($\lambda_{cr}$), and J2 plasticity material modeling alongside automated member checks derived solely from formulas verified in the local NBR 8800:2024 PDF.
+- **ABNT NBR 6118:2023:** Supports linear elastic spatial analysis, reinforced concrete property parameters, ULS/SLS combination multipliers, and automated section/crack/deflection checks grounded strictly in the local NBR 6118:2023 PDF.
 
-### 2.2. ABNT NBR 6118:2023 — Linear Analysis (Item 14.5)
-NBR 6118 permits linear elastic analysis grounded in elasticity theory, assuming linear material behavior and gross equivalent member stiffnesses ($EI$), suitable for serviceability deflection checks and initial internal force distribution in 3D beams and columns.
-
-### 2.3. AISC 360-22 — Elastic Analysis Framework
-The North American AISC 360-22 specification requires spatial elastic analysis to accurately capture all axial, flexural, and torsional deformations, including kinematic compatibility at 3D nodes. OmniFrame 3D's 12-DOF spatial element satisfies the mechanical assumptions of the AISC Specification exactly.
+### 2.2. Wind, Loads & Foundations (`NBR 6123:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 7480:2022`)
+- `NbrCodeChecks` evaluates characteristic wind pressure $q = 0.613\,V_k^2$ (`NBR 6123:2023`), soil footing contact pressure vs. $\sigma_{\text{adm}}$ (`NBR 6122:2022`), action references (`NBR 6120:2019`), and steel bar properties (`NBR 7480:2022`).
+- Any rule from standards not present in the local ABNT PDF bundle (`NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360-22`, `Eurocode 3`) is transparently marked **`OutOfLocalPdfScope`** both in `NbrComplianceDialog` and exported HTML/Markdown/PDF reports.
 
 ---
 
 ## 3. Canonical Test Cases & Numerical Benchmarks
 
-To ensure maximum accuracy and reliability, OmniFrame 3D's FEA solver is validated against closed-form analytical solutions from Mechanics of Materials and Structural Theory.
+To ensure maximum accuracy and reliability, OmniFrame 3D's FEA kernel and solver suite are validated against closed-form analytical solutions across **20 automated CTest binaries** (`ctest --preset testes-msvc-release --output-on-failure`).
 
 ### Benchmark 1: 3D Cantilever Beam under Transverse Load and Torsion
 - **Geometric Properties:** Span $L = 6.0\text{ m}$; Rectangular hollow tube ($A = 0.012\text{ m}^2$, $I_z = 8.5\times 10^{-5}\text{ m}^4$, $I_y = 4.2\times 10^{-5}\text{ m}^4$, $J = 9.8\times 10^{-5}\text{ m}^4$).

@@ -68,8 +68,8 @@ cmake --preset version-msvc-release && cmake --build --preset version-msvc-relea
 cmake --preset compile-language-msvc-release && cmake --build --preset compile-language-msvc-release
 cmake --preset testes-msvc-release && cmake --build --preset testes-msvc-release
 
-# Executar a suíte de validação estrutural e testes unitários
-ctest --test-dir build/Testes --output-on-failure
+# Executar a suíte de validação estrutural e testes unitários (20 alvos CTest)
+ctest --preset testes-msvc-release --output-on-failure
 ```
 
 Ou compilar via prompt de comando do desenvolvedor (`vcvars64.bat`):
@@ -85,11 +85,13 @@ cmake --build build/OmniFrame3D --config Release
 
 1. **Padrão de Linguagem:** C++23 moderno. Utilize `std::expected`, `std::span`, inicialização direta, lambdas e conceitos (`concepts`) onde apropriado.
 2. **Separação Rígida de Camadas:**
-   - `core/`: Modelo estrutural analítico, materiais, seções e nós (livre de dependências de interface de usuário).
-   - `solver/`: Montagem global da rigidez, tratamento de restrições por penalidade ou eliminação, solver esparso Eigen e pós-processamento de forças nodais equivalentes.
-   - `render/`: Shaders OpenGL 3.3 Core Profile, VBO/VAO/EBO, câmera de órbita 3D e algoritmos de raycasting.
-   - `ui/`: Interface Qt Widgets, docking, inspetores de propriedades e diálogos de edição.
-   - `io/`: Serialização e desserialização robusta em formato aberto `.omniframe` (JSON) e exportação de relatórios em HTML/Markdown.
+   - `kernel/`: Núcleo numérico puro em C++23 + Eigen 3.4.0 (`OmniFrameKernel`), estritamente livre de dependências Qt (`analysis/`, `assembly/`, `codes/`, `core/`, `elements/`, `geometry/`, `materials/`, `mesh/`, `postprocessing/`, `solver/`).
+   - `core/`: Modelo estrutural analítico, materiais, seções e nós (`OmniFrameCore`, neutro à UI).
+   - `solver/`: Ponte de orquestração conectando `StructuralModel` ao `OmniFrameKernel` (`FemSolver3D`).
+   - `render/`: Shaders OpenGL 3.3 Core Profile, VBO/VAO/EBO, câmera de órbita 3D, planos de corte, contornos DCR e algoritmos de raycasting.
+   - `ui/`: Interface Qt Widgets, docking, inspetores de propriedades editáveis em linha, sessão guiada (`GuidedSessionDialog`) e diálogos de engenharia modeless com gerenciamento `Z-Order`.
+   - `io/`: Serialização `.omniframe` (JSON Schema `2.1.0`), intercâmbio DXF/IFC4 e exportação de relatórios em HTML/Markdown/PDF A4.
+   - `cli/`: Executável headless `omniframe-cli.exe` compartilhando `OmniFrameCore` e `OmniFrameKernel`.
 3. **Gerenciamento de Memória e RAII:** Proibido o uso de ponteiros brutos proprietários (`new`/`delete` manuais). Utilize `std::unique_ptr`, `std::shared_ptr` ou gerenciamento por árvore de objetos `QObject`.
 4. **Tratamento de Exceções e Resiliência Numérica:** Condicionamento de matrizes singulares ou mecanismos estruturais devem ser detectados e sinalizados graciosamente ao usuário sem abortar a aplicação.
 
@@ -168,8 +170,8 @@ cmake --preset version-msvc-release && cmake --build --preset version-msvc-relea
 cmake --preset compile-language-msvc-release && cmake --build --preset compile-language-msvc-release
 cmake --preset testes-msvc-release && cmake --build --preset testes-msvc-release
 
-# Run structural validation suite and unit tests
-ctest --test-dir build/Testes --output-on-failure
+# Run structural validation suite and unit tests (20 CTest targets)
+ctest --preset testes-msvc-release --output-on-failure
 ```
 
 Or compile via Developer Command Prompt (`vcvars64.bat`):
@@ -185,11 +187,13 @@ cmake --build build/OmniFrame3D --config Release
 
 1. **Language Standard:** Modern C++23. Use `std::expected`, `std::span`, direct initialization, lambdas, and `concepts` where appropriate.
 2. **Strict Layer Separation:**
-   - `core/`: Analytical structural model, materials, cross-sections, and nodes (free of UI dependencies).
-   - `solver/`: Global stiffness assembly, penalty or elimination constraint handling, Eigen sparse solver, and equivalent nodal force post-processing.
-   - `render/`: OpenGL 3.3 Core Profile shaders, VBO/VAO/EBO, 3D orbit camera, and raycasting algorithms.
-   - `ui/`: Qt Widgets interface, docking, property inspectors, and editing dialogs.
-   - `io/`: Resilient JSON serialization and deserialization in open `.omniframe` format plus HTML/Markdown report export.
+   - `kernel/`: Pure C++23 + Eigen 3.4.0 computational library (`OmniFrameKernel`), strictly Qt-free (`analysis/`, `assembly/`, `codes/`, `core/`, `elements/`, `geometry/`, `materials/`, `mesh/`, `postprocessing/`, `solver/`).
+   - `core/`: Analytical structural model, materials, cross-sections, and nodes (`OmniFrameCore`, UI-neutral).
+   - `solver/`: Orchestration bridge connecting `StructuralModel` to `OmniFrameKernel` (`FemSolver3D`).
+   - `render/`: OpenGL 3.3 Core Profile shaders, VBO/VAO/EBO, 3D orbit camera, clip planes, DCR contours, and raycasting algorithms.
+   - `ui/`: Qt Widgets interface, docking, inline-editable property inspectors, guided session (`GuidedSessionDialog`), and modeless engineering dialogs with `Z-Order` management.
+   - `io/`: `.omniframe` JSON Schema `2.1.0` serialization, DXF/IFC4 interoperability, and HTML/Markdown/A4 PDF report export.
+   - `cli/`: Dedicated headless binary `omniframe-cli.exe` sharing `OmniFrameCore` and `OmniFrameKernel`.
 3. **Memory Management & RAII:** Manual owning raw pointers (`new`/`delete`) are prohibited. Use `std::unique_ptr`, `std::shared_ptr`, or `QObject` parent-child object tree ownership.
 4. **Exception Handling & Numerical Resilience:** Singular matrix conditioning or structural mechanisms must be detected and gracefully reported to the user without aborting the application.
 

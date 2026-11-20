@@ -4,10 +4,12 @@
 #include "locale/GerenciadorTraducao.hpp"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QDialog>
 #include <QDockWidget>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QLayout>
 #include <QRect>
 #include <QScreen>
 #include <QWidget>
@@ -76,15 +78,25 @@ void WindowZOrderManager::registerDockWidget(QDockWidget* dock) {
     }
 
     m_docks.append(dock);
-    registerWindow(dock);
+    if (dock->isFloating()) {
+        registerWindow(dock);
+    }
     connect(dock, &QDockWidget::topLevelChanged, this, [this, dockPtr = QPointer<QDockWidget>(dock)](bool floating) {
         if (!dockPtr) {
             return;
         }
         if (floating) {
+            registerWindow(dockPtr.data());
             bringToFront(dockPtr.data(), true);
-        } else if (m_rootWindow) {
-            bringToFront(m_rootWindow.data(), false);
+        } else {
+            for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
+                if (m_zOrderStack[i].data() == dockPtr.data()) {
+                    m_zOrderStack.removeAt(i);
+                }
+            }
+            if (m_rootWindow) {
+                bringToFront(m_rootWindow.data(), false);
+            }
         }
     });
 }
@@ -103,7 +115,7 @@ void WindowZOrderManager::prepareModelessDialog(QDialog* dlg, bool resizable, bo
     // alternem livremente sua profundidade no eixo Z (sobreposicao bidirecional).
     if (dlg->parentWidget() != nullptr) {
         dlg->setParent(nullptr, flags);
-    } else {
+    } else if (dlg->windowFlags() != flags) {
         dlg->setWindowFlags(flags);
     }
 
@@ -121,7 +133,6 @@ void WindowZOrderManager::prepareModelessDialog(QDialog* dlg, bool resizable, bo
 
     positionDialogOverRoot(dlg);
     registerWindow(dlg);
-    ThemeManager::instance().applyWindowChrome(dlg);
 }
 
 void WindowZOrderManager::positionDialogOverRoot(QDialog* dlg) {
@@ -129,8 +140,14 @@ void WindowZOrderManager::positionDialogOverRoot(QDialog* dlg) {
         return;
     }
 
-    dlg->adjustSize();
-    const QSize hint = dlg->size().expandedTo(dlg->sizeHint());
+    dlg->ensurePolished();
+    if (dlg->layout()) {
+        dlg->layout()->activate();
+    }
+    const QSize layoutHint = dlg->sizeHint().expandedTo(dlg->minimumSizeHint());
+    const QSize hint = dlg->testAttribute(Qt::WA_Resized)
+        ? dlg->size().expandedTo(layoutHint)
+        : layoutHint;
 
     QRect anchorRect;
     if (m_rootWindow && m_rootWindow->isVisible()) {
@@ -186,6 +203,12 @@ void WindowZOrderManager::bringToFront(QWidget* window, bool activateFocus) {
 
     m_updatingZOrder = true;
     pruneInvalidWindows();
+
+    const bool alreadyOnTop = (!m_zOrderStack.isEmpty() && m_zOrderStack.last().data() == target);
+    if (alreadyOnTop && (!activateFocus || target->isActiveWindow())) {
+        m_updatingZOrder = false;
+        return;
+    }
 
     for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
         if (m_zOrderStack[i].data() == target) {
@@ -294,18 +317,39 @@ QWidget* WindowZOrderManager::resolveManagedWindow(QWidget* widget) const {
         return nullptr;
     }
 
-    // Verifica se o clique ocorreu dentro de um QDockWidget flutuante
+    // Sobe na cadeia de ancestrais para resolver inclusive Qt::Popup / QComboBox
+    // e controles internos de QDockWidget flutuantes para sua janela dona correta.
     for (QWidget* walk = widget; walk != nullptr; walk = walk->parentWidget()) {
         for (const auto& dockPtr : m_docks) {
-            if (dockPtr && dockPtr.data() == walk && dockPtr->isFloating()) {
-                return dockPtr.data();
+            if (dockPtr && dockPtr.data() == walk) {
+                return dockPtr->isFloating() ? static_cast<QWidget*>(dockPtr.data()) : m_rootWindow.data();
+            }
+        }
+        for (const auto& ptr : m_zOrderStack) {
+            if (ptr && ptr.data() == walk) {
+                if (auto* dock = qobject_cast<QDockWidget*>(walk)) {
+                    if (!dock->isFloating()) {
+                        return m_rootWindow.data();
+                    }
+                }
+                return ptr.data();
             }
         }
     }
 
     QWidget* top = widget->window();
+    for (const auto& dockPtr : m_docks) {
+        if (dockPtr && dockPtr.data() == top) {
+            return dockPtr->isFloating() ? static_cast<QWidget*>(dockPtr.data()) : m_rootWindow.data();
+        }
+    }
     for (const auto& ptr : m_zOrderStack) {
         if (ptr && (ptr.data() == top || ptr.data() == widget)) {
+            if (auto* dock = qobject_cast<QDockWidget*>(ptr.data())) {
+                if (!dock->isFloating()) {
+                    return m_rootWindow.data();
+                }
+            }
             return ptr.data();
         }
     }
@@ -318,7 +362,7 @@ bool WindowZOrderManager::eventFilter(QObject* watched, QEvent* event) {
     }
 
     const QEvent::Type t = event->type();
-    if (t == QEvent::Show || t == QEvent::WinIdChange) {
+    if (t == QEvent::WinIdChange) {
         if (auto* widget = qobject_cast<QWidget*>(watched)) {
             if (widget->isWindow()) {
                 ThemeManager::instance().applyWindowChrome(widget);
@@ -332,10 +376,48 @@ bool WindowZOrderManager::eventFilter(QObject* watched, QEvent* event) {
 
     if (t == QEvent::MouseButtonPress ||
         t == QEvent::NonClientAreaMouseButtonPress ||
-        t == QEvent::WindowActivate ||
-        t == QEvent::Show) {
+        t == QEvent::WindowActivate) {
+        if (QApplication::activePopupWidget() != nullptr) {
+            return QObject::eventFilter(watched, event);
+        }
         if (auto* widget = qobject_cast<QWidget*>(watched)) {
+            QWidget* topWin = widget->window();
+            const Qt::WindowType topType = topWin ? topWin->windowType() : Qt::Widget;
+            if (topType == Qt::Popup || topType == Qt::ToolTip || topType == Qt::SplashScreen) {
+                return QObject::eventFilter(watched, event);
+            }
+            if (t == QEvent::WindowActivate && (!widget->isWindow() || widget != topWin)) {
+                return QObject::eventFilter(watched, event);
+            }
+            bool insideComboBox = false;
+            for (QWidget* w = widget; w != nullptr; w = w->parentWidget()) {
+                if (qobject_cast<QComboBox*>(w)) {
+                    insideComboBox = true;
+                    break;
+                }
+                if (w->isWindow()) {
+                    break;
+                }
+            }
             if (QWidget* managed = resolveManagedWindow(widget)) {
+                if (insideComboBox && t == QEvent::MouseButtonPress && managed->isActiveWindow()) {
+                    m_updatingZOrder = true;
+                    pruneInvalidWindows();
+                    const bool alreadyOnTop = (!m_zOrderStack.isEmpty() && m_zOrderStack.last().data() == managed);
+                    if (!alreadyOnTop) {
+                        for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
+                            if (m_zOrderStack[i].data() == managed) {
+                                m_zOrderStack.removeAt(i);
+                            }
+                        }
+                        m_zOrderStack.append(managed);
+                        m_updatingZOrder = false;
+                        emit zOrderChanged(zOrderStack());
+                    } else {
+                        m_updatingZOrder = false;
+                    }
+                    return QObject::eventFilter(watched, event);
+                }
                 const bool shouldActivate = (t == QEvent::MouseButtonPress ||
                                              t == QEvent::NonClientAreaMouseButtonPress);
                 bringToFront(managed, shouldActivate);

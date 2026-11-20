@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Arquitetura de Sistema e Especificações Técnicas
 
-**Versão:** `2026.11.13.0`  
-**Data:** `13 de novembro de 2026`  
+**Versão:** `2026.11.14.0`  
+**Data:** `14 de novembro de 2026`  
 **Padrão:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Plataforma Alvo:** Windows 11 / Windows 10 x64  
 **Autor:** Fernando Nillsson Cidade  
@@ -24,64 +24,41 @@
 
 ## 1. Filosofia Arquitetural e Visão Geral em Camadas
 
-O **OmniFrame 3D** foi projetado para combinar alto desempenho computacional com independência e transparência científica. A arquitetura obedece a um desacoplamento estrito entre a formulação mecânica de elementos finitos, a renderização gráfica acelerada por hardware e a interface gráfica com o usuário:
+O **OmniFrame 3D** combina alto desempenho computacional com independência e transparência científica, adotando separação rigorosa entre o núcleo numérico puro (`OmniFrameKernel`, em C++23 + Eigen 3.4.0 sem dependências Qt), a camada de projeto/solver/IO (`OmniFrameCore`), a interface gráfica desktop (`OmniFrame.exe` com Qt 6.11.1 + OpenGL 3.3 Core) e a interface de linha de comando (`omniframe-cli.exe`):
 
 ```
 +-------------------------------------------------------------------------+
-|                        CAMADA DE APRESENTAÇÃO (UI)                      |
-|                     (Qt 6.11.1 Widgets, QDockWidget, DWM)               |
-|                                                                         |
-|  MainWindow  |  PropertyInspector  |  NodeTableWidget  |  ElementTable  |
-|  MaterialDialog  |  SectionDialog  |  LoadDialog  |  BoundaryDialog     |
+|                        CAMADA DE APRESENTAÇÃO / CLI                     |
+|           OmniFrame.exe (Qt 6.11.1, DWM)  |  omniframe-cli.exe          |
+|   MainWindow   |   EngineeringDialogs   |   GuidedSessionDialog (F2)    |
+|      Dialogs      |       ManualDialog       |       AboutDialog        |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
 |                    VIEWPORT GRÁFICA 3D (RENDER ENGINE)                  |
-|                   (Modern OpenGL 3.3 Core, GLSL 330)                    |
-|                                                                         |
-|  Viewport3D  |  Camera3D (Orbital)  |  ShaderCollection (Phong Shaders) |
-|  VAO/VBO/EBO Buffers  |  Raycasting 3D Picking  |  Color Gradient Maps  |
+|            Modern OpenGL 3.3 Core, GLSL 330, SSAA/MSAA/SDF              |
+|  Viewport3D | Camera3D | ShaderCollection | Clip Plane | DCR | Animacao |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
-|                   SOLVER E MECÂNICA COMPUTACIONAL (FEA)                 |
-|                      (FemSolver3D & Eigen 3.4.0 Sparse)                 |
-|                                                                         |
+|              NÚCLEO NUMÉRICO PURO (OmniFrameKernel - Zero Qt)           |
+|                      (C++23 + Eigen 3.4.0 Sparse)                       |
 |  +------------------------+  +---------------------------------------+  |
-|  |  Matriz Local 12x12    |  |  Transformação Global 3D              |  |
-|  |  - Rigidez Axial EA/L  |  |  - Eixos Locais x, y, z               |  |
-|  |  - Torção GJ/L         |  |  - Ângulo de Roll (psi)               |  |
-|  |  - Flexão Biaxial EI/L |  |  - Matriz de Rotação Ortogonal [T]    |  |
-|  +------------------------+  +---------------------------------------+  |
-|  +------------------------+  +---------------------------------------+  |
-|  |  Montagem Global       |  |  Resolução Numérica Direta            |  |
-|  |  - Matriz Esparsa [K]  |  |  - Cholesky (SimplicialLDLT)          |  |
-|  |  - Vetor de Forças {F} |  |  - Eliminação / Condensação Cinemática|  |
-|  |  - Forças Equivalentes |  |  - Detecção de Mecanismos / Singulares|  |
-|  +------------------------+  +---------------------------------------+  |
-|  +------------------------+  +---------------------------------------+  |
-|  |  Pós-Processamento     |  |  Interpolação de Esforços             |  |
-|  |  - Deslocamentos Nodais|  |  - Polinômios Cúbicos de Hermite      |  |
-|  |  - Ações Extremas      |  |  - Diagramas Contínuos N, V, M, T     |  |
+|  |  Elementos & Materiais |  |  Suíte de Análise & Solvers           |  |
+|  |  - BeamTruss1D/Corot1D |  |  - LinearSolverSuite (LDLT/LLT/LU/CG) |  |
+|  |  - ShellElements (2D)  |  |  - BucklingSolver / DynamicSolver     |  |
+|  |  - SolidElements (3D)  |  |  - NonlinearSolver (P-Delta/NR/ArcLen)|  |
+|  |  - LinearElastic / J2  |  |  - NbrCodeChecks / MeshGenerator      |  |
 |  +------------------------+  +---------------------------------------+  |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
-|                      MODELO DE DADOS E TOPOLOGIA                        |
-|                         (StructuralModel C++23)                         |
-|                                                                         |
-|    Node (6 DOFs)  |  Element (Barras)  |  CrossSection  |  Material     |
-+-------------------------------------------------------------------------+
-                                    |
-                                    v
-+-------------------------------------------------------------------------+
-|                     SERIALIZAÇÃO E PERSISTÊNCIA (I/O)                   |
-|                       (ProjectSerializer - Formato .omniframe)          |
-|                                                                         |
-|      JSON Estruturado  |  Validação Estrita de Esquemas  |  Local-First |
+|               MODELO E INTEROPERABILIDADE (OmniFrameCore)               |
+|  StructuralModel | LoadSystem | ProjectSerializer (.omniframe 2.1.0)    |
+|  DxfInterop (.dxf) | IfcInterop (.ifc4) | PdfReportGenerator (PDF/MD)   |
 +-------------------------------------------------------------------------+
 ```
 
@@ -137,19 +114,18 @@ $$[K_e] = [T]^T [k_e] [T]$$
 
 ---
 
-## 3. Resolução do Sistema Global e Solver Esparso
+## 3. Resolução do Sistema Global, Suíte de Solvers & Análises Avançadas
 
-A montagem do sistema global $[K] \{U\} = \{F\}$ é realizada utilizando armazenamento esparso comprimido em colunas (`Eigen::SparseMatrix<double>`).
+A montagem do sistema global $[K] \{U\} = \{F\}$ utiliza armazenamento esparso comprimido em colunas (`Eigen::SparseMatrix<double>`) dentro de `OmniFrameKernel` (`GlobalAssembler` e `DofManager`).
 
 ### 3.1. Condições de Contorno e Restrições Cinemáticas
-Graus de liberdade com deslocamento prescrito $u_k = \bar{u}_k$ são tratados por substituição direta e condensação, garantindo a preservação da simetria estrita da matriz $[K]$ e permitindo o cálculo exato das reações de apoio:
+Graus de liberdade com deslocamento prescrito $u_k = \bar{u}_k$ e molas elásticas são tratados com preservação da simetria estrita da matriz $[K]$ e cálculo exato das reações de apoio:
 $$\{R_{apoio}\} = [K_{livre-prescrito}]^T \{U_{livre}\} - \{F_{prescrito}\}$$
 
-### 3.2. Solver Direto de Cholesky (`SimplicialLDLT`)
-Utiliza-se a fatoração $P K P^T = L D L^T$:
-1. **Reordenação Simbólica:** Minimização de preenchimento (*fill-in*) via algoritmo AMD (Approximate Minimum Degree).
-2. **Fatoração Numérica:** Decomposição esparsa sem extração de raiz quadrada, estável para matrizes semi-definidas ou com pivôs pequenos.
-3. **Detecção de Mecanismos:** Caso a matriz seja singular (determinante nulo ou autovalores negativos resultantes de nós soltos ou falta de vínculos estáveis), o solver reporta imediatamente a inconsistência cinemática ao usuário.
+### 3.2. Suíte de Solvers (`LinearSolverSuite`) e Solvers Não Lineares / Dinâmicos
+- **Solvers Lineares (`LinearSolverSuite`):** `SimplicialLDLT` (padrão, com reordenação simbólica AMD), `SimplicialLLT`, `SparseLU`, `ConjugateGradient` e `BiCGSTAB`, com detecção imediata de mecanismos cinemáticos e singularidades.
+- **Análises Avançadas:** Autovalores/autovetores **Modais** e **Flambagem Linear** (`BucklingSolver`), varredura **Harmônica FRF** e **Espectro de Resposta** (`DynamicSolver`), **P-Delta / Corrotacional** (`Corotational1D`, `NonlinearSolver` Newton-Raphson & Arc-Length) e **Plasticidade J2** (`J2PlasticityMaterial`: $\sigma_y, H_{iso}, H_{kin}$).
+- **Execução Assíncrona:** A interface gráfica executa o solver sobre cópia profunda de `StructuralModel` em *worker thread* (`QThread::create`) sem bloquear o *event loop*.
 
 ---
 
@@ -173,12 +149,11 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 
 ---
 
-## 6. Persistência em Formato Aberto `.omniframe` e Exportação
+## 6. Persistência em `.omniframe` (Schema 2.1.0), Interoperabilidade & Relatórios
 
-O formato `.omniframe` é baseado em JSON estrito com codificação UTF-8 (além de exportação de relatórios técnicos em HTML e Markdown):
-- Estrutura hierárquica legível por humanos (`materials`, `sections`, `nodes`, `elements`, `combinations`).
-- Validação estrita de coordenadas finitas (`std::isfinite`), prevenindo `NaN` ou `Inf`.
-- Compatibilidade universal para versionamento em Git.
+- **Formato `.omniframe` (Schema `2.1.0`, retrocompatível com `1.0` e `2.0`):** JSON UTF-8 auditável (`materials` com $\rho$ e plasticidade J2, `sections`, `nodes`, `elements`, casos e combinações `LoadSystem`, análises avançadas e parâmetros ABNT).
+- **Interoperabilidade & Exportação:** Importação/exportação bidirecional **DXF** (`DxfInterop`) e **IFC4** (`IfcInterop`), exportação **CSV** / **VTK**, auditoria normativa **ABNT NBR** (`NbrCodeChecks`: escopo `LocalPdfVerified` para `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` para normas ausentes) e geração de relatórios em **HTML**, **Markdown** e **PDF executivo A4** (`PdfReportGenerator`).
+- **Validação estrita:** Checagem de finitude (`std::isfinite`) e topologia consistente no carregamento.
 
 </details>
 
@@ -191,8 +166,8 @@ O formato `.omniframe` é baseado em JSON estrito com codificação UTF-8 (além
 
 # OmniFrame 3D — System Architecture & Technical Specifications
 
-**Version:** `2026.11.13.0`  
-**Date:** `November 13, 2026`  
+**Version:** `2026.11.14.0`  
+**Date:** `November 14, 2026`  
 **Standards:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Target Platform:** Windows 11 / Windows 10 x64  
 **Author:** Fernando Nillsson Cidade  
@@ -201,64 +176,41 @@ O formato `.omniframe` é baseado em JSON estrito com codificação UTF-8 (além
 
 ## 1. Architectural Philosophy and Layered Design
 
-**OmniFrame 3D** is engineered to combine high computational performance with scientific independence and transparency. The architecture enforces strict decoupling between finite element mechanics, hardware-accelerated graphics rendering, and the graphical user interface:
+**OmniFrame 3D** combines high computational performance with scientific independence and transparency, enforcing strict decoupling between its Qt-free numerical kernel (`OmniFrameKernel` — C++23 + Eigen 3.4.0), project/solver/IO core (`OmniFrameCore`), desktop GUI (`OmniFrame.exe` — Qt 6.11.1 + OpenGL 3.3 Core), and headless CLI (`omniframe-cli.exe`):
 
 ```
 +-------------------------------------------------------------------------+
-|                        PRESENTATION LAYER (UI)                          |
-|                     (Qt 6.11.1 Widgets, QDockWidget, DWM)               |
-|                                                                         |
-|  MainWindow  |  PropertyInspector  |  NodeTableWidget  |  ElementTable  |
-|  MaterialDialog  |  SectionDialog  |  LoadDialog  |  BoundaryDialog     |
+|                        PRESENTATION / CLI LAYER                         |
+|           OmniFrame.exe (Qt 6.11.1, DWM)  |  omniframe-cli.exe          |
+|   MainWindow   |   EngineeringDialogs   |   GuidedSessionDialog (F2)    |
+|      Dialogs      |       ManualDialog       |       AboutDialog        |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
 |                    3D GRAPHICS VIEWPORT (RENDER ENGINE)                 |
-|                   (Modern OpenGL 3.3 Core, GLSL 330)                    |
-|                                                                         |
-|  Viewport3D  |  Camera3D (Orbital)  |  ShaderCollection (Phong Shaders) |
-|  VAO/VBO/EBO Buffers  |  Raycasting 3D Picking  |  Color Gradient Maps  |
+|            Modern OpenGL 3.3 Core, GLSL 330, SSAA/MSAA/SDF              |
+|  Viewport3D | Camera3D | ShaderCollection | ClipPlane | DCR | Animation |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
-|                 COMPUTATIONAL MECHANICS & FEA SOLVER                    |
-|                      (FemSolver3D & Eigen 3.4.0 Sparse)                 |
-|                                                                         |
+|              PURE C++23 NUMERICAL KERNEL (OmniFrameKernel)              |
+|                      (C++23 + Eigen 3.4.0 Sparse)                       |
 |  +------------------------+  +---------------------------------------+  |
-|  |  12x12 Local Matrix    |  |  3D Global Transformation             |  |
-|  |  - Axial Stiffness EA/L|  |  - Local Axes x, y, z                 |  |
-|  |  - Torsion GJ/L        |  |  - Roll Angle (psi)                   |  |
-|  |  - Biaxial Bending EI/L|  |  - Orthogonal Rotation Matrix [T]     |  |
-|  +------------------------+  +---------------------------------------+  |
-|  +------------------------+  +---------------------------------------+  |
-|  |  Global Assembly       |  |  Direct Numerical Solve               |  |
-|  |  - Sparse Matrix [K]   |  |  - Cholesky (SimplicialLDLT)          |  |
-|  |  - Force Vector {F}    |  |  - Elimination / Kinematic Condens.   |  |
-|  |  - Equivalent Forces   |  |  - Mechanism / Singularity Detection  |  |
-|  +------------------------+  +---------------------------------------+  |
-|  +------------------------+  +---------------------------------------+  |
-|  |  Post-Processing       |  |  Internal Action Interpolation        |  |
-|  |  - Nodal Displacements |  |  - Hermite Cubic Polynomials          |  |
-|  |  - Extreme Actions     |  |  - Continuous Diagrams N, V, M, T     |  |
+|  |  Elements & Materials  |  |  Analysis Suite & Solvers             |  |
+|  |  - BeamTruss1D/Corot1D |  |  - LinearSolverSuite (LDLT/LLT/LU/CG) |  |
+|  |  - ShellElements (2D)  |  |  - BucklingSolver / DynamicSolver     |  |
+|  |  - SolidElements (3D)  |  |  - NonlinearSolver (P-Delta/NR/ArcLen)|  |
+|  |  - LinearElastic / J2  |  |  - NbrCodeChecks / MeshGenerator      |  |
 |  +------------------------+  +---------------------------------------+  |
 +-------------------------------------------------------------------------+
                                     |
                                     v
 +-------------------------------------------------------------------------+
-|                      DATA MODEL AND TOPOLOGY                            |
-|                         (StructuralModel C++23)                         |
-|                                                                         |
-|    Node (6 DOFs)  |  Element (Members) |  CrossSection  |  Material     |
-+-------------------------------------------------------------------------+
-                                    |
-                                    v
-+-------------------------------------------------------------------------+
-|                    SERIALIZATION AND PERSISTENCE (I/O)                  |
-|                       (ProjectSerializer - .omniframe Format)           |
-|                                                                         |
-|      Structured JSON   |  Strict Schema Validation  |  Local-First      |
+|              PROJECT MODEL & INTEROPERABILITY (OmniFrameCore)           |
+|  StructuralModel | LoadSystem | ProjectSerializer (.omniframe 2.1.0)    |
+|  DxfInterop (.dxf) | IfcInterop (.ifc4) | PdfReportGenerator (PDF/MD)   |
 +-------------------------------------------------------------------------+
 ```
 
@@ -314,19 +266,18 @@ $$[K_e] = [T]^T [k_e] [T]$$
 
 ---
 
-## 3. Global System Solution and Sparse Solver
+## 3. Global System Solution, Solver Suite & Advanced Analyses
 
-Assembly of the global system $[K] \{U\} = \{F\}$ utilizes Compressed Column Storage (`Eigen::SparseMatrix<double>`).
+Assembly of the global system $[K] \{U\} = \{F\}$ utilizes Compressed Column Storage (`Eigen::SparseMatrix<double>`) inside `OmniFrameKernel` (`GlobalAssembler` and `DofManager`).
 
 ### 3.1. Boundary Conditions and Kinematic Restraints
-Degrees of freedom with prescribed displacement $u_k = \bar{u}_k$ are handled via direct substitution and condensation, preserving strict symmetry of matrix $[K]$ and allowing exact support reaction computation:
+Degrees of freedom with prescribed displacement $u_k = \bar{u}_k$ and elastic springs are handled while preserving strict symmetry of matrix $[K]$ and recovering exact support reactions:
 $$\{R_{support}\} = [K_{free-prescribed}]^T \{U_{free}\} - \{F_{prescribed}\}$$
 
-### 3.2. Direct Cholesky Solver (`SimplicialLDLT`)
-Factorization follows $P K P^T = L D L^T$:
-1. **Symbolic Reordering:** Fill-in minimization via the AMD (Approximate Minimum Degree) algorithm.
-2. **Numerical Factorization:** Square-root-free sparse decomposition, stable for semi-definite matrices or small pivots.
-3. **Mechanism Detection:** When the matrix is singular (zero determinant or negative eigenvalues resulting from floating nodes or insufficient stable restraints), the solver immediately reports the kinematic inconsistency to the user.
+### 3.2. Solver Suite (`LinearSolverSuite`) & Dynamic / Nonlinear Solvers
+- **Linear Solvers (`LinearSolverSuite`):** `SimplicialLDLT` (default, with AMD symbolic ordering), `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, and `BiCGSTAB`, with immediate mechanism and singularity detection.
+- **Advanced Analyses:** **Modal** and **Linear Buckling** eigenvalues/vectors (`BucklingSolver`), **Harmonic FRF** sweep and **Response Spectrum** (`DynamicSolver`), **P-Delta / Corotational** (`Corotational1D`, `NonlinearSolver` Newton-Raphson & Arc-Length), and **J2 Plasticity** (`J2PlasticityMaterial`: $\sigma_y, H_{iso}, H_{kin}$).
+- **Asynchronous Execution:** The GUI executes solvers on a deep copy of `StructuralModel` on a worker thread (`QThread::create`) so the viewport remains responsive.
 
 ---
 
@@ -350,11 +301,10 @@ The 3D Viewport is implemented using the `QOpenGLWidget` component:
 
 ---
 
-## 6. Open `.omniframe` Persistence and Report Export
+## 6. `.omniframe` Persistence (Schema 2.1.0), Interoperability & Reports
 
-The `.omniframe` format relies on strict UTF-8 encoded JSON (alongside engineering calculation report export in HTML and Markdown):
-- Human-readable hierarchical layout (`materials`, `sections`, `nodes`, `elements`, `combinations`).
-- Strict coordinate finiteness validation (`std::isfinite`), preventing `NaN` or `Inf`.
-- Universal compatibility for Git version control.
+- **`.omniframe` Format (Schema `2.1.0`, backward-compatible with `1.0` and `2.0`):** Auditable UTF-8 JSON layout (`materials` with $\rho$ and J2 plasticity, `sections`, `nodes`, `elements`, `LoadSystem` cases/combinations, advanced analyses, and ABNT site parameters).
+- **Interoperability & Export:** Bidirectional **DXF** (`DxfInterop`) and **IFC4** (`IfcInterop`) exchange, **CSV** / **VTK** export, **ABNT NBR** code checks (`NbrCodeChecks`: `LocalPdfVerified` scope for `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explicitly flagged for absent standards), and native **HTML**, **Markdown**, and **executive A4 PDF** (`PdfReportGenerator`) reports.
+- **Strict Validation:** Coordinate finiteness (`std::isfinite`) and consistent topology checks upon loading.
 
 </details>

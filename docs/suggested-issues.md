@@ -18,43 +18,43 @@ Este documento reúne tópicos técnicos, extensões analíticas e melhorias de 
 
 ---
 
-### Issue 1: Formulação de Elemento de Viga de Timoshenko (Deformação por Cisalhamento)
-- **Área:** `solver` / `mecanica`
-- **Dificuldade:** Média
-- **Descrição:** Implementar a matriz de rigidez local 12x12 considerando a teoria de vigas de Timoshenko para barras esbeltas e curtas onde a deformação por esforço cortante é significativa ($\Phi_y = \frac{12 E I_z}{G A_{sy} L^2}$, $\Phi_z = \frac{12 E I_y}{G A_{sz} L^2}$).
-- **Benefício:** Maior precisão na modelagem de vigas-parede, pilares maciços de concreto e seções de pontes.
+### Issue 1: Elementos de Casca Curva de Ordem Superior e Vinculação Viga-Casca Automática
+- **Área:** `kernel` / `mecanica`
+- **Dificuldade:** Avançada
+- **Descrição:** Expandir os elementos atuais 1D (Euler-Bernoulli e Timoshenko), placas/cascas 2D e sólidos hexaédricos 3D da versão `2026.11.14.0` com formulações isoparamétricas curvas de 8/9 nós para cascas espessas e restrições cinemáticas automáticas (*tie constraints*) entre barras 1D e malhas 2D/3D sem nós coincidentes.
+- **Benefício:** Maior fidelidade geométrica em cascas cilíndricas, cúpulas e interfaces pilares-laje/blocos de fundação.
 
 ---
 
-### Issue 2: Análise Geométrica Não Linear (Efeitos P-$\Delta$ e P-$\delta$)
+### Issue 2: Rótulas Plásticas Concentradas com Interação $N\text{-}M_y\text{-}M_z$ e Não-Linearidade Combinada
 - **Área:** `solver` / `estabilidade`
 - **Dificuldade:** Avançada
-- **Descrição:** Adicionar a matriz de rigidez geométrica $[k_g]$ de 12x12 dependente da força axial $N$. Implementar algoritmo iterativo de Newton-Raphson para convergência da análise de segunda ordem e cálculo do coeficiente de estabilidade global $\gamma_z$.
-- **Benefício:** Atendimento direto aos requisitos de verificação de estabilidade da ABNT NBR 8800 e AISC 360 Direct Analysis Method.
+- **Descrição:** Sobre a base P-$\Delta$, corrotacional, Arco-Comprimento e plasticidade J2 entregue na versão `2026.11.14.0`, adicionar formação automática de rótulas plásticas concentradas por superfície de escoamento axial-flexional ($N\text{-}M_y\text{-}M_z$) para análise *pushover* tridimensional e verificação direta do coeficiente $\gamma_z$.
+- **Benefício:** Análise avançada de colapso progressivo e estabilidade inelástica conforme ABNT NBR 8800 e AISC 360 Direct Analysis Method.
 
 ---
 
-### Issue 3: Análise Dinâmica Modal (Frequências Naturais e Modos de Vibração)
+### Issue 3: Subespaço Vetorial (Ritz/Lanczos) e Amortecimento Não-Clássico na Análise Dinâmica
 - **Área:** `solver` / `dinamica`
 - **Dificuldade:** Avançada
-- **Descrição:** Montagem da matriz de massa consistente $[M]$ ou concentrada (*lumped mass*) e resolução do problema de autovalor generalizado $[K] \{\phi\} = \omega^2 [M] \{\phi\}$ utilizando o solver esparso de autovalores do Eigen (`Eigen::SelfAdjointEigenSolver` ou Spectra). Animação dos modos de vibrar na viewport 3D.
-- **Benefício:** Análise de conforto humano, vibrações de pisos e ações sísmicas.
+- **Descrição:** Ampliar o módulo dinâmico atual (`2026.11.14.0`: modal, harmônica FRF, Newmark-$\beta$ e espectro de resposta) com extração iterativa de autovalores por Lanczos/Subespaço para modelos com dezenas de milhares de DOFs e geração automática de matrizes de massa consistente/amortecimento modal por subestrutura.
+- **Benefício:** Desempenho escalável para arranha-céus, passarelas longas e plataformas industriais sob carregamentos sísmicos e de vento.
 
 ---
 
-### Issue 4: Importador e Exportador de Arquivos CAD / BIM (DXF e IFC)
+### Issue 4: Round-Trip Paramétrico de Conjuntos de Propriedades Estruturais BIM (IFC4 Analytical View)
 - **Área:** `io` / `interoperabilidade`
 - **Dificuldade:** Média
-- **Descrição:** Permitir a importação de linhas e camadas 3D em arquivos DXF (AutoCAD) e exportação de elementos estruturais para o padrão aberto IFC4 (Industry Foundation Classes).
-- **Benefício:** Interoperabilidade com softwares de modelagem arquitetônica (Revit, ArchiCAD, Blender).
+- **Descrição:** Sobre o importador/exportador **DXF** e **IFC4** da versão `2026.11.14.0`, adicionar mapeamento completo de `IfcStructuralCurveMember`, vínculos de excentricidade, casos de carga (`IfcStructuralLoadGroup`) e perfis metálicos padronizados (*property sets* completos).
+- **Benefício:** Intercâmbio analítico sem perdas com plataformas BIM estruturais (Revit, Tekla, ArchiCAD, BlenderBIM).
 
 ---
 
-### Issue 5: Gerador de Relatórios Executivos em PDF e Envelopes de Esforços
+### Issue 5: Gráficos Vetoriais 3D Embutidos e Envelopes Completos nos Relatórios PDF A4
 - **Área:** `ui` / `relatorios`
 - **Dificuldade:** Média
-- **Descrição:** Implementar diálogo de exportação de memória de cálculo detalhada em PDF com renderização de diagramas em alta resolução, tabela de reações de apoio e envelopes máximos e mínimos para combinações de ações.
-- **Benefício:** Entregável profissional pronto para revisão de projeto estrutural, aprovação de clientes e protocolo em órgãos técnicos.
+- **Descrição:** Complementar o gerador de memoriais **HTML / Markdown / PDF A4** entregue na versão `2026.11.14.0` com renderização *offscreen* da viewport 3D (isométricas de deformada, mapas DCR e planos de corte) incorporada diretamente às seções do PDF, além de gráficos comparativos de envelopes máximos/mínimos por combinação normativa.
+- **Benefício:** Memorial técnico autossuficiente pronto para auditoria estrutural, aprovação de clientes e protocolo em órgãos técnicos.
 
 </details>
 
@@ -71,42 +71,42 @@ This document compiles mapped technical topics, analytical extensions, and inter
 
 ---
 
-### Issue 1: Timoshenko Beam Element Formulation (Shear Deformation)
-- **Area:** `solver` / `mechanics`
-- **Difficulty:** Medium
-- **Description:** Implement the 12x12 local stiffness matrix incorporating Timoshenko beam theory for stocky and short members where transverse shear deformation is significant ($\Phi_y = \frac{12 E I_z}{G A_{sy} L^2}$, $\Phi_z = \frac{12 E I_y}{G A_{sz} L^2}$).
-- **Benefit:** Greater accuracy when modeling deep transfer beams, solid concrete columns, and bridge box girders.
+### Issue 1: Higher-Order Curved Shell Elements & Automated Beam-Shell Kinematic Ties
+- **Area:** `kernel` / `mechanics`
+- **Difficulty:** Advanced
+- **Description:** Extend the current `2026.11.14.0` element library — 1D (Euler-Bernoulli and Timoshenko), 2D plates/shells, and 3D hexahedral solids — with curved 8/9-node isoparametric thick-shell formulations and automated tie constraints between 1D frame members and non-coincident 2D/3D meshes.
+- **Benefit:** Higher geometric fidelity in cylindrical shells, domes, slab-column junctions, and pile-cap foundations.
 
 ---
 
-### Issue 2: Geometric Nonlinear Analysis (P-$\Delta$ and P-$\delta$ Effects)
+### Issue 2: Concentrated Plastic Hinges with $N\text{-}M_y\text{-}M_z$ Interaction & Combined Nonlinearity
 - **Area:** `solver` / `stability`
 - **Difficulty:** Advanced
-- **Description:** Add the 12x12 geometric stiffness matrix $[k_g]$ dependent on axial force $N$. Implement an iterative Newton-Raphson algorithm for second-order convergence and computation of the global stability coefficient $\gamma_z$.
-- **Benefit:** Direct compliance with stability verification requirements in ABNT NBR 8800 and the AISC 360 Direct Analysis Method.
+- **Description:** Building on the P-$\Delta$, 3D corotational, Arc-Length, and J2 plasticity foundation delivered in `2026.11.14.0`, add automated concentrated plastic hinge formation driven by axial-biaxial-moment ($N\text{-}M_y\text{-}M_z$) yield surfaces for 3D pushover studies and direct $\gamma_z$ stability indexing.
+- **Benefit:** Advanced progressive-collapse and inelastic stability assessment aligned with ABNT NBR 8800 and the AISC 360 Direct Analysis Method.
 
 ---
 
-### Issue 3: Modal Dynamic Analysis (Natural Frequencies and Mode Shapes)
+### Issue 3: Block Lanczos / Subspace Iteration & Non-Classical Damping in Dynamics
 - **Area:** `solver` / `dynamics`
 - **Difficulty:** Advanced
-- **Description:** Assemble consistent or lumped mass matrices $[M]$ and solve the generalized eigenvalue problem $[K] \{\phi\} = \omega^2 [M] \{\phi\}$ using Eigen's sparse eigenvalue solver (`Eigen::SelfAdjointEigenSolver` or Spectra), animating mode shapes in the 3D viewport.
-- **Benefit:** Human comfort assessment, floor vibration analysis, and seismic response studies.
+- **Description:** Expand the `2026.11.14.0` dynamics suite (modal, harmonic FRF, Newmark-$\beta$, and response spectrum) with iterative Block Lanczos / Subspace eigensolvers for models exceeding tens of thousands of DOFs and substructure-level modal damping definitions.
+- **Benefit:** Scalable dynamic performance for high-rise towers, long-span pedestrian bridges, and industrial structures under wind and seismic loads.
 
 ---
 
-### Issue 4: CAD / BIM File Importer and Exporter (DXF and IFC4)
+### Issue 4: Parametric Structural Analytical Property-Set Round-Tripping (IFC4 Analytical View)
 - **Area:** `io` / `interoperability`
 - **Difficulty:** Medium
-- **Description:** Support importing 3D wireframe lines and layers from DXF files (AutoCAD) and exporting structural members to the open IFC4 (Industry Foundation Classes) standard.
-- **Benefit:** Interoperability with architectural modeling software (Revit, ArchiCAD, Blender).
+- **Description:** Expand the `2026.11.14.0` **DXF** and **IFC4** importer/exporter with full property-set round-tripping for `IfcStructuralCurveMember`, eccentric member offsets, `IfcStructuralLoadGroup` combinations, and standardized steel profile catalogs.
+- **Benefit:** Lossless analytical model exchange with BIM authoring platforms (Revit, Tekla, ArchiCAD, BlenderBIM).
 
 ---
 
-### Issue 5: Executive PDF Report Generator and Action Envelopes
+### Issue 5: Embedded 3D Viewport Renders & Envelope Charts Inside Executive A4 PDF Reports
 - **Area:** `ui` / `reporting`
 - **Difficulty:** Medium
-- **Description:** Implement an export dialog for detailed PDF engineering calculation reports featuring high-resolution diagram renders, support reaction tables, and maximum/minimum envelopes for load combinations.
-- **Benefit:** Professional deliverable ready for structural project review, client approval, and regulatory filing.
+- **Description:** Enhance the `2026.11.14.0` **HTML / Markdown / A4 PDF** calculation report generator with offscreen 3D OpenGL snapshot embedding (isometric deformed shapes, DCR heatmaps, and clip-plane sections) plus comparative max/min envelope charts across code combinations.
+- **Benefit:** Self-contained engineering deliverable ready for design audit, client sign-off, and regulatory submission.
 
 </details>

@@ -1,4 +1,35 @@
 RELEASE NOTES — OMNIFRAME 3D
+Version: 2026.11.14.0
+Date: November 14, 2026
+
+Highlights of Version 2026.11.14.0:
+
+1. New Interactive Guided Session (Help > Guided Session... or F2)
+- Provides an automatic step-by-step demonstration of every feature in the application using any of the three built-in structural examples, with selectable reading paces designed for fluent reading, technical/engineering reading, reading aloud, or dyslexia-friendly reading.
+- During playback, each active button, menu item, or input field is visually highlighted alongside a unified explanatory callout that adapts automatically to the active theme and language, stays clear of opened child windows, and holds each message for a duration proportional to its word count.
+- When the Guided Session finishes or is closed, the selected example is automatically restored to its initial state.
+
+2. Smoother and More Responsive Window Behavior
+- All engineering dialogs now open immediately on a single click, eliminating the need for double-clicking and removing brief blank window flashes on screen.
+- Child dialogs now operate smoothly alongside the main 3D workspace, preserving natural window stacking order as you switch between dialogs without pushing active panels behind the main window or locking the rest of the application.
+
+3. Upgraded Side Inspector and Free Re-Editing of Built-In Examples
+- The "Material:" and "Cross-Section:" dropdown lists inside the "Selected Element / Node" panel now open properly and display clean material and profile names without hashtag-number prefixes.
+- You can now freely edit materials, cross-sections, supports, loads, combinations, member end releases, and recalculate any of the three built-in examples as a hands-on exercise before working on real projects, complete with Undo (Ctrl+Z), Redo (Ctrl+Y), and batch selection via "Same Material" and "Same Section".
+
+4. Expanded Engineering Capabilities, Solvers & Reports
+- Expanded structural modeling with thermal loads, load-combination and code-action assistants (dead, live, wind, and ABNT NBR guidance), a parametric mesh generator for 1D frames, 2D plates/shells, and 3D solids, J2 plasticity, and shear/corotational elements.
+- New advanced analysis suite covering linear static, buckling, modal vibration, harmonic response, seismic response spectrum, second-order P-Delta effects, and material/geometric nonlinear analysis.
+- Enhanced 3D post-processing with section clip planes, demand-to-capacity ratio (DCR) color maps, deformed and modal animations, plus an automated ABNT NBR verification dashboard.
+- Broader export options including Executive A4 PDF calculation reports, CAD (DXF) and BIM (IFC4) import/export, and the dedicated command-line tool (omniframe-cli) included in external distribution packages.
+
+5. Real-Time Language Switching, Themes & Updated Manual
+- Every new window, label, callout, and control dynamically follows live language switching (Portuguese and English) and visual theme selection (Light, Dark, and High Contrast).
+- Built-in Operations Manual (F1) and help documents updated in both Portuguese and English with detailed step-by-step guidance for all new capabilities.
+
+================================================================================
+
+RELEASE NOTES — OMNIFRAME 3D
 Version: 2026.11.13.0
 Date: November 13, 2026
 

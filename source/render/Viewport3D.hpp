@@ -61,6 +61,53 @@ public:
     void setDeformedScale(double scale);
     double deformedScale() const { return m_deformedScale; }
 
+    // Pós-processamento avançado 3D (contornos, malha superficial/sólida, clip plane e animação)
+    enum class PostContourMode {
+        None = 0,
+        Displacement = 1,
+        NbrComplianceDcr = 2
+    };
+
+    enum class ClipAxis {
+        None = 0,
+        X = 1,
+        Y = 2,
+        Z = 3
+    };
+
+    void setPostContourMode(PostContourMode mode);
+    PostContourMode postContourMode() const { return m_postContourMode; }
+
+    void setShowSurfaceMesh(bool show);
+    bool showSurfaceMesh() const { return m_showSurfaceMesh; }
+
+    void setElementDcrMap(const std::unordered_map<ElementId, double>& dcrByElement);
+    void clearElementDcrMap();
+
+    void setClipPlane(ClipAxis axis, double offsetMeters, bool inverted = false);
+    ClipAxis clipAxis() const { return m_clipAxis; }
+    double clipOffset() const { return m_clipOffset; }
+    bool clipInverted() const { return m_clipInverted; }
+    QVector4D activeClipPlaneVec() const;
+
+    void setPostAnimationField(const QString& label,
+                               const std::unordered_map<NodeId, Vec3>& modeDisplByNode,
+                               double baseScale = 1.0,
+                               bool oscillating = true);
+    void setNonlinearStepFrames(const QString& label,
+                                const std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>>& stepFrames);
+    void setNonlinearStepIndex(int idx);
+    int nonlinearStepCount() const { return static_cast<int>(m_nonlinearFrames.size()); }
+    int nonlinearStepIndex() const { return m_nonlinearStepIdx; }
+    bool hasPostAnimation() const { return !m_postAnimNodeDispl.empty() || !m_nonlinearFrames.empty(); }
+    void setAnimationPlaying(bool playing);
+    bool isAnimationPlaying() const { return m_animPlaying; }
+    void setAnimationSpeed(double speed);
+    double animationSpeed() const { return m_animSpeed; }
+    void setAnimationAmplitude(double amp);
+    double animationAmplitude() const { return m_animAmplitude; }
+    void clearPostAnimation();
+
     // Configurações de Qualidade de Imagem, Resolução e Plano Ativo
     void setRenderQualitySettings(const RenderQualitySettings& settings);
     const RenderQualitySettings& renderQualitySettings() const { return m_renderSettings; }
@@ -78,6 +125,8 @@ signals:
     void selectionChanged();
     void modelModified();
     void statusMessage(const QString& msg);
+    void animationFrameChanged(int stepIndex, int totalSteps, double factorOrPhase);
+    void postAnimationStateChanged();
 
 protected:
     void initializeGL() override;
@@ -100,11 +149,13 @@ private:
     void renderNodes(const QMatrix4x4& mvp);
     void renderSupports(const QMatrix4x4& mvp, const QMatrix4x4& view);
     void renderElements(const QMatrix4x4& mvp);
+    void renderSurfaceMesh(const QMatrix4x4& mvp);
     void renderLoads(const QMatrix4x4& mvp, const QMatrix4x4& view);
     void renderDeformedShape(const QMatrix4x4& mvp);
     void renderDiagrams(const QMatrix4x4& mvp);
     void renderCursorPreview(const QMatrix4x4& mvp);
     void renderHUD(QPainter& painter);
+    void timerEvent(QTimerEvent* event) override;
 
     // Helpers de geometria 3D básica
     void buildCube(std::vector<float>& vertices, float size, const QVector3D& center, const QVector4D& color);
@@ -132,6 +183,33 @@ private:
     DiagramType m_activeDiagram = DiagramType::None;
     double m_diagramScale = 1.0;
     double m_deformedScale = 50.0;
+
+    PostContourMode m_postContourMode = PostContourMode::None;
+    bool m_showSurfaceMesh = true;
+    std::unordered_map<ElementId, double> m_elementDcrMap;
+
+    ClipAxis m_clipAxis = ClipAxis::None;
+    double m_clipOffset = 0.0;
+    bool m_clipInverted = false;
+
+    int m_animTimerId = 0;
+    bool m_animPlaying = false;
+    bool m_animOscillating = true;
+    double m_animPhase = 0.0;
+    double m_animSpeed = 1.0;
+    double m_animAmplitude = 1.0;
+    double m_animBaseScale = 1.0;
+    QString m_postAnimLabel;
+    std::unordered_map<NodeId, Vec3> m_postAnimNodeDispl;
+    std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>> m_nonlinearFrames;
+    int m_nonlinearStepIdx = 0;
+
+    mutable bool m_legendVisible = false;
+    mutable QString m_legendTitle;
+    mutable QString m_legendUnit;
+    mutable double m_legendMin = 0.0;
+    mutable double m_legendMax = 1.0;
+    mutable bool m_legendIsDcr = false;
 
     // Estado do mouse
     QPoint m_lastMousePos;

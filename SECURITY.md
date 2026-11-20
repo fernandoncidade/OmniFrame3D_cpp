@@ -49,7 +49,7 @@ Se você identificou uma potencial vulnerabilidade de segurança (como estouro d
 ## 3. Compromissos Arquiteturais de Segurança
 
 - **100% Autônomo, Local e Offline:** O software opera com soberania absoluta de dados. Nenhum dado geométrico, propriedade de seção/material, carregamento ou resultado de cálculo estrutural é transmitido pela rede.
-- **Validação Rigorosa de Entrada:** Todos os arquivos `.omniframe` (JSON) passam por verificação estrita de esquema, limites numéricos, coordenadas finitas e consistência topológica para evitar problemas de segurança de memória.
+- **Validação Rigorosa de Entrada:** Todos os arquivos `.omniframe` (JSON), bem como modelos CAD/BIM importados (`.dxf` e `.ifc`), passam por verificação estrita de esquema, limites numéricos, coordenadas finitas (`std::isfinite`) e consistência topológica para evitar problemas de segurança de memória.
 - **Isolamento de Renderização Gráfica:** A viewport 3D utiliza shaders OpenGL 3.3 Core Profile validados e compilados internamente no processo, sem carregamento dinâmico de código binário arbitrário ou injeção de shaders não confiáveis na GPU.
 
 </details>
@@ -98,7 +98,7 @@ If you believe you have discovered a security vulnerability in OmniFrame 3D (suc
 ## 3. Core Architectural Security Commitments
 
 - **100% Autonomous, Local & Offline:** The application operates with complete data sovereignty. No geometric coordinates, section/material properties, load vectors, or FEA calculation results are transmitted over the network.
-- **Strict Input Validation:** All `.omniframe` (JSON) project files undergo rigorous schema validation, numeric boundary checks, coordinate finiteness checks, and topological consistency verifications to prevent memory safety issues.
+- **Strict Input Validation:** All `.omniframe` (JSON) project files, as well as imported CAD/BIM models (`.dxf` and `.ifc`), undergo rigorous schema validation, numeric boundary checks, coordinate finiteness checks (`std::isfinite`), and topological consistency verifications to prevent memory safety issues.
 - **Isolated GPU Rendering:** The 3D viewport utilizes strictly validated OpenGL 3.3 Core Profile shaders compiled in-process, preventing dynamic loading of arbitrary binary code or untrusted GPU shader injection.
 
 </details>

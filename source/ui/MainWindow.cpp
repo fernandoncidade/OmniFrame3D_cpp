@@ -1,16 +1,23 @@
 #include "MainWindow.hpp"
 #include "AboutDialog.hpp"
 #include "Dialogs.hpp"
+#include "EngineeringDialogs.hpp"
+#include "GuidedSessionDialog.hpp"
 #include "ManualDialog.hpp"
 #include "RenderSettingsDialog.hpp"
 #include "ThemeManager.hpp"
 #include "WindowZOrderManager.hpp"
+#include "io/DxfInterop.hpp"
+#include "io/IfcInterop.hpp"
+#include "io/PdfReportGenerator.hpp"
 #include "io/ProjectSerializer.hpp"
 #include "locale/GerenciadorTraducao.hpp"
 
 #include <cmath>
+#include <memory>
 #include <utility>
 
+#include <QAbstractItemView>
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
@@ -18,7 +25,10 @@
 #include <QDockWidget>
 #include <QEvent>
 #include <QKeySequence>
+#include <QProgressBar>
 #include <QStyleFactory>
+#include <QThread>
+#include <QTimer>
 #include <QMenu>
 #include <QMenuBar>
 #include <QToolBar>
@@ -123,7 +133,11 @@ MainWindow::MainWindow(QWidget* parent)
     loadExampleBuilding();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    if (m_activeSolverThread && m_activeSolverThread->isRunning()) {
+        m_activeSolverThread->wait(5000);
+    }
+}
 
 void MainWindow::applyTheme() {
     const bool isLight = ThemeManager::instance().isLight();
@@ -187,6 +201,12 @@ void MainWindow::setupMenus() {
     m_actOpenProject = m_fileMenu->addAction("Abrir (.omniframe)...", QKeySequence::Open, this, &MainWindow::onOpenProject);
     m_actSaveProject = m_fileMenu->addAction("Salvar (.omniframe)...", QKeySequence::Save, this, &MainWindow::onSaveProject);
     m_fileMenu->addSeparator();
+    m_actImportDxf = m_fileMenu->addAction("Importar DXF...", this, &MainWindow::onImportDxf);
+    m_actExportDxf = m_fileMenu->addAction("Exportar DXF...", this, &MainWindow::onExportDxf);
+    m_actImportIfc = m_fileMenu->addAction("Importar BIM IFC4...", this, &MainWindow::onImportIfc);
+    m_actExportIfc = m_fileMenu->addAction("Exportar BIM IFC4...", this, &MainWindow::onExportIfc);
+    m_fileMenu->addSeparator();
+    m_actExportPdf = m_fileMenu->addAction("Exportar Memorial Executivo (PDF A4)...", this, &MainWindow::onExportPdfReport);
     m_actExportHtml = m_fileMenu->addAction("Exportar Relatório Técnico (HTML)...", this, &MainWindow::onExportHtmlReport);
     m_actExportMd = m_fileMenu->addAction("Exportar Relatório Técnico (Markdown)...", this, &MainWindow::onExportMarkdownReport);
     m_fileMenu->addSeparator();
@@ -214,6 +234,13 @@ void MainWindow::setupMenus() {
     m_actDistLoads = m_structMenu->addAction("Cargas Uniformemente Distribuídas...", this, &MainWindow::onAssignDistributedLoads);
     m_actThermalLoads = m_structMenu->addAction("Cargas Térmicas (ΔT)...", this, &MainWindow::onAssignThermalLoads);
     m_actRollAngle = m_structMenu->addAction("Ângulo de Roll da Seção (γ)...", this, &MainWindow::onAssignRollAngle);
+    m_structMenu->addSeparator();
+    m_actLoadCombos = m_structMenu->addAction("Casos de Carga, Combinações NBR & Vento...", this, &MainWindow::onOpenLoadCombinations);
+    m_actMeshGen = m_structMenu->addAction("Gerador de Malha 1D/2D/3D...", this, &MainWindow::onOpenMeshGenerator);
+    m_structMenu->addSeparator();
+    m_actAnalysisSuite = m_structMenu->addAction("Suite de Análises (Modal / Flambagem / Não Linear / Sismo)...", this, &MainWindow::onOpenAnalysisSuite);
+    m_actPostControls = m_structMenu->addAction("Controles 3D (Contornos / Corte / Animação)...", this, &MainWindow::onOpenPostControls);
+    m_actNbrAudit = m_structMenu->addAction("Auditoria Normativa ABNT NBR (6118 / 8800 / 6122)...", this, &MainWindow::onOpenNbrCompliance);
     m_structMenu->addSeparator();
     m_actAutoRecalc = m_structMenu->addAction("Recálculo Automático após Edição");
     m_actAutoRecalc->setCheckable(true);
@@ -429,6 +456,7 @@ void MainWindow::setupMenus() {
     // Menu Ajuda
     m_helpMenu = menuBar()->addMenu("&Ajuda");
     m_actManual = m_helpMenu->addAction("Manual", QKeySequence(Qt::Key_F1), this, &MainWindow::onManual);
+    m_actGuidedSession = m_helpMenu->addAction("Sessão Guiada...", QKeySequence(Qt::Key_F2), this, &MainWindow::onGuidedSession);
     m_helpMenu->addSeparator();
     m_actAbout = m_helpMenu->addAction("Sobre o OmniFrame 3D", this, &MainWindow::onAbout);
 }
@@ -542,6 +570,8 @@ void MainWindow::setupToolbars() {
     m_actTbDistLoads = m_tb2->addAction("Carga Distr....", this, &MainWindow::onAssignDistributedLoads);
     m_actTbThermalLoads = m_tb2->addAction("Térmica (ΔT)...", this, &MainWindow::onAssignThermalLoads);
     m_actTbRollAngle = m_tb2->addAction("Roll (γ)...", this, &MainWindow::onAssignRollAngle);
+    m_actTbCombos = m_tb2->addAction("Combinações...", this, &MainWindow::onOpenLoadCombinations);
+    m_actTbMesh = m_tb2->addAction("Malha 2D/3D...", this, &MainWindow::onOpenMeshGenerator);
 
     m_tb2->addSeparator();
 
@@ -549,6 +579,10 @@ void MainWindow::setupToolbars() {
     m_btnSolve = new QPushButton(" ▶ CALCULAR ESTRUTURA (F5)");
     connect(m_btnSolve, &QPushButton::clicked, this, &MainWindow::onSolveStructure);
     m_tb2->addWidget(m_btnSolve);
+
+    m_actTbAdvAnalysis = m_tb2->addAction("Avançadas...", this, &MainWindow::onOpenAnalysisSuite);
+    m_actTbPostCtrl = m_tb2->addAction("Corte/Contornos...", this, &MainWindow::onOpenPostControls);
+    m_actTbNbrAudit = m_tb2->addAction("Auditoria NBR...", this, &MainWindow::onOpenNbrCompliance);
 
     m_tb2->addSeparator();
 
@@ -612,6 +646,7 @@ void MainWindow::setupDocks() {
     // Bloco de Conteúdo do Inspetor Dinâmico
     m_inspGroup = new QGroupBox("Elemento / Nó Selecionado");
     m_inspectorLayout = new QVBoxLayout(m_inspGroup);
+    m_inspectorLayout->setContentsMargins(4, 4, 4, 4);
     m_inspectorContent = new QWidget();
     m_inspectorLayout->addWidget(m_inspectorContent);
 
@@ -671,10 +706,17 @@ void MainWindow::setupStatusBar() {
     m_modelStatsLabel->setMinimumWidth(180);
 
     m_solverStatusLabel = new QLabel(locale::GerenciadorTraducao::trText("Pronto para calcular."));
+    m_statusProgress = new QProgressBar(this);
+    m_statusProgress->setRange(0, 1);
+    m_statusProgress->setValue(0);
+    m_statusProgress->setMaximumWidth(140);
+    m_statusProgress->setTextVisible(false);
+    m_statusProgress->setVisible(false);
 
     statusBar()->addWidget(m_cursorCoordLabel);
     statusBar()->addWidget(m_modelStatsLabel);
     statusBar()->addWidget(m_solverStatusLabel, 1);
+    statusBar()->addPermanentWidget(m_statusProgress);
 }
 
 // Exemplos Prontos
@@ -830,6 +872,333 @@ void MainWindow::onExportMarkdownReport() {
     );
 }
 
+void MainWindow::onImportDxf() {
+    m_windowManager->showModelessFileDialog(
+        QFileDialog::AcceptOpen,
+        QFileDialog::ExistingFile,
+        locale::GerenciadorTraducao::trText("Importar CAD DXF"),
+        QString(),
+        locale::GerenciadorTraducao::trText("Desenhos CAD DXF (*.dxf);;Todos (*)"),
+        [this](const QString& path) {
+            if (path.isEmpty()) return;
+            StructuralModel importedModel;
+            kernel::MeshContainer importedMesh;
+            io::DxfImportOptions opts;
+            io::DxfInteropReport rep;
+            if (!io::DxfInterop::importFromFile(path.toStdString(), importedModel, &importedMesh, opts, &rep) || !rep.success) {
+                const QString err = QString::fromStdString(rep.errorMessage);
+                m_windowManager->showModelessMessage(
+                    QMessageBox::Warning,
+                    locale::GerenciadorTraducao::trText("Erro ao Importar DXF"),
+                    locale::GerenciadorTraducao::trText("Falha ao importar arquivo DXF: %1").arg(err)
+                );
+                return;
+            }
+            if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
+                importedModel.surfaceMesh() = std::move(importedMesh);
+            }
+            m_hasSolvedContext = false;
+            m_model = std::move(importedModel);
+            m_viewport->setModel(&m_model);
+            onModelModified();
+            m_viewport->fitAll();
+            showStatusMessage(
+                locale::GerenciadorTraducao::trText("DXF importado: %1 barras, %2 faces (%3 nós fundidos).")
+                    .arg(rep.lineCount)
+                    .arg(rep.faceCount)
+                    .arg(rep.mergedNodes));
+        }
+    );
+}
+
+void MainWindow::onExportDxf() {
+    m_windowManager->showModelessFileDialog(
+        QFileDialog::AcceptSave,
+        QFileDialog::AnyFile,
+        locale::GerenciadorTraducao::trText("Exportar CAD DXF"),
+        QStringLiteral("Modelo_OmniFrame.dxf"),
+        locale::GerenciadorTraducao::trText("Desenhos CAD DXF (*.dxf);;Todos (*)"),
+        [this](const QString& path) {
+            if (path.isEmpty()) return;
+            io::DxfInteropReport rep;
+            const kernel::MeshContainer* meshPtr =
+                m_model.surfaceMesh().elements.empty() ? nullptr : &m_model.surfaceMesh();
+            if (io::DxfInterop::exportToFile(path.toStdString(), m_model, meshPtr, &rep) && rep.success) {
+                showStatusMessage(
+                    locale::GerenciadorTraducao::trText("DXF exportado: %1 linhas e %2 faces.")
+                        .arg(rep.lineCount)
+                        .arg(rep.faceCount));
+            } else {
+                m_windowManager->showModelessMessage(
+                    QMessageBox::Critical,
+                    locale::GerenciadorTraducao::trText("Erro ao Exportar DXF"),
+                    QString::fromStdString(rep.errorMessage));
+            }
+        }
+    );
+}
+
+void MainWindow::onImportIfc() {
+    m_windowManager->showModelessFileDialog(
+        QFileDialog::AcceptOpen,
+        QFileDialog::ExistingFile,
+        locale::GerenciadorTraducao::trText("Importar Modelo BIM IFC4"),
+        QString(),
+        locale::GerenciadorTraducao::trText("Modelos BIM IFC (*.ifc);;Todos (*)"),
+        [this](const QString& path) {
+            if (path.isEmpty()) return;
+            StructuralModel importedModel;
+            kernel::MeshContainer importedMesh;
+            io::IfcGuidMap guidMap;
+            io::IfcInteropReport rep;
+            if (!io::IfcInterop::importFromFile(path.toStdString(), importedModel, &importedMesh, &guidMap, &rep) || !rep.success) {
+                m_windowManager->showModelessMessage(
+                    QMessageBox::Warning,
+                    locale::GerenciadorTraducao::trText("Erro ao Importar IFC4"),
+                    QString::fromStdString(rep.errorMessage));
+                return;
+            }
+            if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
+                importedModel.surfaceMesh() = std::move(importedMesh);
+            }
+            m_hasSolvedContext = false;
+            m_model = std::move(importedModel);
+            m_viewport->setModel(&m_model);
+            onModelModified();
+            m_viewport->fitAll();
+            showStatusMessage(
+                locale::GerenciadorTraducao::trText("IFC4 importado: %1 nós estruturais, %2 barras, %3 superfícies.")
+                    .arg(rep.structuralNodesImported)
+                    .arg(rep.curveMembersImported)
+                    .arg(rep.surfaceMembersImported));
+        }
+    );
+}
+
+void MainWindow::onExportIfc() {
+    m_windowManager->showModelessFileDialog(
+        QFileDialog::AcceptSave,
+        QFileDialog::AnyFile,
+        locale::GerenciadorTraducao::trText("Exportar Modelo BIM IFC4"),
+        QStringLiteral("Modelo_OmniFrame.ifc"),
+        locale::GerenciadorTraducao::trText("Modelos BIM IFC (*.ifc);;Todos (*)"),
+        [this](const QString& path) {
+            if (path.isEmpty()) return;
+            io::IfcGuidMap guidMap;
+            io::IfcInteropReport rep;
+            const kernel::MeshContainer* meshPtr =
+                m_model.surfaceMesh().elements.empty() ? nullptr : &m_model.surfaceMesh();
+            if (io::IfcInterop::exportToFile(path.toStdString(), m_model, meshPtr, &guidMap, &rep) && rep.success) {
+                showStatusMessage(
+                    locale::GerenciadorTraducao::trText("IFC4 exportado (%1 entidades STEP): %2")
+                        .arg(rep.entitiesExported)
+                        .arg(path));
+            } else {
+                m_windowManager->showModelessMessage(
+                    QMessageBox::Critical,
+                    locale::GerenciadorTraducao::trText("Erro ao Exportar IFC4"),
+                    QString::fromStdString(rep.errorMessage));
+            }
+        }
+    );
+}
+
+bool MainWindow::ensureStaticSolvedSync() {
+    if (m_lastSolverResult.success && !m_model.getElements().empty()) {
+        return true;
+    }
+    if (m_solveInProgress || m_model.getElements().empty()) {
+        return false;
+    }
+    const ModelValidation val = m_model.validate();
+    if (!val.valid) {
+        return false;
+    }
+    SolverResult res = FemSolver3D::solve(m_model);
+    if (!res.success) {
+        return false;
+    }
+    m_lastSolverResult = std::move(res);
+    m_hasSolvedContext = true;
+    updateResultsTables();
+    updateInspector();
+    if (m_viewport) m_viewport->update();
+    if (m_analysisSuiteDialog) m_analysisSuiteDialog->refreshContext();
+    return true;
+}
+
+std::unordered_map<ElementId, double> MainWindow::computeModelDcrMap() const {
+    std::unordered_map<ElementId, double> dcrMap;
+    if (m_model.getElements().empty()) {
+        return dcrMap;
+    }
+    io::PdfReportOptions opts;
+    if (m_nbrComplianceDialog) {
+        opts = m_nbrComplianceDialog->buildOptions();
+    } else {
+        const auto& md = m_model.metadata();
+        opts.soilSigmaAdm_kPa = md.soilSigmaAdm_kPa;
+        opts.footingB_m = md.footingB_m;
+        opts.footingL_m = md.footingL_m;
+        opts.windV0_ms = md.windV0_ms;
+        opts.windS1 = md.windS1;
+        opts.windS2 = md.windS2;
+        opts.windS3 = md.windS3;
+    }
+    const SolverResult emptyStatic;
+    const SolverResult& staticRef = m_lastSolverResult.success ? m_lastSolverResult : emptyStatic;
+    const io::ModelNbrAudit audit = io::PdfReportGenerator::evaluateModelNbrCompliance(m_model, staticRef, opts);
+    for (const auto& s : audit.steelMembers) dcrMap[s.elementId] = s.result.dcrMax;
+    for (const auto& b : audit.concreteBeams) dcrMap[b.elementId] = b.result.dcrMax;
+    for (const auto& c : audit.concreteColumns) dcrMap[c.elementId] = c.result.dcrMax;
+    return dcrMap;
+}
+
+void MainWindow::onExportPdfReport() {
+    if (m_pdfOptionsDialog) {
+        m_windowManager->showAndRaise(m_pdfOptionsDialog.data());
+        return;
+    }
+    auto* dlg = new PdfReportOptionsDialog(nullptr, &m_model);
+    m_pdfOptionsDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, false, true);
+    connect(dlg, &QDialog::accepted, this, [this, dlgPtr = QPointer<PdfReportOptionsDialog>(dlg)]() {
+        if (!dlgPtr) return;
+        io::PdfReportOptions opts = dlgPtr->collectOptionsAndSaveMetadata();
+        if (dlgPtr->includeViewportCapture() && m_viewport) {
+            opts.viewportSnapshot = m_viewport->grabFramebuffer();
+        }
+        if (m_analysisSuiteDialog) {
+            opts.modalResult = m_analysisSuiteDialog->latestModalResult();
+            opts.bucklingResult = m_analysisSuiteDialog->latestBucklingResult();
+            opts.nonlinearResult = m_analysisSuiteDialog->latestNonlinearResult();
+        }
+        m_windowManager->showModelessFileDialog(
+            QFileDialog::AcceptSave,
+            QFileDialog::AnyFile,
+            locale::GerenciadorTraducao::trText("Exportar Memorial Executivo (PDF A4)"),
+            QStringLiteral("Memorial_Executivo_OmniFrame.pdf"),
+            locale::GerenciadorTraducao::trText("Documentos PDF (*.pdf);;Todos (*)"),
+            [this, opts](const QString& path) {
+                if (path.isEmpty()) return;
+                QString errMsg;
+                QApplication::setOverrideCursor(Qt::WaitCursor);
+                const bool ok = io::PdfReportGenerator::generateExecutivePdf(
+                    path, m_model, m_lastSolverResult, opts, &errMsg);
+                QApplication::restoreOverrideCursor();
+                if (ok) {
+                    showStatusMessage(locale::GerenciadorTraducao::trText("Memorial executivo PDF exportado: %1").arg(path));
+                    m_windowManager->showModelessMessage(
+                        QMessageBox::Information,
+                        locale::GerenciadorTraducao::trText("Sucesso"),
+                        locale::GerenciadorTraducao::trText("Memorial Executivo A4 PDF gerado com sucesso!"));
+                } else {
+                    m_windowManager->showModelessMessage(
+                        QMessageBox::Critical,
+                        locale::GerenciadorTraducao::trText("Erro ao Gerar PDF"),
+                        errMsg);
+                }
+            }
+        );
+    });
+    m_windowManager->showAndRaise(dlg);
+}
+
+void MainWindow::onOpenLoadCombinations() {
+    if (m_loadCombinationsDialog) {
+        m_loadCombinationsDialog->refreshLists();
+        m_windowManager->showAndRaise(m_loadCombinationsDialog.data());
+        return;
+    }
+    auto* dlg = new LoadCombinationsDialog(nullptr, &m_model, [this]() {
+        onModelModified();
+    });
+    m_loadCombinationsDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    m_windowManager->showAndRaise(dlg);
+}
+
+void MainWindow::onOpenMeshGenerator() {
+    if (m_meshGeneratorDialog) {
+        m_windowManager->showAndRaise(m_meshGeneratorDialog.data());
+        return;
+    }
+    auto* dlg = new MeshGeneratorDialog(nullptr, &m_model, m_viewport, [this]() {
+        onModelModified();
+    });
+    m_meshGeneratorDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    m_windowManager->showAndRaise(dlg);
+}
+
+void MainWindow::onOpenAnalysisSuite() {
+    if (m_analysisSuiteDialog) {
+        m_windowManager->showAndRaise(m_analysisSuiteDialog.data());
+        return;
+    }
+    auto* dlg = new AnalysisSuiteDialog(
+        nullptr,
+        &m_model,
+        m_viewport,
+        &m_lastSolverResult,
+        [this](const SolverResult& res) {
+            m_lastSolverResult = res;
+            m_hasSolvedContext = res.success;
+            if (m_viewport && m_viewport->postContourMode() == Viewport3D::PostContourMode::NbrComplianceDcr) {
+                m_viewport->setElementDcrMap(computeModelDcrMap());
+            }
+            updateResultsTables();
+            updateInspector();
+            if (m_viewport) m_viewport->update();
+            if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
+            if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
+        },
+        [this](const QString& msg) { showStatusMessage(msg); });
+    m_analysisSuiteDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    m_windowManager->showAndRaise(dlg);
+}
+
+void MainWindow::onOpenPostControls() {
+    if (m_postProcessControlDialog) {
+        m_postProcessControlDialog->syncFromViewport();
+        m_windowManager->showAndRaise(m_postProcessControlDialog.data());
+        return;
+    }
+    auto* dlg = new PostProcessControlDialog(nullptr, m_viewport, [this]() -> bool {
+        const bool solved = ensureStaticSolvedSync();
+        const auto dcrMap = computeModelDcrMap();
+        if (m_viewport) {
+            m_viewport->setElementDcrMap(dcrMap);
+        }
+        if (m_nbrComplianceDialog) {
+            m_nbrComplianceDialog->runAudit();
+        }
+        return solved && !dcrMap.empty();
+    });
+    m_postProcessControlDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    m_windowManager->showAndRaise(dlg);
+}
+
+void MainWindow::onOpenNbrCompliance() {
+    if (m_nbrComplianceDialog) {
+        m_nbrComplianceDialog->runAudit();
+        m_windowManager->showAndRaise(m_nbrComplianceDialog.data());
+        return;
+    }
+    auto* dlg = new NbrComplianceDialog(
+        nullptr,
+        &m_model,
+        m_viewport,
+        &m_lastSolverResult,
+        [this]() { onExportPdfReport(); },
+        [this]() { return ensureStaticSolvedSync(); });
+    m_nbrComplianceDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    m_windowManager->showAndRaise(dlg);
+}
+
 // Ações de Edição e Solver MEF 3D
 void MainWindow::updateUndoRedoActions() {
     if (m_actUndo) m_actUndo->setEnabled(m_model.canUndo());
@@ -865,51 +1234,172 @@ void MainWindow::onSolveStructure() {
 }
 
 bool MainWindow::runSolver(bool interactive) {
-    if (interactive) {
-        m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Calculando matriz de rigidez global esparsa..."));
-        QApplication::processEvents();
+    if (m_solveInProgress) {
+        m_pendingResolve = true;
+        if (interactive) {
+            m_pendingResolveInteractive = true;
+            showStatusMessage(locale::GerenciadorTraducao::trText("Cálculo já está em andamento; aguarde a conclusão."));
+        }
+        return false;
     }
 
-    m_lastSolverResult = FemSolver3D::solve(m_model);
+    m_solveInProgress = true;
+    m_pendingResolve = false;
+    m_pendingResolveInteractive = false;
+    if (m_btnSolve) m_btnSolve->setEnabled(false);
+    if (m_statusProgress) {
+        m_statusProgress->setRange(0, 0);
+        m_statusProgress->setVisible(true);
+    }
+    m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Calculando matriz de rigidez global esparsa..."));
 
-    if (m_lastSolverResult.success) {
-        QString msg = locale::GerenciadorTraducao::trText("Cálculo MEF concluído com sucesso em %1 ms (%2 nós, %3 barras, %4 DOFs). Equilíbrio: %5")
-                      .arg(m_lastSolverResult.executionTimeMs, 0, 'f', 1)
-                      .arg(m_lastSolverResult.totalNodes)
-                      .arg(m_lastSolverResult.totalElements)
-                      .arg(m_lastSolverResult.totalDofs)
-                      .arg(m_lastSolverResult.equilibrium.isBalanced
-                          ? locale::GerenciadorTraducao::trText("OK (ΣF=0)")
-                          : locale::GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
+    struct AsyncSolvePayload {
+        StructuralModel snapshot;
+        SolverResult result;
+        std::uint64_t revision = 0;
+    };
+    auto payload = std::make_shared<AsyncSolvePayload>();
+    payload->snapshot = m_model;
+    payload->revision = m_modelRevision;
 
-        m_solverStatusLabel->setText(msg);
-        showStatusMessage(msg);
-
-        // Se nenhum diagrama estiver ativo após cálculo manual, ativa a Deformada 3D
-        if (interactive && m_viewport->activeDiagram() == DiagramType::None) {
-            m_diagramCombo->setCurrentIndex(1); // Deformada 3D
+    QThread* worker = QThread::create([payload]() {
+        payload->result = FemSolver3D::solve(payload->snapshot);
+    });
+    m_activeSolverThread = worker;
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    connect(worker, &QThread::finished, this, [this, payload, worker, interactive]() {
+        m_solveInProgress = false;
+        if (m_activeSolverThread == worker) {
+            m_activeSolverThread = nullptr;
+        }
+        if (m_btnSolve) m_btnSolve->setEnabled(true);
+        if (m_statusProgress) {
+            m_statusProgress->setVisible(false);
+            m_statusProgress->setRange(0, 1);
+            m_statusProgress->setValue(0);
         }
 
+        if (m_pendingResolve || payload->revision != m_modelRevision) {
+            const bool rerunInteractive = m_pendingResolveInteractive;
+            m_pendingResolve = false;
+            m_pendingResolveInteractive = false;
+            if ((m_autoRecalculate && m_hasSolvedContext) || rerunInteractive) {
+                if (m_model.validate().valid) {
+                    runSolver(rerunInteractive);
+                    return;
+                }
+            }
+            if (payload->revision != m_modelRevision) {
+                showStatusMessage(locale::GerenciadorTraducao::trText("Modelo modificado durante o cálculo em segundo plano; execute F5 novamente."));
+                updateResultsTables();
+                if (QApplication::activePopupWidget() != nullptr) {
+                    QTimer::singleShot(120, this, &MainWindow::updateInspector);
+                } else {
+                    updateInspector();
+                }
+                m_viewport->update();
+                return;
+            }
+        }
+
+        const auto& srcNodes = payload->snapshot.getNodes();
+        const auto& srcElems = payload->snapshot.getElements();
+        auto& dstNodes = m_model.getNodes();
+        auto& dstElems = m_model.getElements();
+        bool sameTopology = (srcNodes.size() == dstNodes.size()) && (srcElems.size() == dstElems.size());
+        if (sameTopology) {
+            for (size_t i = 0; i < srcNodes.size(); ++i) {
+                if (srcNodes[i].id != dstNodes[i].id ||
+                    (srcNodes[i].position - dstNodes[i].position).norm() > 1e-9) {
+                    sameTopology = false;
+                    break;
+                }
+            }
+        }
+        if (sameTopology) {
+            for (size_t i = 0; i < srcElems.size(); ++i) {
+                if (srcElems[i].id != dstElems[i].id ||
+                    srcElems[i].nodeStart != dstElems[i].nodeStart ||
+                    srcElems[i].nodeEnd != dstElems[i].nodeEnd) {
+                    sameTopology = false;
+                    break;
+                }
+            }
+        }
+
+        if (!sameTopology) {
+            showStatusMessage(locale::GerenciadorTraducao::trText("Modelo modificado durante o cálculo em segundo plano; execute F5 novamente."));
+            updateResultsTables();
+            updateInspector();
+            m_viewport->update();
+            return;
+        }
+
+        for (size_t i = 0; i < srcNodes.size(); ++i) {
+            dstNodes[i].displacement = srcNodes[i].displacement;
+            dstNodes[i].reaction = srcNodes[i].reaction;
+        }
+        for (size_t i = 0; i < srcElems.size(); ++i) {
+            dstElems[i].globalDisplacements = srcElems[i].globalDisplacements;
+            dstElems[i].localDisplacements = srcElems[i].localDisplacements;
+            dstElems[i].localEndForces = srcElems[i].localEndForces;
+            dstElems[i].hasResults = srcElems[i].hasResults;
+        }
+        m_lastSolverResult = payload->result;
+
+        if (m_lastSolverResult.success) {
+            QString msg = locale::GerenciadorTraducao::trText("Cálculo MEF concluído com sucesso em %1 ms (%2 nós, %3 barras, %4 DOFs). Equilíbrio: %5")
+                          .arg(m_lastSolverResult.executionTimeMs, 0, 'f', 1)
+                          .arg(m_lastSolverResult.totalNodes)
+                          .arg(m_lastSolverResult.totalElements)
+                          .arg(m_lastSolverResult.totalDofs)
+                          .arg(m_lastSolverResult.equilibrium.isBalanced
+                              ? locale::GerenciadorTraducao::trText("OK (ΣF=0)")
+                              : locale::GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
+
+            m_solverStatusLabel->setText(msg);
+            showStatusMessage(msg);
+
+            // Se nenhum diagrama estiver ativo após cálculo manual, ativa a Deformada 3D
+            if (interactive && m_viewport->activeDiagram() == DiagramType::None) {
+                m_diagramCombo->setCurrentIndex(1); // Deformada 3D
+            }
+
+            if (m_viewport && m_viewport->postContourMode() == Viewport3D::PostContourMode::NbrComplianceDcr) {
+                m_viewport->setElementDcrMap(computeModelDcrMap());
+            }
+            updateResultsTables();
+            if (QApplication::activePopupWidget() != nullptr) {
+                QTimer::singleShot(120, this, &MainWindow::updateInspector);
+            } else {
+                updateInspector();
+            }
+            m_viewport->update();
+            if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
+            if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
+            return;
+        }
+
+        const QString translatedErr = translateCoreMessage(QString::fromStdString(m_lastSolverResult.errorMessage));
+        m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Erro no cálculo: %1").arg(translatedErr));
         updateResultsTables();
-        updateInspector();
+        if (QApplication::activePopupWidget() != nullptr) {
+            QTimer::singleShot(120, this, &MainWindow::updateInspector);
+        } else {
+            updateInspector();
+        }
         m_viewport->update();
-        return true;
-    }
 
-    const QString translatedErr = translateCoreMessage(QString::fromStdString(m_lastSolverResult.errorMessage));
-    m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Erro no cálculo: %1").arg(translatedErr));
-    updateResultsTables();
-    updateInspector();
-    m_viewport->update();
-
-    if (interactive) {
-        m_windowManager->showModelessMessage(
-            QMessageBox::Warning,
-            locale::GerenciadorTraducao::trText("Erro no Solver"),
-            translatedErr
-        );
-    }
-    return false;
+        if (interactive) {
+            m_windowManager->showModelessMessage(
+                QMessageBox::Warning,
+                locale::GerenciadorTraducao::trText("Erro no Solver"),
+                translatedErr
+            );
+        }
+    });
+    worker->start();
+    return true;
 }
 
 // Modos e Ferramentas
@@ -1184,27 +1674,44 @@ void MainWindow::onSelectionChanged() {
 }
 
 void MainWindow::onModelModified() {
+    ++m_modelRevision;
     m_model.clearResults();
     m_lastSolverResult = SolverResult();
+    if (m_viewport) {
+        m_viewport->clearElementDcrMap();
+        m_viewport->clearPostAnimation();
+    }
 
     m_modelStatsLabel->setText(locale::GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
                                .arg(m_model.getNodes().size())
                                .arg(m_model.getElements().size()));
     updateUndoRedoActions();
+    m_model.syncAutoCapturedViewportLoadCase();
     if (m_materialCatalogDialog) m_materialCatalogDialog->refreshList();
     if (m_sectionCatalogDialog) m_sectionCatalogDialog->refreshList();
+    if (m_loadCombinationsDialog) m_loadCombinationsDialog->refreshLists();
+    if (m_meshGeneratorDialog) m_meshGeneratorDialog->refreshFromModel();
+    if (m_analysisSuiteDialog) m_analysisSuiteDialog->refreshContext();
+    if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
+    if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
 
     if (m_autoRecalculate && m_hasSolvedContext) {
-        const ModelValidation val = m_model.validate();
-        if (val.valid) {
-            runSolver(false);
-            return;
+        if (m_solveInProgress) {
+            m_pendingResolve = true;
+            m_solverStatusLabel->setText(
+                locale::GerenciadorTraducao::trText("Cálculo em andamento; aguarde ou recalcule após concluir (F5)."));
+        } else {
+            const ModelValidation val = m_model.validate();
+            if (val.valid) {
+                runSolver(false);
+                return;
+            }
+            const QString err = val.errors.empty()
+                ? locale::GerenciadorTraducao::trText("Erro de validação desconhecido.")
+                : translateCoreMessage(QString::fromStdString(val.errors.front()));
+            m_solverStatusLabel->setText(
+                locale::GerenciadorTraducao::trText("Recálculo pendente após edição: %1").arg(err));
         }
-        const QString err = val.errors.empty()
-            ? locale::GerenciadorTraducao::trText("Erro de validação desconhecido.")
-            : translateCoreMessage(QString::fromStdString(val.errors.front()));
-        m_solverStatusLabel->setText(
-            locale::GerenciadorTraducao::trText("Recálculo pendente após edição: %1").arg(err));
     } else if (m_hasSolvedContext) {
         m_solverStatusLabel->setText(
             locale::GerenciadorTraducao::trText("Modelo modificado — clique em CALCULAR ESTRUTURA (F5) para atualizar os resultados."));
@@ -1224,14 +1731,73 @@ void MainWindow::updateInspector() {
     while ((item = m_inspectorLayout->takeAt(0)) != nullptr) {
         if (QWidget* w = item->widget()) {
             w->hide();
-            w->setParent(nullptr);
             w->deleteLater();
         }
         delete item;
     }
 
-    auto* contentWidget = new QWidget();
+    auto* contentWidget = new QWidget(m_inspectorLayout ? m_inspectorLayout->parentWidget() : nullptr);
     auto* formLayout = new QFormLayout(contentWidget);
+    formLayout->setContentsMargins(2, 2, 2, 2);
+
+    auto configureInspectorCombo = [](QComboBox* cb) {
+        cb->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        cb->setMinimumContentsLength(10);
+        if (cb->view()) {
+            cb->view()->setMinimumWidth(260);
+        }
+    };
+
+    if (!m_model.getNodes().empty() || !m_model.getElements().empty()) {
+        auto* quickSelWidget = new QWidget(contentWidget);
+        auto* quickSelLay = new QHBoxLayout(quickSelWidget);
+        quickSelLay->setContentsMargins(0, 0, 0, 0);
+        quickSelLay->setSpacing(4);
+
+        auto* btnSelBars = new QPushButton(GerenciadorTraducao::trText("Sel. Barras"), quickSelWidget);
+        btnSelBars->setEnabled(!m_model.getElements().empty());
+        connect(btnSelBars, &QPushButton::clicked, this, [this]() {
+            m_model.clearSelection();
+            for (const auto& el : m_model.getElements()) {
+                m_model.getSelectedElements().insert(el.id);
+            }
+            updateInspector();
+            if (m_viewport) m_viewport->update();
+        });
+        quickSelLay->addWidget(btnSelBars);
+
+        auto* btnSelNodes = new QPushButton(GerenciadorTraducao::trText("Sel. Nós"), quickSelWidget);
+        btnSelNodes->setEnabled(!m_model.getNodes().empty());
+        connect(btnSelNodes, &QPushButton::clicked, this, [this]() {
+            m_model.clearSelection();
+            for (const auto& nd : m_model.getNodes()) {
+                m_model.getSelectedNodes().insert(nd.id);
+            }
+            updateInspector();
+            if (m_viewport) m_viewport->update();
+        });
+        quickSelLay->addWidget(btnSelNodes);
+
+        if (!m_model.getSelectedElements().empty()) {
+            auto* btnSameSec = new QPushButton(GerenciadorTraducao::trText("Mesma Seção"), quickSelWidget);
+            connect(btnSameSec, &QPushButton::clicked, this, [this]() {
+                const Element* refEl = m_model.findElement(*m_model.getSelectedElements().begin());
+                if (!refEl) return;
+                const SectionId targetSec = refEl->sectionId;
+                m_model.getSelectedElements().clear();
+                for (const auto& el : m_model.getElements()) {
+                    if (el.sectionId == targetSec) {
+                        m_model.getSelectedElements().insert(el.id);
+                    }
+                }
+                updateInspector();
+                if (m_viewport) m_viewport->update();
+            });
+            quickSelLay->addWidget(btnSameSec);
+        }
+
+        formLayout->addRow(quickSelWidget);
+    }
 
     auto addRowWithEditBtn = [&](const QString& labelText, const QString& valText, auto slotPtr) {
         auto* rowWidget = new QWidget(contentWidget);
@@ -1266,13 +1832,17 @@ void MainWindow::updateInspector() {
                 return sp;
             };
             auto* spX = makeCoordSpin(node->x());
+            spX->setObjectName(QStringLiteral("insp_coord_x"));
             auto* spY = makeCoordSpin(node->y());
+            spY->setObjectName(QStringLiteral("insp_coord_y"));
             auto* spZ = makeCoordSpin(node->z());
+            spZ->setObjectName(QStringLiteral("insp_coord_z"));
             formLayout->addRow(GerenciadorTraducao::trText("Coordenada X:"), spX);
             formLayout->addRow(GerenciadorTraducao::trText("Coordenada Y:"), spY);
             formLayout->addRow(GerenciadorTraducao::trText("Coordenada Z:"), spZ);
 
             auto* btnApplyCoords = new QPushButton(GerenciadorTraducao::trText("Aplicar Coordenadas"), contentWidget);
+            btnApplyCoords->setObjectName(QStringLiteral("insp_btn_apply_coords"));
             connect(btnApplyCoords, &QPushButton::clicked, this, [this, nid, spX, spY, spZ]() {
                 Node* n = m_model.findNode(nid);
                 if (!n) return;
@@ -1299,6 +1869,50 @@ void MainWindow::updateInspector() {
             });
             formLayout->addRow(QString(), btnApplyCoords);
 
+            if (selCount > 1) {
+                auto* spDx = makeCoordSpin(0.0);
+                auto* spDy = makeCoordSpin(0.0);
+                auto* spDz = makeCoordSpin(0.0);
+                formLayout->addRow(GerenciadorTraducao::trText("Deslocamento ΔX:"), spDx);
+                formLayout->addRow(GerenciadorTraducao::trText("Deslocamento ΔY:"), spDy);
+                formLayout->addRow(GerenciadorTraducao::trText("Deslocamento ΔZ:"), spDz);
+
+                auto* btnShiftNodes = new QPushButton(GerenciadorTraducao::trText("Deslocar Nós Selecionados (Δ)"), contentWidget);
+                connect(btnShiftNodes, &QPushButton::clicked, this, [this, spDx, spDy, spDz, selCount]() {
+                    const Vec3 delta{spDx->value(), spDy->value(), spDz->value()};
+                    if (delta.norm() < 1e-9) return;
+
+                    const auto& selNodes = m_model.getSelectedNodes();
+                    for (const auto& elem : m_model.getElements()) {
+                        const Node* na = m_model.findNode(elem.nodeStart);
+                        const Node* nb = m_model.findNode(elem.nodeEnd);
+                        if (!na || !nb) continue;
+                        Vec3 pa = na->position;
+                        Vec3 pb = nb->position;
+                        if (selNodes.count(elem.nodeStart)) pa += delta;
+                        if (selNodes.count(elem.nodeEnd)) pb += delta;
+                        if ((pb - pa).norm() < 1e-4) {
+                            m_windowManager->showModelessMessage(
+                                QMessageBox::Warning,
+                                GerenciadorTraducao::trText("Coordenada Inválida"),
+                                GerenciadorTraducao::trText("O deslocamento Δ resultaria em comprimento nulo para a Barra %1.")
+                                    .arg(elem.id));
+                            return;
+                        }
+                    }
+
+                    for (NodeId id : selNodes) {
+                        if (Node* n = m_model.findNode(id)) {
+                            n->position += delta;
+                        }
+                    }
+                    m_model.pushUndo();
+                    onModelModified();
+                    showStatusMessage(GerenciadorTraducao::trText("%1 nós deslocados.").arg(selCount));
+                });
+                formLayout->addRow(QString(), btnShiftNodes);
+            }
+
             QStringList supParts;
             if (node->support.isFixed()) {
                 supParts << GerenciadorTraducao::trText("Engastado");
@@ -1314,7 +1928,61 @@ void MainWindow::updateInspector() {
                 supParts << GerenciadorTraducao::trText("Desloc. Prescritos");
             }
             const QString supStr = supParts.isEmpty() ? GerenciadorTraducao::trText("Livre") : supParts.join(QStringLiteral(" + "));
-            addRowWithEditBtn(GerenciadorTraducao::trText("Vínculo:"), supStr, &MainWindow::onAssignSupports);
+
+            auto* supCombo = new QComboBox(contentWidget);
+            supCombo->setObjectName(QStringLiteral("insp_sup_combo"));
+            configureInspectorCombo(supCombo);
+            supCombo->addItem(GerenciadorTraducao::trText("Livre"), 0);
+            supCombo->addItem(GerenciadorTraducao::trText("Engastado"), 1);
+            supCombo->addItem(GerenciadorTraducao::trText("Articulado Fixo"), 2);
+            supCombo->addItem(GerenciadorTraducao::trText("Apoio Móvel (Z)"), 3);
+
+            int supIdx = 0;
+            const bool hasExtra = node->support.hasSprings() || node->support.hasPrescribedDisplacements();
+            if (!node->support.isRestrained()) {
+                supIdx = 0;
+            } else if (!hasExtra && node->support.isFixed()) {
+                supIdx = 1;
+            } else if (!hasExtra && node->support.isPinned()) {
+                supIdx = 2;
+            } else if (!hasExtra && node->support.isRollerZ()) {
+                supIdx = 3;
+            } else {
+                supCombo->addItem(supStr, 4);
+                supIdx = 4;
+            }
+            supCombo->setCurrentIndex(supIdx);
+
+            auto* supRow = new QWidget(contentWidget);
+            auto* supLay = new QHBoxLayout(supRow);
+            supLay->setContentsMargins(0, 0, 0, 0);
+            auto* supEditBtn = new QPushButton(QStringLiteral("..."), supRow);
+            supEditBtn->setMaximumWidth(34);
+            supEditBtn->setToolTip(GerenciadorTraducao::trText("Editar Condições de Apoio"));
+            supLay->addWidget(supCombo, 1);
+            supLay->addWidget(supEditBtn);
+            formLayout->addRow(GerenciadorTraducao::trText("Vínculo:"), supRow);
+            connect(supEditBtn, &QPushButton::clicked, this, &MainWindow::onAssignSupports);
+            connect(supCombo, QOverload<int>::of(&QComboBox::activated), this, [this, supCombo](int idx) {
+                const int preset = supCombo->itemData(idx).toInt();
+                SupportRestraint restraint;
+                if (preset == 0) {
+                    restraint = SupportRestraint{};
+                } else if (preset == 1) {
+                    restraint = SupportRestraint::makeFixed();
+                } else if (preset == 2) {
+                    restraint = SupportRestraint::makePinned();
+                } else if (preset == 3) {
+                    restraint = SupportRestraint::makeRoller(2);
+                } else {
+                    return;
+                }
+                for (NodeId id : m_model.getSelectedNodes()) {
+                    if (Node* n = m_model.findNode(id)) n->support = restraint;
+                }
+                m_model.pushUndo();
+                onModelModified();
+            });
 
             QString ldStr = GerenciadorTraducao::trText("Nenhuma");
             if (node->load.isActive()) {
@@ -1354,7 +2022,12 @@ void MainWindow::updateInspector() {
                 }
             }
         }
-    } else if (!m_model.getSelectedElements().empty()) {
+    }
+
+    if (!m_model.getSelectedElements().empty()) {
+        if (!m_model.getSelectedNodes().empty()) {
+            formLayout->addRow(QStringLiteral("---"), new QLabel(QString("<b>%1</b>").arg(GerenciadorTraducao::trText("Barra Selecionada:")), contentWidget));
+        }
         ElementId eid = *m_model.getSelectedElements().begin();
         Element* elem = m_model.findElement(eid);
         if (elem) {
@@ -1367,6 +2040,8 @@ void MainWindow::updateInspector() {
             // Conectividade editável (Nó Início -> Nó Fim)
             auto* startCombo = new QComboBox(contentWidget);
             auto* endCombo = new QComboBox(contentWidget);
+            configureInspectorCombo(startCombo);
+            configureInspectorCombo(endCombo);
             int sIdx = 0;
             int eIdx = 0;
             const auto& allNodes = m_model.getNodes();
@@ -1424,10 +2099,12 @@ void MainWindow::updateInspector() {
 
             // Material editável inline + botão Catálogo
             auto* matCombo = new QComboBox(contentWidget);
+            matCombo->setObjectName(QStringLiteral("insp_mat_combo"));
+            configureInspectorCombo(matCombo);
             int mIdx = 0;
             const auto& mats = m_model.getMaterials();
             for (int i = 0; i < static_cast<int>(mats.size()); ++i) {
-                matCombo->addItem(QString("#%1 %2").arg(mats[i].id).arg(GerenciadorTraducao::trText(QString::fromStdString(mats[i].name))), mats[i].id);
+                matCombo->addItem(GerenciadorTraducao::trText(QString::fromStdString(mats[i].name)), mats[i].id);
                 if (mats[i].id == elem->materialId) mIdx = i;
             }
             matCombo->setCurrentIndex(mIdx);
@@ -1452,10 +2129,12 @@ void MainWindow::updateInspector() {
 
             // Seção Transversal editável inline + botão Catálogo
             auto* secCombo = new QComboBox(contentWidget);
+            secCombo->setObjectName(QStringLiteral("insp_sec_combo"));
+            configureInspectorCombo(secCombo);
             int sSecIdx = 0;
             const auto& secs = m_model.getCrossSections();
             for (int i = 0; i < static_cast<int>(secs.size()); ++i) {
-                secCombo->addItem(QString("#%1 %2").arg(secs[i].id).arg(GerenciadorTraducao::trText(QString::fromStdString(secs[i].name))), secs[i].id);
+                secCombo->addItem(GerenciadorTraducao::trText(QString::fromStdString(secs[i].name)), secs[i].id);
                 if (secs[i].id == elem->sectionId) sSecIdx = i;
             }
             secCombo->setCurrentIndex(sSecIdx);
@@ -1483,15 +2162,65 @@ void MainWindow::updateInspector() {
                 QString("%1 °").arg(elem->rollAngle * 180.0 / PI, 0, 'f', 1),
                 &MainWindow::onAssignRollAngle);
 
-            QString relStr = GerenciadorTraducao::trText("Bi-Engastada");
-            if (elem->releases.hasAnyRelease()) {
-                bool isTruss = true;
-                for (int k = 3; k < 6; ++k) {
-                    if (!elem->releases.start[k] || !elem->releases.end[k]) { isTruss = false; break; }
-                }
-                relStr = isTruss ? GerenciadorTraducao::trText("Barra Treliça") : GerenciadorTraducao::trText("Liberações Ativas");
+            // Rótulas / Liberações editável inline + botão Editar
+            auto* relCombo = new QComboBox(contentWidget);
+            relCombo->setObjectName(QStringLiteral("insp_rel_combo"));
+            configureInspectorCombo(relCombo);
+            relCombo->addItem(GerenciadorTraducao::trText("Bi-Engastada"), 0);
+            relCombo->addItem(GerenciadorTraducao::trText("Rótula Início"), 1);
+            relCombo->addItem(GerenciadorTraducao::trText("Rótula Fim"), 2);
+            relCombo->addItem(GerenciadorTraducao::trText("Barra Treliça"), 3);
+
+            ElementReleases startRel;
+            startRel.start[4] = startRel.start[5] = true;
+            ElementReleases endRel;
+            endRel.end[4] = endRel.end[5] = true;
+            const ElementReleases trussRel = ElementReleases::makeTrussReleases();
+
+            int relIdx = 4;
+            if (!elem->releases.hasAnyRelease()) {
+                relIdx = 0;
+            } else if (elem->releases.start == startRel.start && elem->releases.end == startRel.end) {
+                relIdx = 1;
+            } else if (elem->releases.start == endRel.start && elem->releases.end == endRel.end) {
+                relIdx = 2;
+            } else if (elem->releases.start == trussRel.start && elem->releases.end == trussRel.end) {
+                relIdx = 3;
+            } else {
+                relCombo->addItem(GerenciadorTraducao::trText("Liberações Ativas"), 4);
             }
-            addRowWithEditBtn(GerenciadorTraducao::trText("Rótulas:"), relStr, &MainWindow::onAssignReleases);
+            relCombo->setCurrentIndex(relIdx);
+
+            auto* relRow = new QWidget(contentWidget);
+            auto* relLay = new QHBoxLayout(relRow);
+            relLay->setContentsMargins(0, 0, 0, 0);
+            auto* relEditBtn = new QPushButton(QStringLiteral("..."), relRow);
+            relEditBtn->setMaximumWidth(34);
+            relEditBtn->setToolTip(GerenciadorTraducao::trText("Editar Liberações e Rótulas"));
+            relLay->addWidget(relCombo, 1);
+            relLay->addWidget(relEditBtn);
+            formLayout->addRow(GerenciadorTraducao::trText("Rótulas:"), relRow);
+            connect(relEditBtn, &QPushButton::clicked, this, &MainWindow::onAssignReleases);
+            connect(relCombo, QOverload<int>::of(&QComboBox::activated), this, [this, relCombo, startRel, endRel, trussRel](int idx) {
+                const int preset = relCombo->itemData(idx).toInt();
+                ElementReleases rel;
+                if (preset == 0) {
+                    rel = ElementReleases{};
+                } else if (preset == 1) {
+                    rel = startRel;
+                } else if (preset == 2) {
+                    rel = endRel;
+                } else if (preset == 3) {
+                    rel = trussRel;
+                } else {
+                    return;
+                }
+                for (ElementId id : m_model.getSelectedElements()) {
+                    if (Element* el = m_model.findElement(id)) el->releases = rel;
+                }
+                m_model.pushUndo();
+                onModelModified();
+            });
 
             QString qStr = GerenciadorTraducao::trText("Inativa");
             if (elem->distLoad.active) {
@@ -1525,7 +2254,9 @@ void MainWindow::updateInspector() {
                 formLayout->addRow(GerenciadorTraducao::trText("Torsor Tx (kNm):"), new QLabel(QString("%1").arg(f0.Tx, 0, 'f', 1), contentWidget));
             }
         }
-    } else {
+    }
+
+    if (m_model.getSelectedNodes().empty() && m_model.getSelectedElements().empty()) {
         auto* hintLbl = new QLabel(QString("<i>%1</i>").arg(GerenciadorTraducao::trText("Nenhum nó ou barra selecionado. Clique em um elemento no Viewport 3D para inspecionar.")), contentWidget);
         hintLbl->setWordWrap(true);
         formLayout->addRow(hintLbl);
@@ -1622,6 +2353,21 @@ void MainWindow::onManual() {
         m_windowManager, m_manualDialog, true,
         []() { return new ui::ManualDialog(nullptr); }
     );
+}
+
+GuidedSessionDialog* MainWindow::guidedSessionDialog() const {
+    return m_guidedSessionDialog.data();
+}
+
+void MainWindow::onGuidedSession() {
+    const bool firstCreate = m_guidedSessionDialog.isNull();
+    openManagedInfoDialog(
+        m_windowManager, m_guidedSessionDialog, true,
+        [this]() { return new GuidedSessionDialog(this, nullptr); }
+    );
+    if (firstCreate && m_guidedSessionDialog) {
+        m_guidedSessionDialog->positionHudNearMainWindow();
+    }
 }
 
 void MainWindow::onAbout() {
@@ -1886,6 +2632,11 @@ void MainWindow::retranslateUi() {
     if (m_actNewProject) m_actNewProject->setText(GerenciadorTraducao::trText("Novo Projeto"));
     if (m_actOpenProject) m_actOpenProject->setText(GerenciadorTraducao::trText("Abrir (.omniframe)..."));
     if (m_actSaveProject) m_actSaveProject->setText(GerenciadorTraducao::trText("Salvar (.omniframe)..."));
+    if (m_actImportDxf) m_actImportDxf->setText(GerenciadorTraducao::trText("Importar DXF..."));
+    if (m_actExportDxf) m_actExportDxf->setText(GerenciadorTraducao::trText("Exportar DXF..."));
+    if (m_actImportIfc) m_actImportIfc->setText(GerenciadorTraducao::trText("Importar BIM IFC4..."));
+    if (m_actExportIfc) m_actExportIfc->setText(GerenciadorTraducao::trText("Exportar BIM IFC4..."));
+    if (m_actExportPdf) m_actExportPdf->setText(GerenciadorTraducao::trText("Exportar Memorial Executivo (PDF A4)..."));
     if (m_actExportHtml) m_actExportHtml->setText(GerenciadorTraducao::trText("Exportar Relatório Técnico (HTML)..."));
     if (m_actExportMd) m_actExportMd->setText(GerenciadorTraducao::trText("Exportar Relatório Técnico (Markdown)..."));
     if (m_actQuit) m_actQuit->setText(GerenciadorTraducao::trText("Sair"));
@@ -1908,8 +2659,13 @@ void MainWindow::retranslateUi() {
     if (m_actDistLoads) m_actDistLoads->setText(GerenciadorTraducao::trText("Cargas Uniformemente Distribuídas..."));
     if (m_actThermalLoads) m_actThermalLoads->setText(GerenciadorTraducao::trText("Cargas Térmicas (ΔT)..."));
     if (m_actRollAngle) m_actRollAngle->setText(GerenciadorTraducao::trText("Ângulo de Roll da Seção (γ)..."));
+    if (m_actLoadCombos) m_actLoadCombos->setText(GerenciadorTraducao::trText("Casos de Carga, Combinações NBR & Vento..."));
+    if (m_actMeshGen) m_actMeshGen->setText(GerenciadorTraducao::trText("Gerador de Malha 1D/2D/3D..."));
     if (m_actAutoRecalc) m_actAutoRecalc->setText(GerenciadorTraducao::trText("Recálculo Automático após Edição"));
     if (m_actSolveMenu) m_actSolveMenu->setText(GerenciadorTraducao::trText("CALCULAR ESTRUTURA"));
+    if (m_actAnalysisSuite) m_actAnalysisSuite->setText(GerenciadorTraducao::trText("Suite de Análises (Modal / Flambagem / Não Linear / Sismo)..."));
+    if (m_actPostControls) m_actPostControls->setText(GerenciadorTraducao::trText("Controles 3D (Contornos / Corte / Animação)..."));
+    if (m_actNbrAudit) m_actNbrAudit->setText(GerenciadorTraducao::trText("Auditoria Normativa ABNT NBR (6118 / 8800 / 6122)..."));
 
     if (m_viewMenu) m_viewMenu->setTitle(GerenciadorTraducao::trText("&Exibir"));
     if (m_actViewIsoMenu) m_actViewIsoMenu->setText(GerenciadorTraducao::trText("Vista 3D Isométrica"));
@@ -1976,6 +2732,7 @@ void MainWindow::retranslateUi() {
 
     if (m_helpMenu) m_helpMenu->setTitle(GerenciadorTraducao::trText("&Ajuda"));
     if (m_actManual) m_actManual->setText(GerenciadorTraducao::trText("Manual"));
+    if (m_actGuidedSession) m_actGuidedSession->setText(GerenciadorTraducao::trText("Sessão Guiada..."));
     if (m_actAbout) m_actAbout->setText(GerenciadorTraducao::trText("Sobre o OmniFrame 3D"));
 
     // Toolbars
@@ -2005,7 +2762,12 @@ void MainWindow::retranslateUi() {
     if (m_actTbDistLoads) m_actTbDistLoads->setText(GerenciadorTraducao::trText("Carga Distr...."));
     if (m_actTbThermalLoads) m_actTbThermalLoads->setText(GerenciadorTraducao::trText("Térmica (ΔT)..."));
     if (m_actTbRollAngle) m_actTbRollAngle->setText(GerenciadorTraducao::trText("Roll (γ)..."));
+    if (m_actTbCombos) m_actTbCombos->setText(GerenciadorTraducao::trText("Combinações..."));
+    if (m_actTbMesh) m_actTbMesh->setText(GerenciadorTraducao::trText("Malha 2D/3D..."));
     if (m_btnSolve) m_btnSolve->setText(GerenciadorTraducao::trText(" ▶ CALCULAR ESTRUTURA (F5)"));
+    if (m_actTbAdvAnalysis) m_actTbAdvAnalysis->setText(GerenciadorTraducao::trText("Avançadas..."));
+    if (m_actTbPostCtrl) m_actTbPostCtrl->setText(GerenciadorTraducao::trText("Corte/Contornos..."));
+    if (m_actTbNbrAudit) m_actTbNbrAudit->setText(GerenciadorTraducao::trText("Auditoria NBR..."));
     if (m_diagLabel) m_diagLabel->setText(GerenciadorTraducao::trText(" Diagrama: "));
     if (m_actReactions) m_actReactions->setText(GerenciadorTraducao::trText("Reações"));
     if (m_scaleLabel) m_scaleLabel->setText(GerenciadorTraducao::trText(" Escala: "));

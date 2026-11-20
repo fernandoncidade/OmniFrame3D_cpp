@@ -44,11 +44,24 @@ enum class DiagramType {
 };
 
 enum class SectionShape {
-    Rectangular,
-    CircularSolid,
-    CircularTube,
-    IShape,
-    Generic
+    Rectangular = 0,
+    CircularSolid = 1,
+    CircularTube = 2,
+    IShape = 3,
+    Generic = 4,
+    BoxRHS = 5,
+    ChannelC = 6,
+    AngleL = 7,
+    TShape = 8,
+    WeldedIShape = 9,
+    Polygon = 10,
+    Composite = 11
+};
+
+enum class ElementFormulation {
+    EulerBernoulli3D = 0,
+    Timoshenko3D = 1,
+    Truss3D = 2
 };
 
 enum class CoordSystem {

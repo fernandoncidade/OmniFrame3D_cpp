@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(OmniFrame
-    VERSION 2026.11.13.0
+    VERSION 2026.11.14.0
     DESCRIPTION "OmniFrame 3D - Porticos e Trelicas Espaciais 3D via FEM (C++23 / Qt6 / OpenGL / Eigen3)"
     LANGUAGES CXX
 )
@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -55,10 +56,13 @@ endfunction()
 
 # Determina componentes Qt6 necessarios conforme os alvos ativos
 set(_OMNIFRAME_QT_COMPONENTS Core)
-if(BUILD_APP OR BUILD_VERSION OR BUILD_COMPILE_LANGUAGE)
-    list(APPEND _OMNIFRAME_QT_COMPONENTS Gui Widgets)
+if(BUILD_APP OR BUILD_TESTS OR BUILD_VERSION OR BUILD_COMPILE_LANGUAGE)
+    list(APPEND _OMNIFRAME_QT_COMPONENTS Gui)
 endif()
-if(BUILD_APP)
+if(BUILD_APP OR BUILD_TESTS OR BUILD_VERSION OR BUILD_COMPILE_LANGUAGE)
+    list(APPEND _OMNIFRAME_QT_COMPONENTS Widgets)
+endif()
+if(BUILD_APP OR BUILD_TESTS)
     list(APPEND _OMNIFRAME_QT_COMPONENTS OpenGL OpenGLWidgets)
 endif()
 list(REMOVE_DUPLICATES _OMNIFRAME_QT_COMPONENTS)
@@ -114,6 +118,59 @@ if(BUILD_APP OR BUILD_TESTS)
         endif()
     endif()
 
+    set(OMNIFRAME_KERNEL_SOURCES
+        source/kernel/core/KernelTypes.hpp
+        source/kernel/core/DofManager.hpp
+        source/kernel/core/DofManager.cpp
+        source/kernel/materials/IConstitutiveModel.hpp
+        source/kernel/materials/LinearElasticMaterial.hpp
+        source/kernel/materials/LinearElasticMaterial.cpp
+        source/kernel/materials/J2PlasticityMaterial.hpp
+        source/kernel/materials/J2PlasticityMaterial.cpp
+        source/kernel/geometry/CrossSectionGeometry.hpp
+        source/kernel/geometry/CrossSectionGeometry.cpp
+        source/kernel/elements/IFiniteElement.hpp
+        source/kernel/elements/BeamTruss1D.hpp
+        source/kernel/elements/BeamTruss1D.cpp
+        source/kernel/elements/Corotational1D.hpp
+        source/kernel/elements/Corotational1D.cpp
+        source/kernel/elements/ShellElements.hpp
+        source/kernel/elements/ShellElements.cpp
+        source/kernel/elements/SolidElements.hpp
+        source/kernel/elements/SolidElements.cpp
+        source/kernel/mesh/MeshPrimitives.hpp
+        source/kernel/mesh/MeshGenerator.hpp
+        source/kernel/mesh/MeshGenerator.cpp
+        source/kernel/assembly/GlobalAssembler.hpp
+        source/kernel/assembly/GlobalAssembler.cpp
+        source/kernel/solver/LinearSolverSuite.hpp
+        source/kernel/solver/LinearSolverSuite.cpp
+        source/kernel/analysis/LoadSystem.hpp
+        source/kernel/analysis/LoadSystem.cpp
+        source/kernel/analysis/BucklingSolver.hpp
+        source/kernel/analysis/BucklingSolver.cpp
+        source/kernel/analysis/DynamicSolver.hpp
+        source/kernel/analysis/DynamicSolver.cpp
+        source/kernel/analysis/NonlinearSolver.hpp
+        source/kernel/analysis/NonlinearSolver.cpp
+        source/kernel/postprocessing/PostProcessor.hpp
+        source/kernel/postprocessing/PostProcessor.cpp
+        source/kernel/codes/NbrCodeChecks.hpp
+        source/kernel/codes/NbrCodeChecks.cpp
+    )
+
+    add_library(OmniFrameKernel STATIC
+        ${OMNIFRAME_KERNEL_SOURCES}
+    )
+    target_include_directories(OmniFrameKernel PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+    target_link_libraries(OmniFrameKernel PUBLIC
+        Eigen3::Eigen
+    )
+    omniframe_apply_compiler_options(OmniFrameKernel)
+
     set(OMNIFRAME_CORE_SOURCES
         source/core/Types.hpp
         source/core/Material.hpp
@@ -128,6 +185,12 @@ if(BUILD_APP OR BUILD_TESTS)
         source/solver/FemSolver3D.cpp
         source/io/ProjectSerializer.hpp
         source/io/ProjectSerializer.cpp
+        source/io/DxfInterop.hpp
+        source/io/DxfInterop.cpp
+        source/io/IfcInterop.hpp
+        source/io/IfcInterop.cpp
+        source/io/PdfReportGenerator.hpp
+        source/io/PdfReportGenerator.cpp
     )
 
     add_library(OmniFrameCore STATIC
@@ -138,17 +201,96 @@ if(BUILD_APP OR BUILD_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
     )
     target_link_libraries(OmniFrameCore PUBLIC
+        OmniFrameKernel
         Qt6::Core
-        Eigen3::Eigen
+        Qt6::Gui
     )
     omniframe_apply_compiler_options(OmniFrameCore)
+
+    add_executable(omniframe-cli
+        source/cli/main_cli.cpp
+    )
+    set_target_properties(omniframe-cli PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        OUTPUT_NAME "omniframe-cli"
+    )
+    target_include_directories(omniframe-cli PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+    target_link_libraries(omniframe-cli PRIVATE
+        OmniFrameCore
+        Qt6::Core
+        Qt6::Gui
+    )
+    omniframe_apply_compiler_options(omniframe-cli)
+    if(WIN32 AND BUILD_APP)
+        add_custom_command(TARGET omniframe-cli POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                -DBINARY_PATH=$<TARGET_FILE:omniframe-cli>
+                -DQT_BIN_DIR=${OMNIFRAME_QT_BIN_DIR}
+                -DCOPY_QT_TRANSLATIONS=OFF
+                -DCLEANUP_ARTIFACTS=OFF
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_optional_qt_binary.cmake"
+            COMMENT "Executando deploy Qt6 para omniframe-cli.exe"
+        )
+    endif()
+
+    find_package(OpenGL REQUIRED)
+
+    set(OMNIFRAME_UI_SOURCES
+        source/locale/GerenciadorTraducao.hpp
+        source/locale/GerenciadorTraducao.cpp
+        source/render/Camera3D.hpp
+        source/render/Camera3D.cpp
+        source/render/RenderSettings.hpp
+        source/render/RenderSettings.cpp
+        source/render/ShaderCollection.hpp
+        source/render/Viewport3D.hpp
+        source/render/Viewport3D.cpp
+        source/ui/AboutDialog.hpp
+        source/ui/AboutDialog.cpp
+        source/ui/Dialogs.hpp
+        source/ui/Dialogs.cpp
+        source/ui/EngineeringDialogs.hpp
+        source/ui/EngineeringDialogs.cpp
+        source/ui/GuidedSessionDialog.hpp
+        source/ui/GuidedSessionDialog.cpp
+        source/ui/ManualDialog.hpp
+        source/ui/ManualDialog.cpp
+        source/ui/RenderSettingsDialog.hpp
+        source/ui/RenderSettingsDialog.cpp
+        source/ui/ThemeManager.hpp
+        source/ui/ThemeManager.cpp
+        source/ui/WindowZOrderManager.hpp
+        source/ui/WindowZOrderManager.cpp
+        source/ui/MainWindow.hpp
+        source/ui/MainWindow.cpp
+    )
+
+    add_library(OmniFrameUi STATIC
+        ${OMNIFRAME_UI_SOURCES}
+    )
+    target_include_directories(OmniFrameUi PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/source"
+    )
+    target_link_libraries(OmniFrameUi PUBLIC
+        OmniFrameCore
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::OpenGL
+        Qt6::OpenGLWidgets
+        OpenGL::GL
+    )
+    omniframe_apply_compiler_options(OmniFrameUi)
 endif()
 
 # ==============================================================================
 # Aplicativo Principal: OmniFrame 3D (build/OmniFrame3D)
 # ==============================================================================
 if(BUILD_APP)
-    find_package(OpenGL REQUIRED)
     find_package(Qt6 COMPONENTS LinguistTools QUIET)
 
     if(TARGET Qt6::lrelease)
@@ -163,29 +305,6 @@ if(BUILD_APP)
 
     set(OMNIFRAME_GUI_SOURCES
         source/main.cpp
-        source/locale/GerenciadorTraducao.hpp
-        source/locale/GerenciadorTraducao.cpp
-        source/render/Camera3D.hpp
-        source/render/Camera3D.cpp
-        source/render/RenderSettings.hpp
-        source/render/RenderSettings.cpp
-        source/render/ShaderCollection.hpp
-        source/render/Viewport3D.hpp
-        source/render/Viewport3D.cpp
-        source/ui/AboutDialog.hpp
-        source/ui/AboutDialog.cpp
-        source/ui/Dialogs.hpp
-        source/ui/Dialogs.cpp
-        source/ui/ManualDialog.hpp
-        source/ui/ManualDialog.cpp
-        source/ui/RenderSettingsDialog.hpp
-        source/ui/RenderSettingsDialog.cpp
-        source/ui/ThemeManager.hpp
-        source/ui/ThemeManager.cpp
-        source/ui/WindowZOrderManager.hpp
-        source/ui/WindowZOrderManager.cpp
-        source/ui/MainWindow.hpp
-        source/ui/MainWindow.cpp
     )
     if(WIN32)
         list(APPEND OMNIFRAME_GUI_SOURCES "${OMNIFRAME_GENERATED_ICON_RC}")
@@ -201,13 +320,7 @@ if(BUILD_APP)
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
     )
     target_link_libraries(OmniFrame PRIVATE
-        OmniFrameCore
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Widgets
-        Qt6::OpenGL
-        Qt6::OpenGLWidgets
-        OpenGL::GL
+        OmniFrameUi
     )
     omniframe_apply_compiler_options(OmniFrame)
 
@@ -229,6 +342,7 @@ if(BUILD_APP)
     endforeach()
     add_custom_target(OmniFrameTranslations DEPENDS ${_OMNIFRAME_QM_FILES})
     add_dependencies(OmniFrame OmniFrameTranslations)
+    add_dependencies(OmniFrame omniframe-cli)
 
     # Copia apenas os diretorios/arquivos necessarios de source/assets para runtime
     set(_OMNIFRAME_ASSET_DIRS

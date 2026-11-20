@@ -10,12 +10,15 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec4 aColor;
 
 uniform mat4 uMVP;
+uniform vec4 uClipPlane;
 
 out vec4 vColor;
 
 void main() {
     vColor = aColor;
-    gl_Position = uMVP * vec4(aPos, 1.0);
+    vec4 worldPos = vec4(aPos, 1.0);
+    gl_ClipDistance[0] = dot(worldPos, uClipPlane);
+    gl_Position = uMVP * worldPos;
 }
 )glsl";
 
@@ -37,15 +40,18 @@ layout (location = 2) in vec4 aColor;
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat3 uNormalMatrix;
+uniform vec4 uClipPlane;
 
 out vec3 vNormal;
 out vec3 vFragPos;
 out vec4 vColor;
 
 void main() {
-    vFragPos = vec3(uModel * vec4(aPos, 1.0));
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    vFragPos = vec3(worldPos);
     vNormal = normalize(uNormalMatrix * aNormal);
     vColor = aColor;
+    gl_ClipDistance[0] = dot(worldPos, uClipPlane);
     gl_Position = uMVP * vec4(aPos, 1.0);
 }
 )glsl";
@@ -68,7 +74,8 @@ void main() {
     // Iluminação Difusa
     vec3 norm = normalize(vNormal);
     vec3 lightDir = normalize(uLightDir);
-    float diff = max(dot(norm, lightDir), 0.0);
+    // Two-sided illumination for thin 2D shell/plate meshes and arbitrary winding
+    float diff = abs(dot(norm, lightDir));
     vec3 diffuse = diff * vec3(0.85);
 
     // Iluminação Especular (Blinn-Phong)
@@ -89,12 +96,15 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec4 aColor;
 
 uniform mat4 uMVP;
+uniform vec4 uClipPlane;
 
 out vec4 vColor;
 
 void main() {
     vColor = aColor;
-    gl_Position = uMVP * vec4(aPos, 1.0);
+    vec4 worldPos = vec4(aPos, 1.0);
+    gl_ClipDistance[0] = dot(worldPos, uClipPlane);
+    gl_Position = uMVP * worldPos;
 }
 )glsl";
 
@@ -119,6 +129,7 @@ uniform mat4 uMVP;
 uniform vec2 uResolution;
 uniform float uStrokePx;
 uniform float uFeatherPx;
+uniform vec4 uClipPlane;
 
 flat out vec2 vPxA;
 flat out vec2 vPxB;
@@ -128,11 +139,14 @@ flat out float vEffStrokePx;
 flat out float vAlphaAtten;
 
 void main() {
-    vec4 clipA = uMVP * vec4(aPosA, 1.0);
-    vec4 clipB = uMVP * vec4(aPosB, 1.0);
+    vec4 worldA = vec4(aPosA, 1.0);
+    vec4 worldB = vec4(aPosB, 1.0);
+    vec4 clipA = uMVP * worldA;
+    vec4 clipB = uMVP * worldB;
 
     const float W_NEAR = 0.001;
     if (clipA.w < W_NEAR && clipB.w < W_NEAR) {
+        gl_ClipDistance[0] = 1.0;
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         vPxA = vec2(0.0);
         vPxB = vec2(0.0);
@@ -148,10 +162,12 @@ void main() {
     if (clipA.w < W_NEAR) {
         float t = clamp((W_NEAR - clipA.w) / max(clipB.w - clipA.w, 1e-6), 0.0, 1.0);
         clipA = mix(clipA, clipB, t);
+        worldA = mix(worldA, worldB, t);
         colA = mix(colA, colB, t);
     } else if (clipB.w < W_NEAR) {
         float t = clamp((W_NEAR - clipB.w) / max(clipA.w - clipB.w, 1e-6), 0.0, 1.0);
         clipB = mix(clipB, clipA, t);
+        worldB = mix(worldB, worldA, t);
         colB = mix(colB, colA, t);
     }
 
@@ -171,6 +187,8 @@ void main() {
     vec4 baseClip = mix(clipA, clipB, aCorner.x);
     vec2 offsetPx = dir * (alongSign * pad) + perp * (aCorner.y * pad);
 
+    vec4 baseWorld = mix(worldA, worldB, aCorner.x);
+    gl_ClipDistance[0] = dot(baseWorld, uClipPlane);
     gl_Position = baseClip;
     gl_Position.xy += (offsetPx * 2.0 / max(uResolution, vec2(1.0))) * baseClip.w;
 

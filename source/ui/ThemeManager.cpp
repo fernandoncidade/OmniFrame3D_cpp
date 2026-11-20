@@ -182,6 +182,11 @@ QString buildLightApplicationStyleSheet() {
 #ifdef Q_OS_WIN
 void setWindowsImmersiveDarkMode(QWidget* widget, bool dark) {
     if (!widget || !widget->isWindow()) return;
+    const Qt::WindowType type = widget->windowType();
+    if (type == Qt::Popup || type == Qt::ToolTip || type == Qt::SplashScreen) {
+        return;
+    }
+    if (widget->testAttribute(Qt::WA_DontShowOnScreen)) return;
     const WId wid = widget->internalWinId();
     if (wid == 0) return;
 

@@ -14,8 +14,8 @@
 
 # POLÍTICA DE PRIVACIDADE — OMNIFRAME 3D
 
-**Versão:** `2026.11.13.0`  
-**Data:** `13 de novembro de 2026`  
+**Versão:** `2026.11.14.0`  
+**Data:** `14 de novembro de 2026`  
 **Desenvolvedor / Controlador:** Fernando Nillsson Cidade (Desenvolvedor Individual)  
 **E-mail de Contato e Privacidade:** `linceu_lighthouse@outlook.com`  
 **Site Oficial do Projeto:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -47,8 +47,8 @@ O **OmniFrame 3D** foi projetado para operar **100% localmente e offline** na es
 Todo processamento estrutural permanece sob controle exclusivo do usuário, na RAM, CPU e GPU (OpenGL 3.3 Core) do computador local:
 
 - **Dados de Engenharia em Memória:** Coordenadas nodais $(X, Y, Z)$, conectividade de barras, materiais ($E, \nu, \alpha, \gamma$), seções transversais ($A, I_y, I_z, J$), ângulo de roll, rótulas, apoios, molas, deslocamentos prescritos e cargas nodais/distribuídas.
-- **Arquivos Salvos Explicitamente pelo Usuário:** Modelos estruturais no formato JSON aberto **`.omniframe`** e relatórios técnicos opcionais exportados em **`.html`** ou **`.md`** são gravados **apenas** na pasta selecionada explicitamente pelo usuário nos diálogos padrão do Windows.
-- **Preferência Mínima de Idioma:** Somente a escolha de idioma da interface (`pt_BR` ou `en_US`) é salva localmente em arquivo JSON na pasta de dados locais do aplicativo (`%LOCALAPPDATA%\OmniFrame\OmniFrame\language.json`, ou no contêiner isolado equivalente quando executado via pacote MSIX).
+- **Arquivos Salvos Explicitamente pelo Usuário:** Modelos estruturais no formato JSON aberto **`.omniframe`**, arquivos de interoperabilidade CAD/BIM (**`.dxf`**, **`.ifc`**), relatórios técnicos (**`.pdf`**, **`.html`**, **`.md`**) e conjuntos de resultados (**`.json`**, **`.csv`**, **`.vtk`**) são gravados **apenas** na pasta selecionada explicitamente pelo usuário nos diálogos padrão do Windows ou via argumentos explícitos na CLI.
+- **Preferências Locais Mínimas de Interface:** Apenas a escolha de idioma (`language.json`), tema visual (`theme.json`) e perfil gráfico OpenGL (`graphics.json`) são salvos localmente em arquivos JSON na pasta de dados locais do aplicativo (`%LOCALAPPDATA%\OmniFrame\OmniFrame\`, ou no contêiner isolado equivalente quando executado via pacote MSIX).
 
 ---
 
@@ -61,7 +61,7 @@ Para distribuição em pacote MSIX na Microsoft Store (Política 10.6), o manife
 ## 5. Direitos do Titular, Controle e Desinstalação Limpa (Política 10.2.7 / LGPD / GDPR)
 
 O usuário exerce controle pleno sobre todos os dados locais:
-- **Acesso, Edição, Portabilidade e Exclusão:** Você pode abrir, copiar, editar ou excluir livremente qualquer arquivo `.omniframe`, `.html`, `.md` ou `language.json` a qualquer momento.
+- **Acesso, Edição, Portabilidade e Exclusão:** Você pode abrir, copiar, editar ou excluir livremente qualquer arquivo `.omniframe`, `.dxf`, `.ifc`, `.pdf`, `.html`, `.md`, `.json`, `.csv`, `.vtk`, `language.json`, `theme.json` ou `graphics.json` a qualquer momento.
 - **Desinstalação Limpa:** Você pode desinstalar e remover o OmniFrame 3D de forma limpa a qualquer momento por **Configurações do Windows → Aplicativos → Aplicativos instalados** ou pelo **Menu Iniciar**. A remoção do pacote MSIX elimina os binários e o estado virtualizado do aplicativo sem deixar serviços em segundo plano, drivers ou tarefas agendadas residuais.
 
 ---
@@ -83,8 +83,8 @@ O usuário exerce controle pleno sobre todos os dados locais:
 
 # PRIVACY POLICY — OMNIFRAME 3D
 
-**Version:** `2026.11.13.0`  
-**Date:** `November 13, 2026`  
+**Version:** `2026.11.14.0`  
+**Date:** `November 14, 2026`  
 **Developer / Controller:** Fernando Nillsson Cidade (Individual Developer)  
 **Privacy & Support Email:** `linceu_lighthouse@outlook.com`  
 **Official Project Website:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -116,8 +116,8 @@ O usuário exerce controle pleno sobre todos os dados locais:
 All structural processing remains solely under user control in the RAM, CPU, and GPU (OpenGL 3.3 Core) of the local workstation:
 
 - **In-Memory Engineering Data:** Nodal coordinates $(X, Y, Z)$, member connectivity, materials ($E, \nu, \alpha, \gamma$), cross-sections ($A, I_y, I_z, J$), roll angles, hinges, supports, elastic springs, prescribed displacements, and nodal/distributed loads.
-- **Files Explicitly Saved by the User:** Structural models in open JSON **`.omniframe`** format and optional technical reports exported to **`.html`** or **`.md`** are written **only** to the folder explicitly selected by the user through standard Windows dialogs.
-- **Minimal Language Preference:** Only the interface language choice (`pt_BR` or `en_US`) is saved locally in a JSON file under the application's local data directory (`%LOCALAPPDATA%\OmniFrame\OmniFrame\language.json`, or in the equivalent isolated container when run as an MSIX package).
+- **Files Explicitly Saved by the User:** Structural models in open JSON **`.omniframe`** format, CAD/BIM interoperability files (**`.dxf`**, **`.ifc`**), technical reports (**`.pdf`**, **`.html`**, **`.md`**), and exported result datasets (**`.json`**, **`.csv`**, **`.vtk`**) are written **only** to the folder explicitly selected by the user through standard Windows dialogs or explicit CLI arguments.
+- **Minimal Local UI Preferences:** Only the interface language choice (`language.json`), visual theme (`theme.json`), and OpenGL graphics profile (`graphics.json`) are saved locally as JSON files under the application's local data directory (`%LOCALAPPDATA%\OmniFrame\OmniFrame\`, or in the equivalent isolated container when run as an MSIX package).
 
 ---
 
@@ -130,7 +130,7 @@ For MSIX package distribution on the Microsoft Store (Policy 10.6), the manifest
 ## 5. Data Subject Rights, Control & Clean Uninstallation (Policy 10.2.7 / LGPD / GDPR)
 
 The user exercises full control over all local data:
-- **Access, Editing, Portability & Deletion:** You may freely open, copy, edit, or delete any `.omniframe`, `.html`, `.md`, or `language.json` file at any time.
+- **Access, Editing, Portability & Deletion:** You may freely open, copy, edit, or delete any `.omniframe`, `.dxf`, `.ifc`, `.pdf`, `.html`, `.md`, `.json`, `.csv`, `.vtk`, `language.json`, `theme.json`, or `graphics.json` file at any time.
 - **Clean Uninstallation:** You may cleanly uninstall and remove OmniFrame 3D at any time via **Windows Settings → Apps → Installed Apps** or via the **Start Menu**. Removing the MSIX package deletes application binaries and virtualized state cleanly without leaving residual background services, drivers, or scheduled tasks behind.
 
 ---

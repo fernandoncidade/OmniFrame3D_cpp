@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Modelo de Segurança, Integridade de Dados e Resiliência
 
-**Versão:** `2026.11.13.0`  
-**Data:** `13 de novembro de 2026`  
+**Versão:** `2026.11.14.0`  
+**Data:** `14 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -35,7 +35,7 @@ O **OmniFrame 3D** é projetado para atuar em ambientes de engenharia de missão
 
 | Vetor Potencial | Nível de Risco | Medida de Mitigação Implementada |
 |---|:---:|---|
-| **Arquivos de Projeto Maliciosos (`.omniframe`)** | Médio | Desserializador JSON com validação estrita de tipos, verificação de índices nodais existentes e checagem de números finitos (`std::isfinite`). |
+| **Arquivos de Projeto e Interoperabilidade Maliciosos (`.omniframe`, `.dxf`, `.ifc`)** | Médio | Desserializador JSON com validação estrita de tipos e parsers DXF/IFC defensivos, verificação de índices nodais existentes e checagem de números finitos (`std::isfinite`). |
 | **Singularidade Estrutural (Mecanismos)** | Baixo | Solver de Cholesky com pivotamento simétrico que detecta pivôs nulos ou autovalores negativos, emitindo aviso sem travar o processo. |
 | **Vazamento de Dados / Espionagem Industrial** | Inexistente | Nenhuma chamada de rede existe no executável; nenhuma coordenada ou projeto é enviado para a internet. |
 | **Injeção de Shaders / Falhas de Driver Gráfico** | Baixo | Shaders GLSL 330 com código estático fixo compilado em tempo de execução com verificação de logs de compilação/link. |
@@ -44,7 +44,7 @@ O **OmniFrame 3D** é projetado para atuar em ambientes de engenharia de missão
 
 ## 3. Validação Estrita de Entrada e Sanitização de Modelos
 
-Ao importar ou abrir qualquer arquivo `.omniframe`:
+Ao importar ou abrir qualquer arquivo `.omniframe`, `.dxf` ou `.ifc`:
 - **Comprimento de Barras:** É verificado se a distância euclidiana entre os nós inicial e final é superior a $10^{-6}\text{ m}$. Barras com comprimento zero são rejeitadas preventivamente para evitar divisões por zero nas parcelas $EA/L$ e $EI/L^3$.
 - **Propriedades Físicas:** Módulo de elasticidade ($E > 0$), inércias ($I_y > 0, I_z > 0$), área ($A > 0$) e constante de torção ($J > 0$) são checados contra limites estritamente positivos.
 - **Topologia Consistente:** Referências a nós inexistentes são interceptadas antes de iniciar a alocação da matriz de rigidez global.
@@ -60,8 +60,8 @@ Ao importar ou abrir qualquer arquivo `.omniframe`:
 
 # OmniFrame 3D — Security Model, Data Integrity & Resilience
 
-**Version:** `2026.11.13.0`  
-**Date:** `November 13, 2026`  
+**Version:** `2026.11.14.0`  
+**Date:** `November 14, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -81,7 +81,7 @@ OmniFrame 3D is designed to operate in mission-critical engineering environments
 
 | Threat Vector | Risk Level | Implemented Mitigation |
 |---|:---:|---|
-| **Malicious Project Files (`.omniframe`)** | Medium | JSON deserializer with strict type validation, verification of existing node indices, and numerical finiteness checks (`std::isfinite`). |
+| **Malicious Project & Interoperability Files (`.omniframe`, `.dxf`, `.ifc`)** | Medium | JSON deserializer with strict type validation and defensive DXF/IFC parsers, verification of existing node indices, and numerical finiteness checks (`std::isfinite`). |
 | **Structural Singularity (Mechanisms)** | Low | Cholesky solver with symmetric pivoting that detects zero pivots or negative eigenvalues, issuing a clear diagnostic without crashing the process. |
 | **Data Exfiltration / Industrial Espionage** | None | Zero network calls exist in the executable; no coordinate or structural project ever leaves the local workstation over the internet. |
 | **Shader Injection / Graphics Driver Faults** | Low | Static fixed-source GLSL 330 shaders compiled at runtime with strict compile/link log verification. |
@@ -90,7 +90,7 @@ OmniFrame 3D is designed to operate in mission-critical engineering environments
 
 ## 3. Strict Input Validation & Model Sanitization
 
-When importing or opening any `.omniframe` file:
+When importing or opening any `.omniframe`, `.dxf`, or `.ifc` file:
 - **Member Length:** Euclidean distance between start and end nodes is verified to exceed $10^{-6}\text{ m}$. Zero-length members are preemptively rejected to avoid division by zero in $EA/L$ and $EI/L^3$ stiffness terms.
 - **Physical Properties:** Modulus of elasticity ($E > 0$), moments of inertia ($I_y > 0, I_z > 0$), cross-sectional area ($A > 0$), and torsion constant ($J > 0$) are checked against strictly positive bounds.
 - **Consistent Topology:** References to nonexistent nodes are intercepted before global stiffness matrix memory allocation begins.

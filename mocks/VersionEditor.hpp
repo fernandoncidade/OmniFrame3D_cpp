@@ -19,8 +19,8 @@ class QTextEdit;
 
 namespace mocks::version_editor {
 
-inline constexpr const char* kDefaultAppVersion = "2026.11.13.0";
-inline constexpr const char* kDefaultReleaseDate = "2026-11-13";
+inline constexpr const char* kDefaultAppVersion = "2026.11.14.0";
+inline constexpr const char* kDefaultReleaseDate = "2026-11-14";
 
 enum class OperacaoModo {
     Check,

@@ -5,11 +5,14 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QFontMetrics>
+#include <QLinearGradient>
 #include <QOpenGLContext>
+#include <QTimerEvent>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
+#include <unordered_map>
 
 #ifndef GL_MAX_COLOR_TEXTURE_SAMPLES
 #define GL_MAX_COLOR_TEXTURE_SAMPLES 0x910E
@@ -22,6 +25,40 @@
 #endif
 
 namespace omniframe {
+
+namespace {
+
+QVector4D dcrRatioToColor(double dcr) {
+    if (dcr <= 0.50) {
+        const float t = static_cast<float>(std::clamp(dcr / 0.50, 0.0, 1.0));
+        return QVector4D(0.10f + 0.14f * t, 0.68f + 0.12f * t, 0.68f - 0.36f * t, 1.0f);
+    }
+    if (dcr <= 0.85) {
+        const float t = static_cast<float>((dcr - 0.50) / 0.35);
+        return QVector4D(0.24f + 0.71f * t, 0.80f - 0.02f * t, 0.32f - 0.24f * t, 1.0f);
+    }
+    if (dcr <= 1.00) {
+        const float t = static_cast<float>((dcr - 0.85) / 0.15);
+        return QVector4D(0.95f + 0.04f * t, 0.78f - 0.36f * t, 0.08f, 1.0f);
+    }
+    return QVector4D(0.95f, 0.14f, 0.22f, 1.0f);
+}
+
+double computeModelVisualDiagonal(const StructuralModel* model) {
+    if (!model) return 10.0;
+    const auto& nodes = model->getNodes();
+    if (nodes.empty()) return 10.0;
+    double minX = 1e18, minY = 1e18, minZ = 1e18;
+    double maxX = -1e18, maxY = -1e18, maxZ = -1e18;
+    for (const auto& n : nodes) {
+        minX = std::min(minX, n.x()); maxX = std::max(maxX, n.x());
+        minY = std::min(minY, n.y()); maxY = std::max(maxY, n.y());
+        minZ = std::min(minZ, n.z()); maxZ = std::max(maxZ, n.z());
+    }
+    return std::max(1.0, std::hypot(maxX - minX, std::hypot(maxY - minY, maxZ - minZ)));
+}
+
+} // namespace
 
 Viewport3D::Viewport3D(QWidget* parent)
     : QOpenGLWidget(parent),
@@ -544,6 +581,14 @@ void Viewport3D::paintGL() {
     glClearColor(pal.clearColor.x(), pal.clearColor.y(), pal.clearColor.z(), 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    m_legendVisible = false;
+    const bool clipActive = (m_clipAxis != ClipAxis::None);
+    if (clipActive) {
+        glEnable(GL_CLIP_DISTANCE0);
+    } else {
+        glDisable(GL_CLIP_DISTANCE0);
+    }
+
     const float aspect = (height() > 0) ? (static_cast<float>(width()) / static_cast<float>(height())) : 1.0f;
     const QMatrix4x4 mvp = m_camera.viewProjectionMatrix(aspect);
     const QMatrix4x4 view = m_camera.viewMatrix();
@@ -551,7 +596,11 @@ void Viewport3D::paintGL() {
     renderGrid(mvp);
 
     if (m_model) {
-        if (m_activeDiagram == DiagramType::Deformed) {
+        if (m_showSurfaceMesh && !m_model->surfaceMesh().elements.empty()) {
+            renderSurfaceMesh(mvp);
+        }
+
+        if (m_activeDiagram == DiagramType::Deformed || hasPostAnimation()) {
             renderElements(mvp);
             renderDeformedShape(mvp);
         } else {
@@ -567,6 +616,9 @@ void Viewport3D::paintGL() {
     }
 
     renderCursorPreview(mvp);
+    if (clipActive) {
+        glDisable(GL_CLIP_DISTANCE0);
+    }
 
     if (hasCustomFbo) {
         if (m_msaaFbo != 0) {
@@ -636,6 +688,7 @@ void Viewport3D::drawLinesAA(const QMatrix4x4& mvp,
         glLineWidth(std::clamp(logicalWidthPx * m_renderSettings.lineWidthMultiplier, 1.0f, m_glMaxRawLineWidth));
         m_lineShader->bind();
         m_lineShader->setUniformValue("uMVP", mvp);
+        m_lineShader->setUniformValue("uClipPlane", activeClipPlaneVec());
         m_lineVAO.bind();
         m_lineVBO.bind();
         m_lineVBO.allocate(segmentVertices7f.data(), static_cast<int>(numSegments * 14 * sizeof(float)));
@@ -685,6 +738,7 @@ void Viewport3D::drawLinesAA(const QMatrix4x4& mvp,
     m_aaLineShader->setUniformValue("uResolution", QVector2D(static_cast<float>(curW), static_cast<float>(curH)));
     m_aaLineShader->setUniformValue("uStrokePx", strokePx);
     m_aaLineShader->setUniformValue("uFeatherPx", featherPx);
+    m_aaLineShader->setUniformValue("uClipPlane", activeClipPlaneVec());
 
     m_aaLineVAO.bind();
     m_aaLineVBO.bind();
@@ -750,6 +804,7 @@ void Viewport3D::renderGrid(const QMatrix4x4& mvp) {
         glDepthMask(GL_FALSE);
         m_diagFillShader->bind();
         m_diagFillShader->setUniformValue("uMVP", mvp);
+        m_diagFillShader->setUniformValue("uClipPlane", activeClipPlaneVec());
         m_diagVAO.bind();
         m_diagVBO.bind();
         m_diagVBO.allocate(surfaceTris.data(), static_cast<int>(surfaceTris.size() * sizeof(float)));
@@ -812,7 +867,42 @@ void Viewport3D::renderElements(const QMatrix4x4& mvp) {
     if (!m_model) return;
 
     const ActivePlanePalette pal = activePlanePaletteForTheme(m_renderSettings.planeTheme, m_renderSettings.planeGridContrast);
-    const bool ghostReference = (m_activeDiagram == DiagramType::Deformed);
+    const bool showDcrContour = (m_postContourMode == PostContourMode::NbrComplianceDcr
+                                 && !m_elementDcrMap.empty()
+                                 && !hasPostAnimation());
+    const bool showDispContour = (m_postContourMode == PostContourMode::Displacement
+                                  && m_activeDiagram != DiagramType::Deformed
+                                  && !hasPostAnimation());
+    const bool ghostReference = (m_activeDiagram == DiagramType::Deformed || hasPostAnimation());
+
+    double maxDcr = 0.0;
+    if (showDcrContour) {
+        for (const auto& [eid, val] : m_elementDcrMap) {
+            Q_UNUSED(eid);
+            maxDcr = std::max(maxDcr, val);
+        }
+        m_legendVisible = true;
+        m_legendIsDcr = true;
+        m_legendTitle = locale::GerenciadorTraducao::trText("Aproveitamento NBR (DCR)");
+        m_legendUnit = QStringLiteral("D/C");
+        m_legendMin = 0.0;
+        m_legendMax = std::max(1.20, maxDcr);
+    }
+
+    double maxNodeDisp = 0.0;
+    if (showDispContour) {
+        for (const auto& n : m_model->getNodes()) {
+            maxNodeDisp = std::max(maxNodeDisp, n.displacementNorm());
+        }
+        if (maxNodeDisp > 1e-12) {
+            m_legendVisible = true;
+            m_legendIsDcr = false;
+            m_legendTitle = locale::GerenciadorTraducao::trText("Deslocamento |u|");
+            m_legendUnit = QStringLiteral("mm");
+            m_legendMin = 0.0;
+            m_legendMax = maxNodeDisp * 1000.0;
+        }
+    }
 
     std::vector<float> normalLines;
     std::vector<float> selectedLines;
@@ -825,17 +915,44 @@ void Viewport3D::renderElements(const QMatrix4x4& mvp) {
         if (!n1 || !n2) continue;
 
         const bool isSelected = m_model->getSelectedElements().contains(elem.id);
-        const QVector4D col = isSelected
-            ? pal.memberSelectedColor
-            : (ghostReference ? pal.memberGhostColor : pal.memberColor);
         auto& target = isSelected ? selectedLines : normalLines;
 
-        target.insert(target.end(), {
-            static_cast<float>(n1->x()), static_cast<float>(n1->y()), static_cast<float>(n1->z()),
-            col.x(), col.y(), col.z(), col.w(),
-            static_cast<float>(n2->x()), static_cast<float>(n2->y()), static_cast<float>(n2->z()),
-            col.x(), col.y(), col.z(), col.w()
-        });
+        if (!isSelected && showDispContour && maxNodeDisp > 1e-12) {
+            constexpr int kSub = 8;
+            const double u1 = n1->displacementNorm();
+            const double u2 = n2->displacementNorm();
+            for (int s = 0; s < kSub; ++s) {
+                const double t0 = static_cast<double>(s) / kSub;
+                const double t1 = static_cast<double>(s + 1) / kSub;
+                const Vec3 p0 = n1->position * (1.0 - t0) + n2->position * t0;
+                const Vec3 p1 = n1->position * (1.0 - t1) + n2->position * t1;
+                const double v0 = elem.hasResults ? elem.evaluateAt(t0, *m_model).defGlobal.norm() : (u1 * (1.0 - t0) + u2 * t0);
+                const double v1 = elem.hasResults ? elem.evaluateAt(t1, *m_model).defGlobal.norm() : (u1 * (1.0 - t1) + u2 * t1);
+                const ColorRGB c0 = ColorRGB::jetThemed(v0 / maxNodeDisp, pal.isLight);
+                const ColorRGB c1 = ColorRGB::jetThemed(v1 / maxNodeDisp, pal.isLight);
+                target.insert(target.end(), {
+                    static_cast<float>(p0.x), static_cast<float>(p0.y), static_cast<float>(p0.z),
+                    c0.r, c0.g, c0.b, 1.0f,
+                    static_cast<float>(p1.x), static_cast<float>(p1.y), static_cast<float>(p1.z),
+                    c1.r, c1.g, c1.b, 1.0f
+                });
+            }
+        } else {
+            QVector4D col = isSelected
+                ? pal.memberSelectedColor
+                : (ghostReference ? pal.memberGhostColor : pal.memberColor);
+            if (!isSelected && showDcrContour && !ghostReference) {
+                if (auto it = m_elementDcrMap.find(elem.id); it != m_elementDcrMap.end()) {
+                    col = dcrRatioToColor(it->second);
+                }
+            }
+            target.insert(target.end(), {
+                static_cast<float>(n1->x()), static_cast<float>(n1->y()), static_cast<float>(n1->z()),
+                col.x(), col.y(), col.z(), col.w(),
+                static_cast<float>(n2->x()), static_cast<float>(n2->y()), static_cast<float>(n2->z()),
+                col.x(), col.y(), col.z(), col.w()
+            });
+        }
 
         // Eixos Locais da Barra (RGB no centro da barra)
         if (m_showLocalAxes) {
@@ -887,6 +1004,7 @@ void Viewport3D::renderNodes(const QMatrix4x4& mvp) {
         m_meshShader->setUniformValue("uMVP", mvp);
         m_meshShader->setUniformValue("uModel", QMatrix4x4());
         m_meshShader->setUniformValue("uNormalMatrix", QMatrix3x3());
+        m_meshShader->setUniformValue("uClipPlane", activeClipPlaneVec());
         m_meshShader->setUniformValue("uLightDir", QVector3D(0.4f, 0.5f, 1.0f).normalized());
         m_meshShader->setUniformValue("uViewPos", m_camera.eyePosition());
 
@@ -928,6 +1046,7 @@ void Viewport3D::renderSupports(const QMatrix4x4& mvp, const QMatrix4x4& view) {
         m_meshShader->setUniformValue("uMVP", mvp);
         m_meshShader->setUniformValue("uModel", QMatrix4x4());
         m_meshShader->setUniformValue("uNormalMatrix", QMatrix3x3());
+        m_meshShader->setUniformValue("uClipPlane", activeClipPlaneVec());
         m_meshShader->setUniformValue("uLightDir", QVector3D(0.4f, 0.5f, 1.0f).normalized());
         m_meshShader->setUniformValue("uViewPos", m_camera.eyePosition());
 
@@ -1049,6 +1168,7 @@ void Viewport3D::renderLoads(const QMatrix4x4& mvp, const QMatrix4x4& view) {
         m_meshShader->setUniformValue("uMVP", mvp);
         m_meshShader->setUniformValue("uModel", QMatrix4x4());
         m_meshShader->setUniformValue("uNormalMatrix", QMatrix3x3());
+        m_meshShader->setUniformValue("uClipPlane", activeClipPlaneVec());
         m_meshShader->setUniformValue("uLightDir", QVector3D(0.4f, 0.5f, 1.0f).normalized());
         m_meshShader->setUniformValue("uViewPos", m_camera.eyePosition());
 
@@ -1066,9 +1186,143 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
 
     const ActivePlanePalette pal = activePlanePaletteForTheme(m_renderSettings.planeTheme, m_renderSettings.planeGridContrast);
     std::vector<float> lines;
+
+    if (!m_nonlinearFrames.empty()) {
+        const int idx = std::clamp(m_nonlinearStepIdx, 0, static_cast<int>(m_nonlinearFrames.size()) - 1);
+        const auto& dispMap = m_nonlinearFrames[static_cast<std::size_t>(idx)].second;
+        double maxDisp = 1e-9;
+        for (const auto& [nid, u] : dispMap) {
+            Q_UNUSED(nid);
+            maxDisp = std::max(maxDisp, u.norm());
+        }
+        double maxPeakAcrossFrames = maxDisp;
+        for (const auto& frame : m_nonlinearFrames) {
+            for (const auto& [nid, u] : frame.second) {
+                Q_UNUSED(nid);
+                maxPeakAcrossFrames = std::max(maxPeakAcrossFrames, u.norm());
+            }
+        }
+        const double diag = computeModelVisualDiagonal(m_model);
+        const double effScale = (m_animBaseScale <= 0.0)
+            ? ((diag * 0.09) / maxPeakAcrossFrames) * (m_deformedScale / 50.0) * m_animAmplitude
+            : (m_animBaseScale * m_deformedScale * m_animAmplitude);
+
+        for (const auto& elem : m_model->getElements()) {
+            const Node* n1 = m_model->findNode(elem.nodeStart);
+            const Node* n2 = m_model->findNode(elem.nodeEnd);
+            if (!n1 || !n2) continue;
+
+            const Vec3 u1 = dispMap.contains(n1->id) ? dispMap.at(n1->id) : Vec3{};
+            const Vec3 u2 = dispMap.contains(n2->id) ? dispMap.at(n2->id) : Vec3{};
+
+            constexpr int Nsamples = 16;
+            Vec3 prevPt;
+            ColorRGB prevCol;
+            for (int s = 0; s <= Nsamples; ++s) {
+                const double xi = static_cast<double>(s) / Nsamples;
+                const Vec3 posOrig = n1->position * (1.0 - xi) + n2->position * xi;
+                const Vec3 uLocal = u1 * (1.0 - xi) + u2 * xi;
+                const Vec3 posDef = posOrig + uLocal * effScale;
+                const ColorRGB col = ColorRGB::jetThemed(uLocal.norm() / maxDisp, pal.isLight);
+                if (s > 0) {
+                    lines.insert(lines.end(), {
+                        static_cast<float>(prevPt.x), static_cast<float>(prevPt.y), static_cast<float>(prevPt.z),
+                        prevCol.r, prevCol.g, prevCol.b, 1.0f,
+                        static_cast<float>(posDef.x), static_cast<float>(posDef.y), static_cast<float>(posDef.z),
+                        col.r, col.g, col.b, 1.0f
+                    });
+                }
+                prevPt = posDef;
+                prevCol = col;
+            }
+        }
+
+        m_legendVisible = true;
+        m_legendIsDcr = false;
+        m_legendTitle = !m_postAnimLabel.isEmpty()
+            ? m_postAnimLabel
+            : locale::GerenciadorTraducao::trText("Não Linear |u|");
+        m_legendUnit = QStringLiteral("mm");
+        m_legendMin = 0.0;
+        m_legendMax = maxDisp * 1000.0;
+
+        drawLinesAA(mvp, lines, 2.95f, true, true);
+        return;
+    }
+
+    if (!m_postAnimNodeDispl.empty()) {
+        double maxPeak = 1e-9;
+        for (const auto& [nid, u] : m_postAnimNodeDispl) {
+            Q_UNUSED(nid);
+            maxPeak = std::max(maxPeak, u.norm());
+        }
+
+        const double diag = computeModelVisualDiagonal(m_model);
+
+        const double phaseFactor = m_animOscillating
+            ? std::sin(m_animPhase)
+            : (0.5 - 0.5 * std::cos(m_animPhase));
+        const double effScale = (m_animBaseScale <= 0.0)
+            ? ((diag * 0.09) / maxPeak) * (m_deformedScale / 50.0) * m_animAmplitude * phaseFactor
+            : (m_animBaseScale * m_deformedScale * m_animAmplitude * phaseFactor);
+
+        for (const auto& elem : m_model->getElements()) {
+            const Node* n1 = m_model->findNode(elem.nodeStart);
+            const Node* n2 = m_model->findNode(elem.nodeEnd);
+            if (!n1 || !n2) continue;
+
+            const Vec3 u1 = m_postAnimNodeDispl.contains(n1->id) ? m_postAnimNodeDispl.at(n1->id) : Vec3{};
+            const Vec3 u2 = m_postAnimNodeDispl.contains(n2->id) ? m_postAnimNodeDispl.at(n2->id) : Vec3{};
+
+            constexpr int Nsamples = 16;
+            Vec3 prevPt;
+            ColorRGB prevCol;
+            for (int s = 0; s <= Nsamples; ++s) {
+                const double xi = static_cast<double>(s) / Nsamples;
+                const Vec3 posOrig = n1->position * (1.0 - xi) + n2->position * xi;
+                const Vec3 uMode = u1 * (1.0 - xi) + u2 * xi;
+                const Vec3 posDef = posOrig + uMode * effScale;
+                const double ratio = std::clamp((uMode.norm() / maxPeak) * std::abs(phaseFactor), 0.0, 1.0);
+                const ColorRGB col = ColorRGB::jetThemed(ratio, pal.isLight);
+                if (s > 0) {
+                    lines.insert(lines.end(), {
+                        static_cast<float>(prevPt.x), static_cast<float>(prevPt.y), static_cast<float>(prevPt.z),
+                        prevCol.r, prevCol.g, prevCol.b, 1.0f,
+                        static_cast<float>(posDef.x), static_cast<float>(posDef.y), static_cast<float>(posDef.z),
+                        col.r, col.g, col.b, 1.0f
+                    });
+                }
+                prevPt = posDef;
+                prevCol = col;
+            }
+        }
+
+        m_legendVisible = true;
+        m_legendIsDcr = false;
+        m_legendTitle = !m_postAnimLabel.isEmpty()
+            ? m_postAnimLabel
+            : locale::GerenciadorTraducao::trText("Forma Modal / Flambagem");
+        m_legendUnit = (m_animBaseScale <= 0.0) ? QStringLiteral("φ/φmax") : QStringLiteral("mm");
+        m_legendMin = 0.0;
+        m_legendMax = (m_animBaseScale <= 0.0) ? 1.0 : (maxPeak * 1000.0);
+
+        drawLinesAA(mvp, lines, 2.95f, true, true);
+        return;
+    }
+
+    const bool showDcrContour = (m_postContourMode == PostContourMode::NbrComplianceDcr && !m_elementDcrMap.empty());
+
     double maxDisp = 1e-6;
     for (const auto& n : m_model->getNodes()) {
         maxDisp = std::max(maxDisp, n.displacementNorm());
+    }
+    if (!showDcrContour && maxDisp > 1e-8) {
+        m_legendVisible = true;
+        m_legendIsDcr = false;
+        m_legendTitle = locale::GerenciadorTraducao::trText("Deslocamento |u|");
+        m_legendUnit = QStringLiteral("mm");
+        m_legendMin = 0.0;
+        m_legendMax = maxDisp * 1000.0;
     }
 
     for (const auto& elem : m_model->getElements()) {
@@ -1076,6 +1330,15 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
         const Node* n1 = m_model->findNode(elem.nodeStart);
         const Node* n2 = m_model->findNode(elem.nodeEnd);
         if (!n1 || !n2) continue;
+
+        bool hasElemDcr = false;
+        QVector4D dcrCol;
+        if (showDcrContour) {
+            if (auto it = m_elementDcrMap.find(elem.id); it != m_elementDcrMap.end()) {
+                hasElemDcr = true;
+                dcrCol = dcrRatioToColor(it->second);
+            }
+        }
 
         int Nsamples = 32;
         Vec3 prevPt;
@@ -1089,6 +1352,9 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
             Vec3 posDef = posOrig + f.defGlobal * m_deformedScale;
             double normU = f.defGlobal.norm();
             ColorRGB col = ColorRGB::jetThemed(normU / maxDisp, pal.isLight);
+            if (hasElemDcr) {
+                col = ColorRGB{dcrCol.x(), dcrCol.y(), dcrCol.z()};
+            }
 
             if (s > 0) {
                 lines.insert(lines.end(), {
@@ -1227,6 +1493,7 @@ void Viewport3D::renderDiagrams(const QMatrix4x4& mvp) {
         glDepthMask(GL_FALSE);
         m_diagFillShader->bind();
         m_diagFillShader->setUniformValue("uMVP", mvp);
+        m_diagFillShader->setUniformValue("uClipPlane", activeClipPlaneVec());
         m_diagVAO.bind();
         m_diagVBO.bind();
         m_diagVBO.allocate(fillTris.data(), static_cast<int>(fillTris.size() * sizeof(float)));
@@ -1254,6 +1521,7 @@ void Viewport3D::renderCursorPreview(const QMatrix4x4& mvp) {
     m_meshShader->setUniformValue("uMVP", mvp);
     m_meshShader->setUniformValue("uModel", QMatrix4x4());
     m_meshShader->setUniformValue("uNormalMatrix", QMatrix3x3());
+    m_meshShader->setUniformValue("uClipPlane", activeClipPlaneVec());
     m_meshShader->setUniformValue("uLightDir", QVector3D(0.4f, 0.5f, 1.0f).normalized());
     m_meshShader->setUniformValue("uViewPos", m_camera.eyePosition());
 
@@ -1368,6 +1636,98 @@ void Viewport3D::renderHUD(QPainter& painter) {
     painter.drawRoundedRect(pillRect, 6.0, 6.0);
     painter.setPen(pal.hudTextColor);
     painter.drawText(pillRect, Qt::AlignCenter, hudInfo);
+
+    // 3b. Indicadores ativos de Plano de Corte e Animação Modal/Não Linear
+    QStringList statusBadges;
+    if (m_clipAxis != ClipAxis::None) {
+        const char* ax = (m_clipAxis == ClipAxis::X) ? "X" : (m_clipAxis == ClipAxis::Y ? "Y" : "Z");
+        statusBadges << locale::GerenciadorTraducao::trText("Corte %1 %2 %3 m")
+                            .arg(ax)
+                            .arg(m_clipInverted ? QStringLiteral("<=") : QStringLiteral(">="))
+                            .arg(m_clipOffset, 0, 'f', 2);
+    }
+    if (!m_nonlinearFrames.empty()) {
+        const int idx = std::clamp(m_nonlinearStepIdx, 0, static_cast<int>(m_nonlinearFrames.size()) - 1);
+        const double factor = m_nonlinearFrames[static_cast<std::size_t>(idx)].first;
+        statusBadges << locale::GerenciadorTraducao::trText("%1 | Passo %2/%3 (λ=%4)")
+                            .arg(m_postAnimLabel.isEmpty() ? locale::GerenciadorTraducao::trText("Não Linear") : m_postAnimLabel)
+                            .arg(idx + 1)
+                            .arg(static_cast<int>(m_nonlinearFrames.size()))
+                            .arg(factor, 0, 'f', 3);
+    } else if (!m_postAnimNodeDispl.empty()) {
+        const int deg = static_cast<int>(std::lround(std::fmod(m_animPhase * 180.0 / std::numbers::pi, 360.0)));
+        statusBadges << locale::GerenciadorTraducao::trText("%1 | %2 (%3°)")
+                            .arg(m_postAnimLabel)
+                            .arg(m_animPlaying ? locale::GerenciadorTraducao::trText("Play") : locale::GerenciadorTraducao::trText("Pausa"))
+                            .arg(deg);
+    }
+    if (!statusBadges.isEmpty()) {
+        const QString badgeText = statusBadges.join(QStringLiteral("   •   "));
+        const qreal bW = static_cast<qreal>(fm.horizontalAdvance(badgeText) + 22);
+        const qreal bH = static_cast<qreal>(fm.height() + 8);
+        const QRectF bRect(12.0, pillRect.bottom() + 6.0, bW, bH);
+        painter.setPen(QPen(pal.hudBorderColor, 1.0));
+        painter.setBrush(pal.hudBgColor);
+        painter.drawRoundedRect(bRect, 5.0, 5.0);
+        painter.setPen(pal.hudTextColor);
+        painter.drawText(bRect, Qt::AlignCenter, badgeText);
+    }
+
+    // 3c. Barra de Cores (Legenda Vetorial de Deslocamentos ou Aproveitamento NBR)
+    if (m_legendVisible && width() > 260 && height() > 280) {
+        QFont smallFont = font;
+        smallFont.setPointSize(8);
+        painter.setFont(smallFont);
+        const QFontMetrics lfm(smallFont);
+
+        const qreal cardW = 132.0;
+        const qreal cardH = 228.0;
+        const qreal cardX = static_cast<qreal>(width()) - cardW - 14.0;
+        const qreal cardY = std::max(54.0, (static_cast<qreal>(height()) - cardH) * 0.5);
+        const QRectF cardRect(cardX, cardY, cardW, cardH);
+
+        painter.setPen(QPen(pal.hudBorderColor, 1.0));
+        painter.setBrush(pal.hudBgColor);
+        painter.drawRoundedRect(cardRect, 7.0, 7.0);
+
+        painter.setPen(pal.hudTextColor);
+        const QRectF titleRect(cardX + 8.0, cardY + 6.0, cardW - 16.0, 18.0);
+        painter.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
+                         lfm.elidedText(m_legendTitle, Qt::ElideRight, static_cast<int>(cardW - 16.0)));
+
+        const QRectF barRect(cardX + 12.0, cardY + 30.0, 18.0, cardH - 48.0);
+        QLinearGradient grad(barRect.topLeft(), barRect.bottomLeft());
+        if (m_legendIsDcr) {
+            grad.setColorAt(0.00, QColor(242, 36, 56));   // > 1.00 Falha/Alerta
+            grad.setColorAt(0.20, QColor(250, 107, 20));  // ~ 0.90-1.00
+            grad.setColorAt(0.45, QColor(242, 199, 31));  // ~ 0.70
+            grad.setColorAt(0.75, QColor(61, 204, 82));   // ~ 0.35
+            grad.setColorAt(1.00, QColor(26, 173, 173));  // 0.00 Seguro
+        } else {
+            const int nStops = 8;
+            for (int i = 0; i <= nStops; ++i) {
+                const double t = 1.0 - static_cast<double>(i) / nStops;
+                const ColorRGB c = ColorRGB::jetThemed(t, pal.isLight);
+                grad.setColorAt(static_cast<double>(i) / nStops,
+                                QColor::fromRgbF(c.r, c.g, c.b));
+            }
+        }
+        painter.setPen(QPen(pal.hudBorderColor, 1.0));
+        painter.setBrush(grad);
+        painter.drawRoundedRect(barRect, 3.0, 3.0);
+
+        painter.setPen(pal.hudTextColor);
+        for (int k = 0; k <= 4; ++k) {
+            const double frac = 1.0 - static_cast<double>(k) / 4.0;
+            const double val = m_legendMin + frac * (m_legendMax - m_legendMin);
+            const qreal yTick = barRect.top() + (1.0 - frac) * barRect.height();
+            painter.drawLine(QPointF(barRect.right() + 2.0, yTick), QPointF(barRect.right() + 6.0, yTick));
+            const QString lbl = QStringLiteral("%1 %2").arg(val, 0, 'f', (m_legendIsDcr || m_legendMax < 10.0) ? 2 : 1).arg(m_legendUnit);
+            painter.drawText(QRectF(barRect.right() + 9.0, yTick - 8.0, cardRect.right() - barRect.right() - 14.0, 16.0),
+                             Qt::AlignLeft | Qt::AlignVCenter, lbl);
+        }
+        painter.setFont(font);
+    }
 
     // 4. Telemetria discreta de Resolução e Definição no canto inferior esquerdo
     if (m_renderSettings.showResolutionHud && m_fboWidth > 0 && m_fboHeight > 0) {
@@ -1809,6 +2169,334 @@ void Viewport3D::keyPressEvent(QKeyEvent* event) {
         update();
     } else {
         QOpenGLWidget::keyPressEvent(event);
+    }
+}
+
+void Viewport3D::setPostContourMode(PostContourMode mode) {
+    m_postContourMode = mode;
+    update();
+}
+
+void Viewport3D::setShowSurfaceMesh(bool show) {
+    m_showSurfaceMesh = show;
+    update();
+}
+
+void Viewport3D::setElementDcrMap(const std::unordered_map<ElementId, double>& dcrByElement) {
+    m_elementDcrMap = dcrByElement;
+    update();
+}
+
+void Viewport3D::clearElementDcrMap() {
+    m_elementDcrMap.clear();
+    if (m_postContourMode == PostContourMode::NbrComplianceDcr) {
+        m_postContourMode = PostContourMode::None;
+    }
+    update();
+}
+
+void Viewport3D::setClipPlane(ClipAxis axis, double offsetMeters, bool inverted) {
+    m_clipAxis = axis;
+    m_clipOffset = offsetMeters;
+    m_clipInverted = inverted;
+    update();
+}
+
+QVector4D Viewport3D::activeClipPlaneVec() const {
+    const float sign = m_clipInverted ? -1.0f : 1.0f;
+    const float d = static_cast<float>(m_clipOffset);
+    switch (m_clipAxis) {
+        case ClipAxis::X: return QVector4D(sign, 0.0f, 0.0f, -sign * d);
+        case ClipAxis::Y: return QVector4D(0.0f, sign, 0.0f, -sign * d);
+        case ClipAxis::Z: return QVector4D(0.0f, 0.0f, sign, -sign * d);
+        case ClipAxis::None:
+        default:
+            return QVector4D(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+}
+
+void Viewport3D::setPostAnimationField(const QString& label,
+                                       const std::unordered_map<NodeId, Vec3>& modeDisplByNode,
+                                       double baseScale,
+                                       bool oscillating) {
+    m_nonlinearFrames.clear();
+    m_nonlinearStepIdx = 0;
+    m_postAnimLabel = label;
+    m_postAnimNodeDispl = modeDisplByNode;
+    m_animBaseScale = baseScale;
+    m_animOscillating = oscillating;
+    m_animPhase = std::numbers::pi * 0.5;
+    emit animationFrameChanged(0, 1, 1.0);
+    emit postAnimationStateChanged();
+    update();
+}
+
+void Viewport3D::setNonlinearStepFrames(
+    const QString& label,
+    const std::vector<std::pair<double, std::unordered_map<NodeId, Vec3>>>& stepFrames) {
+    m_postAnimNodeDispl.clear();
+    m_postAnimLabel = label;
+    m_animBaseScale = -1.0;
+    m_nonlinearFrames = stepFrames;
+    m_nonlinearStepIdx = m_nonlinearFrames.empty() ? 0 : static_cast<int>(m_nonlinearFrames.size()) - 1;
+    const double fac = m_nonlinearFrames.empty()
+        ? 0.0
+        : m_nonlinearFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first;
+    emit animationFrameChanged(m_nonlinearStepIdx, static_cast<int>(m_nonlinearFrames.size()), fac);
+    emit postAnimationStateChanged();
+    update();
+}
+
+void Viewport3D::setNonlinearStepIndex(int idx) {
+    if (m_nonlinearFrames.empty()) return;
+    m_nonlinearStepIdx = std::clamp(idx, 0, static_cast<int>(m_nonlinearFrames.size()) - 1);
+    emit animationFrameChanged(
+        m_nonlinearStepIdx,
+        static_cast<int>(m_nonlinearFrames.size()),
+        m_nonlinearFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first);
+    update();
+}
+
+void Viewport3D::setAnimationPlaying(bool playing) {
+    if (playing && !hasPostAnimation()) {
+        playing = false;
+    }
+    m_animPlaying = playing;
+    if (m_animPlaying) {
+        if (m_animTimerId == 0) {
+            m_animTimerId = startTimer(33);
+        }
+    } else if (m_animTimerId != 0) {
+        killTimer(m_animTimerId);
+        m_animTimerId = 0;
+    }
+    emit postAnimationStateChanged();
+    update();
+}
+
+void Viewport3D::setAnimationSpeed(double speed) {
+    m_animSpeed = std::clamp(speed, 0.1, 5.0);
+}
+
+void Viewport3D::setAnimationAmplitude(double amp) {
+    m_animAmplitude = std::clamp(amp, 0.1, 10.0);
+    update();
+}
+
+void Viewport3D::clearPostAnimation() {
+    m_animPlaying = false;
+    if (m_animTimerId != 0) {
+        killTimer(m_animTimerId);
+        m_animTimerId = 0;
+    }
+    m_postAnimLabel.clear();
+    m_postAnimNodeDispl.clear();
+    m_nonlinearFrames.clear();
+    m_nonlinearStepIdx = 0;
+    m_animPhase = std::numbers::pi * 0.5;
+    emit postAnimationStateChanged();
+    update();
+}
+
+void Viewport3D::timerEvent(QTimerEvent* event) {
+    if (event->timerId() != m_animTimerId || !m_animPlaying) {
+        QOpenGLWidget::timerEvent(event);
+        return;
+    }
+
+    if (!m_nonlinearFrames.empty()) {
+        m_animPhase += 0.28 * m_animSpeed;
+        if (m_animPhase >= 1.0) {
+            m_animPhase = 0.0;
+            m_nonlinearStepIdx = (m_nonlinearStepIdx + 1) % static_cast<int>(m_nonlinearFrames.size());
+            emit animationFrameChanged(
+                m_nonlinearStepIdx,
+                static_cast<int>(m_nonlinearFrames.size()),
+                m_nonlinearFrames[static_cast<std::size_t>(m_nonlinearStepIdx)].first);
+            update();
+        }
+        return;
+    }
+
+    if (!m_postAnimNodeDispl.empty()) {
+        m_animPhase += 0.085 * m_animSpeed;
+        if (m_animPhase > 2.0 * std::numbers::pi) {
+            m_animPhase = std::fmod(m_animPhase, 2.0 * std::numbers::pi);
+        }
+        emit animationFrameChanged(0, 1, std::sin(m_animPhase));
+        update();
+    }
+}
+
+void Viewport3D::renderSurfaceMesh(const QMatrix4x4& mvp) {
+    if (!m_model) return;
+    const auto& mesh = m_model->surfaceMesh();
+    if (mesh.elements.empty() || mesh.nodes.empty()) return;
+
+    const ActivePlanePalette pal = activePlanePaletteForTheme(m_renderSettings.planeTheme, m_renderSettings.planeGridContrast);
+
+    std::unordered_map<NodeId, QVector3D> nodePosMap;
+    nodePosMap.reserve(mesh.nodes.size());
+    std::unordered_map<NodeId, double> nodeDispMap;
+    double maxDisp = 1e-9;
+
+    const bool useDispContour = (m_postContourMode == PostContourMode::Displacement);
+    if (useDispContour) {
+        for (const auto& sn : m_model->getNodes()) {
+            maxDisp = std::max(maxDisp, sn.displacementNorm());
+        }
+    }
+
+    for (const auto& mn : mesh.nodes) {
+        const QVector3D pt(static_cast<float>(mn.position.x()),
+                           static_cast<float>(mn.position.y()),
+                           static_cast<float>(mn.position.z()));
+        nodePosMap[mn.id] = pt;
+        if (useDispContour && maxDisp > 1e-8) {
+            if (const Node* sn = m_model->findNode(mn.id)) {
+                nodeDispMap[mn.id] = sn->displacementNorm();
+            } else {
+                nodeDispMap[mn.id] = 0.0;
+            }
+        }
+    }
+
+    const QVector4D baseFillCol = pal.isLight
+        ? QVector4D(0.24f, 0.44f, 0.68f, 0.72f)
+        : QVector4D(0.36f, 0.56f, 0.80f, 0.72f);
+    const QVector4D wireCol = pal.isLight
+        ? QVector4D(0.10f, 0.16f, 0.28f, 0.85f)
+        : QVector4D(0.84f, 0.90f, 0.98f, 0.80f);
+
+    std::vector<float> triVerts;
+    std::vector<float> edgeLines;
+    triVerts.reserve(mesh.elements.size() * 60);
+    edgeLines.reserve(mesh.elements.size() * 56);
+
+    auto colorForNode = [&](NodeId nid) -> QVector4D {
+        if (useDispContour && maxDisp > 1e-8) {
+            const auto it = nodeDispMap.find(nid);
+            const double d = (it != nodeDispMap.end()) ? it->second : 0.0;
+            const ColorRGB c = ColorRGB::jetThemed(d / maxDisp, pal.isLight);
+            return QVector4D(c.r, c.g, c.b, 0.82f);
+        }
+        return baseFillCol;
+    };
+
+    auto pushTri = [&](NodeId a, NodeId b, NodeId c) {
+        const auto ita = nodePosMap.find(a);
+        const auto itb = nodePosMap.find(b);
+        const auto itc = nodePosMap.find(c);
+        if (ita == nodePosMap.end() || itb == nodePosMap.end() || itc == nodePosMap.end()) return;
+        const QVector3D& pa = ita->second;
+        const QVector3D& pb = itb->second;
+        const QVector3D& pc = itc->second;
+        QVector3D n = QVector3D::crossProduct(pb - pa, pc - pa);
+        if (n.lengthSquared() < 1e-12f) n = QVector3D(0.0f, 0.0f, 1.0f);
+        else n.normalize();
+
+        const auto ca = colorForNode(a);
+        const auto cb = colorForNode(b);
+        const auto cc = colorForNode(c);
+        auto emitV = [&](const QVector3D& p, const QVector4D& col) {
+            triVerts.insert(triVerts.end(), {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(), col.x(), col.y(), col.z(), col.w()});
+        };
+        emitV(pa, ca);
+        emitV(pb, cb);
+        emitV(pc, cc);
+    };
+
+    auto pushEdge = [&](NodeId a, NodeId b) {
+        const auto ita = nodePosMap.find(a);
+        const auto itb = nodePosMap.find(b);
+        if (ita == nodePosMap.end() || itb == nodePosMap.end()) return;
+        const QVector3D& pa = ita->second;
+        const QVector3D& pb = itb->second;
+        edgeLines.insert(edgeLines.end(), {
+            pa.x(), pa.y(), pa.z(), wireCol.x(), wireCol.y(), wireCol.z(), wireCol.w(),
+            pb.x(), pb.y(), pb.z(), wireCol.x(), wireCol.y(), wireCol.z(), wireCol.w()
+        });
+    };
+
+    for (const auto& el : mesh.elements) {
+        const auto& ids = el.nodeIds;
+        switch (el.type) {
+            case kernel::MeshCellType::Line2:
+                if (ids.size() >= 2) pushEdge(ids[0], ids[1]);
+                break;
+            case kernel::MeshCellType::Tri3:
+                if (ids.size() >= 3) {
+                    pushTri(ids[0], ids[1], ids[2]);
+                    pushEdge(ids[0], ids[1]);
+                    pushEdge(ids[1], ids[2]);
+                    pushEdge(ids[2], ids[0]);
+                }
+                break;
+            case kernel::MeshCellType::Quad4:
+            case kernel::MeshCellType::Quad8:
+                if (ids.size() >= 4) {
+                    pushTri(ids[0], ids[1], ids[2]);
+                    pushTri(ids[0], ids[2], ids[3]);
+                    pushEdge(ids[0], ids[1]);
+                    pushEdge(ids[1], ids[2]);
+                    pushEdge(ids[2], ids[3]);
+                    pushEdge(ids[3], ids[0]);
+                }
+                break;
+            case kernel::MeshCellType::Tet4:
+            case kernel::MeshCellType::Tet10:
+                if (ids.size() >= 4) {
+                    pushTri(ids[0], ids[2], ids[1]);
+                    pushTri(ids[0], ids[1], ids[3]);
+                    pushTri(ids[1], ids[2], ids[3]);
+                    pushTri(ids[2], ids[0], ids[3]);
+                    pushEdge(ids[0], ids[1]); pushEdge(ids[1], ids[2]); pushEdge(ids[2], ids[0]);
+                    pushEdge(ids[0], ids[3]); pushEdge(ids[1], ids[3]); pushEdge(ids[2], ids[3]);
+                }
+                break;
+            case kernel::MeshCellType::Hex8:
+            case kernel::MeshCellType::Hex20:
+                if (ids.size() >= 8) {
+                    const std::array<std::array<int, 4>, 6> faces = {{
+                        {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
+                        {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}
+                    }};
+                    for (const auto& f : faces) {
+                        pushTri(ids[f[0]], ids[f[1]], ids[f[2]]);
+                        pushTri(ids[f[0]], ids[f[2]], ids[f[3]]);
+                    }
+                    const std::array<std::pair<int, int>, 12> edges = {{
+                        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+                        {4, 5}, {5, 6}, {6, 7}, {7, 4},
+                        {0, 4}, {1, 5}, {2, 6}, {3, 7}
+                    }};
+                    for (const auto& [u, v] : edges) {
+                        pushEdge(ids[u], ids[v]);
+                    }
+                }
+                break;
+        }
+    }
+
+    if (!triVerts.empty() && m_meshShader && m_meshShader->isLinked()) {
+        m_meshShader->bind();
+        m_meshShader->setUniformValue("uMVP", mvp);
+        m_meshShader->setUniformValue("uModel", QMatrix4x4());
+        m_meshShader->setUniformValue("uNormalMatrix", QMatrix3x3());
+        m_meshShader->setUniformValue("uClipPlane", activeClipPlaneVec());
+        m_meshShader->setUniformValue("uLightDir", QVector3D(0.4f, 0.5f, 1.0f).normalized());
+        m_meshShader->setUniformValue("uViewPos", m_camera.eyePosition());
+
+        m_meshVAO.bind();
+        m_meshVBO.bind();
+        m_meshVBO.allocate(triVerts.data(), static_cast<int>(triVerts.size() * sizeof(float)));
+        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(triVerts.size() / 10));
+        m_meshVAO.release();
+        m_meshShader->release();
+    }
+
+    if (!edgeLines.empty()) {
+        drawLinesAA(mvp, edgeLines, 1.15f, true, true);
     }
 }
 

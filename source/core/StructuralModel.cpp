@@ -1,6 +1,8 @@
 #include "StructuralModel.hpp"
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <unordered_set>
 
 namespace omniframe {
 
@@ -13,6 +15,7 @@ StructuralModel::StructuralModel() {
     addCrossSection(CrossSection::makeRectangular(2, "Pilar Concreto 30x30", 0.30, 0.30));
     addCrossSection(CrossSection::makeCircularTube(3, "Tubo Aço D200 t10", 0.20, 0.01));
     addCrossSection(CrossSection::makeIShape(4, "Perfil I W200x35.9", 0.201, 0.165, 0.0102, 0.0062));
+    populateStandardCatalog();
 
     pushUndo();
 }
@@ -113,8 +116,16 @@ bool StructuralModel::removeElement(ElementId id) {
 
 MaterialId StructuralModel::addMaterial(const Material& mat) {
     Material m = mat;
-    if (m.id <= 0 || findMaterial(m.id) != nullptr) {
+    if (m.id <= 0) {
         m.id = getNextMaterialId();
+    } else if (Material* existing = findMaterial(m.id)) {
+        const bool inUse = std::any_of(m_elements.begin(), m_elements.end(),
+                                       [&](const Element& e) { return e.materialId == m.id; });
+        if (m.id > 2 && !inUse) {
+            existing->id = getNextMaterialId();
+        } else {
+            m.id = getNextMaterialId();
+        }
     }
     m_materials.push_back(m);
     return m.id;
@@ -129,8 +140,16 @@ bool StructuralModel::removeMaterial(MaterialId id) {
 
 SectionId StructuralModel::addCrossSection(const CrossSection& sec) {
     CrossSection s = sec;
-    if (s.id <= 0 || findCrossSection(s.id) != nullptr) {
+    if (s.id <= 0) {
         s.id = getNextSectionId();
+    } else if (CrossSection* existing = findCrossSection(s.id)) {
+        const bool inUse = std::any_of(m_elements.begin(), m_elements.end(),
+                                       [&](const Element& e) { return e.sectionId == s.id; });
+        if (s.id > 4 && !inUse) {
+            existing->id = getNextSectionId();
+        } else {
+            s.id = getNextSectionId();
+        }
     }
     m_sections.push_back(s);
     return s.id;
@@ -267,6 +286,10 @@ void StructuralModel::deleteSelected() {
 ModelValidation StructuralModel::validate() const {
     ModelValidation res;
 
+    auto isFiniteVec3 = [](const Vec3& v) {
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+    };
+
     if (m_nodes.size() < 2) {
         res.valid = false;
         res.errors.push_back("O modelo precisa ter pelo menos 2 nós.");
@@ -277,11 +300,59 @@ ModelValidation StructuralModel::validate() const {
         res.errors.push_back("O modelo precisa ter pelo menos 1 barra.");
     }
 
+    std::unordered_set<MaterialId> matIds;
+    for (const auto& m : m_materials) {
+        if (m.id <= 0 || !matIds.insert(m.id).second) {
+            res.valid = false;
+            res.errors.push_back("Material " + std::to_string(m.id) + " possui ID inválido ou duplicado.");
+        }
+        if (!std::isfinite(m.E) || m.E <= 0.0 ||
+            !std::isfinite(m.nu) || m.nu <= -1.0 || m.nu >= 0.5 ||
+            !std::isfinite(m.alpha) || m.alpha < 0.0 ||
+            !std::isfinite(m.gamma) || m.gamma < 0.0 ||
+            !std::isfinite(m.rho) || m.rho < 0.0) {
+            res.valid = false;
+            res.errors.push_back("Material " + std::to_string(m.id) + " possui parâmetros físicos inválidos.");
+        }
+    }
+
+    std::unordered_set<SectionId> secIds;
+    for (const auto& s : m_sections) {
+        if (s.id <= 0 || !secIds.insert(s.id).second) {
+            res.valid = false;
+            res.errors.push_back("Seção " + std::to_string(s.id) + " possui ID inválido ou duplicado.");
+        }
+        if (!std::isfinite(s.A) || s.A <= 0.0 ||
+            !std::isfinite(s.Iy) || s.Iy <= 0.0 ||
+            !std::isfinite(s.Iz) || s.Iz <= 0.0 ||
+            !std::isfinite(s.J) || s.J <= 0.0) {
+            res.valid = false;
+            res.errors.push_back("Seção " + std::to_string(s.id) + " possui propriedades geométricas inválidas.");
+        }
+    }
+
     bool hasSupport = false;
+    std::unordered_set<NodeId> nodeIds;
+    nodeIds.reserve(m_nodes.size());
     for (const auto& n : m_nodes) {
+        if (n.id <= 0 || !nodeIds.insert(n.id).second) {
+            res.valid = false;
+            res.errors.push_back("Nó " + std::to_string(n.id) + " possui ID inválido ou duplicado.");
+        }
+        if (!isFiniteVec3(n.position) || !isFiniteVec3(n.load.force) || !isFiniteVec3(n.load.moment)) {
+            res.valid = false;
+            res.errors.push_back("Nó " + std::to_string(n.id) + " possui coordenadas ou forças não finitas.");
+        }
+        for (int i = 0; i < 6; ++i) {
+            if (!std::isfinite(n.support.springStiffness[i]) || n.support.springStiffness[i] < 0.0 ||
+                !std::isfinite(n.support.prescribedValue[i])) {
+                res.valid = false;
+                res.errors.push_back("Nó " + std::to_string(n.id) + " possui molas ou recalques inválidos.");
+                break;
+            }
+        }
         if (n.isSupported()) {
             hasSupport = true;
-            break;
         }
     }
     if (!hasSupport) {
@@ -291,8 +362,14 @@ ModelValidation StructuralModel::validate() const {
 
     std::unordered_set<NodeId> connectedNodes;
     connectedNodes.reserve(m_elements.size() * 2);
+    std::unordered_set<ElementId> elemIds;
+    elemIds.reserve(m_elements.size());
 
     for (const auto& e : m_elements) {
+        if (e.id <= 0 || !elemIds.insert(e.id).second) {
+            res.valid = false;
+            res.errors.push_back("Barra " + std::to_string(e.id) + " possui ID inválido ou duplicado.");
+        }
         const Node* n1 = findNode(e.nodeStart);
         const Node* n2 = findNode(e.nodeEnd);
         if (!n1 || !n2) {
@@ -300,18 +377,28 @@ ModelValidation StructuralModel::validate() const {
             res.errors.push_back("Barra " + std::to_string(e.id) + " conecta a nó inexistente.");
             continue;
         }
-        connectedNodes.insert(e.nodeStart);
-        connectedNodes.insert(e.nodeEnd);
-        double len = e.computeLength(*this);
-        if (len < 1e-4) {
+        if (e.nodeStart == e.nodeEnd) {
             res.valid = false;
             res.errors.push_back("Barra " + std::to_string(e.id) + " tem comprimento nulo.");
         }
+        connectedNodes.insert(e.nodeStart);
+        connectedNodes.insert(e.nodeEnd);
+        double len = e.computeLength(*this);
+        if (!std::isfinite(len) || len < 1e-6) {
+            res.valid = false;
+            res.errors.push_back("Barra " + std::to_string(e.id) + " tem comprimento nulo.");
+        }
+        if (!std::isfinite(e.rollAngle) || !isFiniteVec3(e.distLoad.w) || !std::isfinite(e.thermalLoad.deltaT)) {
+            res.valid = false;
+            res.errors.push_back("Barra " + std::to_string(e.id) + " possui parâmetros numéricos não finitos.");
+        }
         if (!findMaterial(e.materialId)) {
-            res.warnings.push_back("Barra " + std::to_string(e.id) + " está sem material válido atribuído.");
+            res.valid = false;
+            res.errors.push_back("Barra " + std::to_string(e.id) + " referencia material inexistente.");
         }
         if (!findCrossSection(e.sectionId)) {
-            res.warnings.push_back("Barra " + std::to_string(e.id) + " está sem seção válida atribuída.");
+            res.valid = false;
+            res.errors.push_back("Barra " + std::to_string(e.id) + " referencia seção transversal inexistente.");
         }
     }
 
@@ -326,7 +413,7 @@ ModelValidation StructuralModel::validate() const {
 }
 
 void StructuralModel::getBoundingBox(Vec3& minPt, Vec3& maxPt) const {
-    if (m_nodes.empty()) {
+    if (m_nodes.empty() && m_surfaceMesh.nodes.empty()) {
         minPt = {-5.0, -5.0, 0.0};
         maxPt = {5.0, 5.0, 5.0};
         return;
@@ -339,14 +426,21 @@ void StructuralModel::getBoundingBox(Vec3& minPt, Vec3& maxPt) const {
              -std::numeric_limits<double>::infinity(),
              -std::numeric_limits<double>::infinity()};
 
-    for (const auto& n : m_nodes) {
-        minPt.x = std::min(minPt.x, n.x());
-        minPt.y = std::min(minPt.y, n.y());
-        minPt.z = std::min(minPt.z, n.z());
+    auto expandPt = [&](const Vec3& p) {
+        minPt.x = std::min(minPt.x, p.x);
+        minPt.y = std::min(minPt.y, p.y);
+        minPt.z = std::min(minPt.z, p.z);
 
-        maxPt.x = std::max(maxPt.x, n.x());
-        maxPt.y = std::max(maxPt.y, n.y());
-        maxPt.z = std::max(maxPt.z, n.z());
+        maxPt.x = std::max(maxPt.x, p.x);
+        maxPt.y = std::max(maxPt.y, p.y);
+        maxPt.z = std::max(maxPt.z, p.z);
+    };
+
+    for (const auto& n : m_nodes) {
+        expandPt(n.position);
+    }
+    for (const auto& mn : m_surfaceMesh.nodes) {
+        expandPt(Vec3{mn.position.x(), mn.position.y(), mn.position.z()});
     }
 
     // Garante volume mínimo
@@ -356,11 +450,122 @@ void StructuralModel::getBoundingBox(Vec3& minPt, Vec3& maxPt) const {
     if (maxPt.z - minPt.z < eps) { minPt.z -= eps; maxPt.z += eps; }
 }
 
+void StructuralModel::populateStandardCatalog() {
+    auto hasMaterialLike = [this](const std::string& name, const std::string& altSubstr = "") {
+        for (const auto& m : m_materials) {
+            if (m.name == name) return true;
+            if (!altSubstr.empty() && m.name.find(altSubstr) != std::string::npos) return true;
+        }
+        return false;
+    };
+
+    auto ensureMaterial = [&](const Material& preset, const std::string& altSubstr = "") {
+        if (!hasMaterialLike(preset.name, altSubstr)) {
+            Material copy = preset;
+            copy.id = INVALID_ID;
+            addMaterial(copy);
+        }
+    };
+
+    ensureMaterial(Material::makeConcreteC30(), "Concreto Estrutural C30");
+    ensureMaterial(Material::makeConcreteC25());
+    ensureMaterial(Material::makeConcreteC40());
+    ensureMaterial(Material::makeStructuralSteel(), "ASTM A36");
+    ensureMaterial(Material::makeStructuralSteelA572(), "A572");
+    ensureMaterial(Material::makeAluminum6061(), "Alumínio");
+    ensureMaterial(Material::makeTimber(), "Madeira");
+
+    auto hasSectionLike = [this](const std::string& name, const std::string& altName = "") {
+        for (const auto& s : m_sections) {
+            if (s.name == name) return true;
+            if (!altName.empty() && s.name == altName) return true;
+        }
+        return false;
+    };
+
+    auto ensureSection = [&](const CrossSection& preset, const std::string& altName = "") {
+        if (!hasSectionLike(preset.name, altName)) {
+            CrossSection copy = preset;
+            copy.id = INVALID_ID;
+            addCrossSection(copy);
+        }
+    };
+
+    ensureSection(CrossSection::makeRectangular(0, "Pilar 30x30", 0.30, 0.30), "Pilar Concreto 30x30");
+    ensureSection(CrossSection::makeRectangular(0, "Pilar 40x40", 0.40, 0.40));
+    ensureSection(CrossSection::makeRectangular(0, "Viga 20x50", 0.20, 0.50), "Viga Concreto 20x50");
+    ensureSection(CrossSection::makeRectangular(0, "Viga 25x60", 0.25, 0.60));
+    ensureSection(CrossSection::makeCircularTube(0, "Tubo Circular D200 e10", 0.20, 0.01), "Tubo Aço D200 t10");
+    ensureSection(CrossSection::makeCircularTube(0, "Tubo Treliça D100 e6", 0.10, 0.006));
+    ensureSection(CrossSection::makeIShape(0, "Perfil I W200x35.9", 0.201, 0.165, 0.0102, 0.0062));
+    ensureSection(CrossSection::makeIShape(0, "Perfil I W310x79", 0.306, 0.254, 0.0146, 0.0088));
+    ensureSection(CrossSection::makeBoxRHS(0, "Caixão RHS 200x100x8", 0.20, 0.10, 0.008, 0.008));
+    ensureSection(CrossSection::makeChannelC(0, "Perfil U C200x20", 0.20, 0.075, 0.010, 0.007));
+    ensureSection(CrossSection::makeAngleL(0, "Cantoneira L 100x100x10", 0.10, 0.10, 0.010));
+    ensureSection(CrossSection::makeTShape(0, "Perfil T 300x150x12x8", 0.30, 0.15, 0.012, 0.008));
+    ensureSection(CrossSection::makeCircularSolid(0, "Circular Maciça D250", 0.25));
+}
+
+void StructuralModel::syncAutoCapturedViewportLoadCase() {
+    auto captureInto = [this](kernel::LoadCase& lc) {
+        lc.nodalLoads.clear();
+        lc.elementLoads.clear();
+        for (const auto& n : m_nodes) {
+            if (n.load.isActive()) {
+                kernel::NodalLoadPatternEntry e;
+                e.nodeId = n.id;
+                e.forceMoment = {n.load.force.x, n.load.force.y, n.load.force.z,
+                                 n.load.moment.x, n.load.moment.y, n.load.moment.z};
+                lc.nodalLoads.push_back(e);
+            }
+        }
+        for (const auto& el : m_elements) {
+            if (el.distLoad.active || el.thermalLoad.active) {
+                kernel::ElementLoadPatternEntry e;
+                e.elementId = el.id;
+                e.load.hasDistributed = el.distLoad.active;
+                e.load.coordSystem = (el.distLoad.coordSystem == CoordSystem::Local) ? 1 : 0;
+                e.load.distributedForce = {el.distLoad.w.x, el.distLoad.w.y, el.distLoad.w.z};
+                e.load.hasThermal = el.thermalLoad.active;
+                e.load.deltaT = el.thermalLoad.deltaT;
+                lc.elementLoads.push_back(e);
+            }
+        }
+    };
+
+    bool hasAnyViewportLoad = false;
+    for (const auto& n : m_nodes) {
+        if (n.load.isActive()) { hasAnyViewportLoad = true; break; }
+    }
+    if (!hasAnyViewportLoad) {
+        for (const auto& el : m_elements) {
+            if (el.distLoad.active || el.thermalLoad.active) { hasAnyViewportLoad = true; break; }
+        }
+    }
+
+    for (auto& lc : m_loadCases) {
+        if (lc.name == "G1 - Cargas do Modelo (Viewport)") {
+            captureInto(lc);
+        } else if (lc.name == "G1 - Peso Próprio (NBR 6118)" && hasAnyViewportLoad) {
+            captureInto(lc);
+        }
+    }
+}
+
 void StructuralModel::clear() {
     m_nodes.clear();
     m_elements.clear();
     m_selectedNodes.clear();
     m_selectedElements.clear();
+    m_loadCases.clear();
+    m_loadCombinations.clear();
+    m_loadHistories.clear();
+    m_rigidLinks.clear();
+    m_rigidDiaphragms.clear();
+    m_surfaceMesh = kernel::MeshContainer{};
+    m_preservedUnknownJson.clear();
+    m_serializationWarnings.clear();
+    populateStandardCatalog();
     pushUndo();
 }
 
@@ -371,6 +576,15 @@ void StructuralModel::clearAll() {
     m_sections.clear();
     m_selectedNodes.clear();
     m_selectedElements.clear();
+    m_loadCases.clear();
+    m_loadCombinations.clear();
+    m_loadHistories.clear();
+    m_rigidLinks.clear();
+    m_rigidDiaphragms.clear();
+    m_surfaceMesh = kernel::MeshContainer{};
+    m_metadata = ProjectMetadata{};
+    m_preservedUnknownJson.clear();
+    m_serializationWarnings.clear();
     clearUndoHistory();
 }
 
@@ -459,6 +673,7 @@ StructuralModel StructuralModel::createBuildingFrameExample() {
     Element eBeam7(15, 11, 12, matId, secBeamId); eBeam7.distLoad = qRoof; model.addElement(eBeam7);
     Element eBeam8(16, 12, 9, matId, secBeamId); eBeam8.distLoad = qRoof; model.addElement(eBeam8);
 
+    model.populateStandardCatalog();
     model.clearUndoHistory();
     model.pushUndo();
     return model;
@@ -495,6 +710,7 @@ StructuralModel StructuralModel::createCantileverLFrameExample() {
     // Barra 2: ao longo do eixo Y (comprimento 3.0 m)
     model.addElement(2, 3, matId, secId);
 
+    model.populateStandardCatalog();
     model.clearUndoHistory();
     model.pushUndo();
     return model;
@@ -606,13 +822,26 @@ StructuralModel StructuralModel::createSpaceTrussExample() {
     Element eTSend(model.getNextElementId(), lastTL, lastTR, matId, secId); eTSend.releases = trussRel; model.addElement(eTSend);
     Element eDiagYZend(model.getNextElementId(), lastBL, lastTR, matId, secId); eDiagYZend.releases = trussRel; model.addElement(eDiagYZend);
 
+    model.populateStandardCatalog();
     model.clearUndoHistory();
     model.pushUndo();
     return model;
 }
 
 StructuralModel::ModelState StructuralModel::captureState() const {
-    return ModelState{m_nodes, m_elements, m_materials, m_sections};
+    return ModelState{
+        m_nodes,
+        m_elements,
+        m_materials,
+        m_sections,
+        m_loadCases,
+        m_loadCombinations,
+        m_loadHistories,
+        m_rigidLinks,
+        m_rigidDiaphragms,
+        m_metadata,
+        m_surfaceMesh
+    };
 }
 
 void StructuralModel::restoreState(const ModelState& state) {
@@ -620,6 +849,13 @@ void StructuralModel::restoreState(const ModelState& state) {
     m_elements = state.elements;
     m_materials = state.materials;
     m_sections = state.sections;
+    m_loadCases = state.loadCases;
+    m_loadCombinations = state.loadCombinations;
+    m_loadHistories = state.loadHistories;
+    m_rigidLinks = state.rigidLinks;
+    m_rigidDiaphragms = state.rigidDiaphragms;
+    m_metadata = state.metadata;
+    m_surfaceMesh = state.surfaceMesh;
     m_selectedNodes.clear();
     m_selectedElements.clear();
 }
@@ -647,6 +883,76 @@ bool StructuralModel::redo() {
     ++m_undoIndex;
     restoreState(m_history[m_undoIndex]);
     return true;
+}
+
+kernel::LoadCaseId StructuralModel::getNextLoadCaseId() const {
+    kernel::LoadCaseId maxId = 0;
+    for (const auto& lc : m_loadCases) {
+        if (lc.id > maxId) maxId = lc.id;
+    }
+    return maxId + 1;
+}
+
+kernel::LoadComboId StructuralModel::getNextLoadCombinationId() const {
+    kernel::LoadComboId maxId = 0;
+    for (const auto& comb : m_loadCombinations) {
+        if (comb.id > maxId) maxId = comb.id;
+    }
+    return maxId + 1;
+}
+
+kernel::LoadCaseId StructuralModel::addLoadCase(const kernel::LoadCase& lc) {
+    kernel::LoadCase copy = lc;
+    if (copy.id <= 0) copy.id = getNextLoadCaseId();
+    for (auto& existing : m_loadCases) {
+        if (existing.id == copy.id) {
+            existing = copy;
+            return copy.id;
+        }
+    }
+    m_loadCases.push_back(std::move(copy));
+    return m_loadCases.back().id;
+}
+
+kernel::LoadComboId StructuralModel::addLoadCombination(const kernel::LoadCombination& comb) {
+    kernel::LoadCombination copy = comb;
+    if (copy.id <= 0) copy.id = getNextLoadCombinationId();
+    for (auto& existing : m_loadCombinations) {
+        if (existing.id == copy.id) {
+            existing = copy;
+            return copy.id;
+        }
+    }
+    m_loadCombinations.push_back(std::move(copy));
+    return m_loadCombinations.back().id;
+}
+
+kernel::LoadCase* StructuralModel::findLoadCase(kernel::LoadCaseId id) {
+    for (auto& lc : m_loadCases) {
+        if (lc.id == id) return &lc;
+    }
+    return nullptr;
+}
+
+const kernel::LoadCase* StructuralModel::findLoadCase(kernel::LoadCaseId id) const {
+    for (const auto& lc : m_loadCases) {
+        if (lc.id == id) return &lc;
+    }
+    return nullptr;
+}
+
+kernel::LoadCombination* StructuralModel::findLoadCombination(kernel::LoadComboId id) {
+    for (auto& comb : m_loadCombinations) {
+        if (comb.id == id) return &comb;
+    }
+    return nullptr;
+}
+
+const kernel::LoadCombination* StructuralModel::findLoadCombination(kernel::LoadComboId id) const {
+    for (const auto& comb : m_loadCombinations) {
+        if (comb.id == id) return &comb;
+    }
+    return nullptr;
 }
 
 } // namespace omniframe

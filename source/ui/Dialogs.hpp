@@ -20,6 +20,7 @@ class QGroupBox;
 
 namespace omniframe {
 
+class GuidedSessionDialog;
 class WindowZOrderManager;
 
 // Diálogo de Material
@@ -45,13 +46,23 @@ private:
     QLabel* m_nuLabel = nullptr;
     QLabel* m_alphaLabel = nullptr;
     QLabel* m_gammaLabel = nullptr;
+    QLabel* m_rhoLabel = nullptr;
+    QGroupBox* m_plasticGroup = nullptr;
+    QCheckBox* m_isPlasticCheck = nullptr;
+    QLabel* m_sigmaYLabel = nullptr;
+    QLabel* m_hIsoLabel = nullptr;
+    QLabel* m_hKinLabel = nullptr;
     QDialogButtonBox* m_btnBox = nullptr;
 
     QLineEdit* m_nameEdit = nullptr;
-    QDoubleSpinBox* m_eSpin = nullptr;     // GPa
+    QDoubleSpinBox* m_eSpin = nullptr;      // GPa
     QDoubleSpinBox* m_nuSpin = nullptr;
-    QDoubleSpinBox* m_alphaSpin = nullptr; // 1e-5 / °C
-    QDoubleSpinBox* m_gammaSpin = nullptr; // kN/m³
+    QDoubleSpinBox* m_alphaSpin = nullptr;  // 1e-5 / °C
+    QDoubleSpinBox* m_gammaSpin = nullptr;  // kN/m³
+    QDoubleSpinBox* m_rhoSpin = nullptr;    // kg/m³
+    QDoubleSpinBox* m_sigmaYSpin = nullptr; // MPa
+    QDoubleSpinBox* m_hIsoSpin = nullptr;   // MPa
+    QDoubleSpinBox* m_hKinSpin = nullptr;   // MPa
     QComboBox* m_presetCombo = nullptr;
 };
 
@@ -66,6 +77,7 @@ protected:
     void changeEvent(QEvent* event) override;
 
 private slots:
+    void applyPreset(int index);
     void onShapeChanged(int index);
     void updateCalculatedProps();
 
@@ -74,6 +86,8 @@ private:
     void updateShapeDimensionUi(SectionShape shape);
 
     bool m_isEditing = false;
+    QLabel* m_presetLabel = nullptr;
+    QComboBox* m_presetCombo = nullptr;
     QLabel* m_nameLabel = nullptr;
     QLabel* m_shapeLabel = nullptr;
     QGroupBox* m_dimGroup = nullptr;
@@ -91,11 +105,15 @@ private:
     QLabel* m_dim2Label = nullptr;
     QLabel* m_dim3Label = nullptr;
     QLabel* m_dim4Label = nullptr;
+    QLabel* m_dim5Label = nullptr;
+    QLabel* m_dim6Label = nullptr;
 
     QDoubleSpinBox* m_dim1Spin = nullptr; // b ou D ou h (m)
     QDoubleSpinBox* m_dim2Spin = nullptr; // h ou t ou bf (m)
     QDoubleSpinBox* m_dim3Spin = nullptr; // tf (m)
     QDoubleSpinBox* m_dim4Spin = nullptr; // tw (m)
+    QDoubleSpinBox* m_dim5Spin = nullptr; // bf_inf (m)
+    QDoubleSpinBox* m_dim6Spin = nullptr; // tf_inf (m)
 
     QDoubleSpinBox* m_aSpin = nullptr;
     QDoubleSpinBox* m_iySpin = nullptr;
@@ -106,6 +124,7 @@ private:
 // Diálogo de Condições de Apoio
 class SupportDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     explicit SupportDialog(QWidget* parent = nullptr, const SupportRestraint* initial = nullptr);
     void setSupport(const SupportRestraint& s);
@@ -144,6 +163,7 @@ private:
 // Diálogo de Rótulas / Liberações de Extremidade
 class ReleasesDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     explicit ReleasesDialog(QWidget* parent = nullptr, const ElementReleases* initial = nullptr);
     void setReleases(const ElementReleases& r);
@@ -178,6 +198,7 @@ private:
 // Diálogo de Carga Nodal Concentrada
 class NodalLoadDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     explicit NodalLoadDialog(QWidget* parent = nullptr, const NodalLoad* initial = nullptr);
     void setLoad(const NodalLoad& load);
@@ -208,6 +229,7 @@ private:
 // Diálogo de Carga Distribuída em Barra
 class DistributedLoadDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     explicit DistributedLoadDialog(QWidget* parent = nullptr, const DistributedLoad* initial = nullptr);
     void setLoad(const DistributedLoad& load);
@@ -235,6 +257,7 @@ private:
 // Diálogo de Ângulo de Roll da Seção
 class RollAngleDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     explicit RollAngleDialog(QWidget* parent = nullptr, double currentAngleDeg = 0.0);
     void setAngleDegrees(double deg);
@@ -254,6 +277,7 @@ private:
 // Diálogo de Variação Térmica (Carga Térmica Uniforme ΔT)
 class ThermalLoadDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     explicit ThermalLoadDialog(QWidget* parent = nullptr, const ThermalLoad* initial = nullptr);
     void setThermalLoad(const ThermalLoad& th);
@@ -274,6 +298,7 @@ private:
 // Diálogo Gerenciador de Catálogo de Materiais (Criar, Editar em Loco, Excluir e Atribuir)
 class MaterialCatalogDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     MaterialCatalogDialog(QWidget* parent,
                           StructuralModel* model,
@@ -311,6 +336,7 @@ private:
 // Diálogo Gerenciador de Catálogo de Seções Transversais (Criar, Editar em Loco, Excluir e Atribuir)
 class SectionCatalogDialog : public QDialog {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 public:
     SectionCatalogDialog(QWidget* parent,
                          StructuralModel* model,

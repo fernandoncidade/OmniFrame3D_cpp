@@ -17,6 +17,7 @@ public:
     SectionId sectionId = INVALID_ID;
 
     double rollAngle = 0.0; // Ângulo de giro da seção (radianos)
+    ElementFormulation formulation = ElementFormulation::EulerBernoulli3D;
     ElementReleases releases;
     DistributedLoad distLoad;
     ThermalLoad thermalLoad;

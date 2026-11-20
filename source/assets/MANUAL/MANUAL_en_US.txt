@@ -1,22 +1,23 @@
 ================================================================================
 OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
-Version: 2026.11.13.0 | Date: November 13, 2026 | Author: Fernando Nillsson Cidade
+Version: 2026.11.14.0 | Date: November 14, 2026 | Author: Fernando Nillsson Cidade
 Document Language: English (US) — Strict line-by-line correspondence with pt-BR
 ================================================================================
 
 CHAPTER 1 — OVERVIEW, ARCHITECTURE AND MODELESS WORKSPACE
 
 1.1 Engineering Purpose and Scope
-OmniFrame 3D is a native Windows desktop application built with C++23, Qt 6, Eigen 3.4, and OpenGL 3.3 Core Profile for interactive modeling, Finite Element Method (3D FEM) matrix stiffness analysis, and graphical post-processing of 3D space frames, grids, and spatial trusses.
-Each structural node carries six degrees of freedom in 3D space (translations ux, uy, uz and rotations Rx, Ry, Rz), enabling analysis of members subjected simultaneously to axial force, biaxial shear, Saint-Venant torsion, and biaxial bending according to the exact Euler-Bernoulli beam-column formulation.
+OmniFrame 3D is a native Windows desktop application built with C++23, Qt 6, Eigen 3.4, and OpenGL 3.3 Core Profile for interactive modeling, Finite Element Method (3D FEM) matrix stiffness analysis, and graphical post-processing of 3D space frames, grids, spatial trusses, shells, and solids.
+Each structural node carries six degrees of freedom in 3D space (translations ux, uy, uz and rotations Rx, Ry, Rz), enabling analysis of members subjected simultaneously to axial force, biaxial shear, Saint-Venant torsion, and biaxial bending according to the exact Euler-Bernoulli beam-column formulation, alongside modal, linear buckling, spectral/harmonic/transient dynamics, and geometric and material nonlinearity (J2 Plasticity).
 All mathematical computations and file persistence run 100% locally on the user's computer with zero telemetry, zero mandatory accounts, zero remote servers, and consistent International System units: meters (m) for coordinates and dimensions, kilonewtons (kN) for forces, kilonewton-meters (kN·m) for moments, kilonewtons per meter (kN/m) for distributed loads, gigapascals (GPa) for elastic moduli, degrees (°) for Roll orientation angles, and Celsius (°C) for thermal delta.
 
 1.2 Main Window Anatomy (MainWindow)
-The main window organizes the engineering workflow into five integrated, resizable workspace regions:
-• Top Menu Bar: groups all commands across six thematic menus (File, Examples, Structure, View, Settings, and Help).
-• Main Toolbar: provides quick-access buttons for cursor interaction tools, active working plane controls, Snap toggle, structural assignments, one-click FEM solver execution, diagram selector, visual scale slider, and reaction/local-axis toggles.
-• Central OpenGL 3D Viewport: renders the three-dimensional structure, dark high-definition Active Plane, supports, concentrated forces, distributed loads, deformed shapes, internal force diagrams, and the viewport heads-up display (HUD) overlay.
-• Left Dock Panel (Inspector & Quick Input): provides exact node insertion via Cartesian coordinates (X, Y, Z) together with the dynamic Selected Node / Member Property Inspector.
+The main window organizes the engineering workflow into six integrated, resizable workspace regions:
+• Top Menu Bar: groups all commands across seven thematic menus (File, Edit, Examples, Structure, View, Settings, and Help).
+• Toolbar 1 (Interaction, Work Plane & Views): provides cursor interaction tools (Select, Add Node, Add Member, Measure, Delete), Active Plane selector (XZ, XY, YZ), Elevation, Grid Step, Snap Grid, Local Axes, and quick standard views (3D Iso, Front, Plan, Side, Fit All).
+• Toolbar 2 (Engineering, Analyses & Results): gathers assignment shortcuts (Materials, Sections, Supports, Hinges, Roll γ, Nodal Load, Dist. Load, Thermal ΔT), advanced engineering modules (Combinations, 2D/3D Mesh, Advanced, Clip/Contours, NBR Audit), RUN ANALYSIS (F5) button, Diagram selector, Reactions toggle, and visual Scale slider.
+• Central OpenGL 3D Viewport: renders the three-dimensional structure, high-definition Active Plane, supports, concentrated forces, distributed loads, 2D/3D meshes, contour colormaps, 3D clipping planes, deformed shapes, internal force diagrams, and the viewport heads-up display (HUD) overlay.
+• Left Dock Panel (Inspector & Quick Input): provides exact node insertion via Cartesian coordinates (X, Y, Z) together with the interactive Selected Element / Node panel featuring dropdown lists and direct editing buttons.
 • Bottom Dock Panel (Result Tables & Structural Diagnostics) and Status Bar: displays synchronized tabs for Nodal Displacements, Support Reactions, and Member Forces, while the status bar continuously reports live 3D cursor coordinates, node/member counters, and diagnostic status messages.
 
 1.3 Dockable Panels (Docks) and Workspace Customization
@@ -25,34 +26,40 @@ At any moment you can toggle panel visibility or move panels back into docked po
 When a dock is floated as an independent window, it participates fully in visual layering management (Z-Order), allowing free focus switching among the floating dock, the main window, and any open child dialogs.
 
 1.4 Modeless Child Windows and Z-Order Management
-In OmniFrame 3D, all child windows and dialogs — including this Manual, About OmniFrame 3D, Advanced Resolution and Image Settings, Materials, Cross Sections, Support Conditions, Hinges / End Releases, Section Roll Angle (γ), Concentrated Nodal Loads, Uniformly Distributed Loads, file choosers, and notification boxes — operate in Modeless (non-modal) mode.
-• Modeless (Non-Modal) Operation: opening a child window never locks or freezes the main window; you can freely orbit the 3D model, pick different nodes or members in the viewport, inspect result tables, or keep multiple dialogs open simultaneously while reviewing parameters or editing properties.
-• Z-Order Stack and Raise on Click: the virtual Z-axis stack defines which window appears visually in front of the others on screen; clicking inside the client area or title bar of any active window (including the main window itself) immediately raises that window to the top of the Z-Order stack.
-• Smart Single-Instance per Tool: if a specific dialog (such as Materials or this Manual) is already open behind the main window and you trigger its menu or toolbar command again, the window manager brings that existing window to the front (raise and focus) with clean cascading instead of spawning redundant duplicates.
+In OmniFrame 3D, all child windows and dialogs — including this Manual (F1), Guided Session (F2), About OmniFrame 3D, Advanced Resolution and Image Settings, Materials, Cross Sections, Support Conditions, Hinges / End Releases, Section Roll Angle (γ), Concentrated Nodal Loads, Uniformly Distributed Loads, Thermal Loads (ΔT), Load Cases and NBR Combinations, 1D/2D/3D Mesh Generator, Advanced Analysis Suite, 3D Post-Processing Controls, ABNT NBR Code Compliance Audit, A4 PDF Report Options, file choosers, and notification boxes — operate in Modeless (non-modal) mode.
+• Modeless (Non-Modal) Operation: opening a child window on a single click never locks or freezes the main window; you can freely orbit the 3D model, pick different nodes or members in the viewport, inspect result tables, or keep multiple dialogs open simultaneously while reviewing parameters or editing properties.
+• Z-Order Stack and Raise on Click: the virtual Z-axis stack defines which window appears visually in front of the others on screen; clicking inside the client area or title bar of any active window (including the main window itself) immediately raises that window to the top of the Z-Order stack without involuntarily sending active child windows behind during normal interactions.
+• Clean Single-Click Launch without Ghost Windows: toolbar and menu buttons open their child windows on the first click without flashing transient outlines; if a specific dialog is already open behind the main window, triggering its command again brings the existing instance forward (raise and focus).
 • Automatic Cleanup on Exit: closing the main window via File > Exit (Ctrl+Q) or the window close button automatically and safely closes all open modeless child windows.
 
-CHAPTER 2 — PROJECT MANAGEMENT, FILES AND EXAMPLES
+CHAPTER 2 — PROJECT MANAGEMENT, FILES, INTEROPERABILITY AND EXAMPLES
 
-2.1 New Project and Open .omniframe Format
-The File > New Project (Ctrl+N) command resets the workspace by clearing all nodes, members, restraints, loads, and solved results after safely confirming any pending work through a non-modal prompt.
-The native .omniframe format uses human-readable UTF-8 JSON containing four explicit collections (materials, cross sections, nodes, and elements) with strict numerical validation that rejects non-finite values (NaN or infinity) on load.
+2.1 New Project, Undo/Redo and Open .omniframe Format
+The File > New Project (Ctrl+N) command resets the workspace by clearing all nodes, members, restraints, loads, meshes, and solved results after safely confirming any pending work through a non-modal prompt.
+The Edit menu provides full multi-level history with Undo (Ctrl+Z) and Redo (Ctrl+Y), letting you experiment with edits to nodes, members, materials, sections, supports, and loads with safe reversal and consistent recalculation.
+The native .omniframe format (Schema 2.1.0, backward-compatible with 1.0 and 2.0) uses human-readable UTF-8 JSON storing materials (including density ρ and J2 parameters), cross sections, nodes, elements, load combinations, and code-check settings with strict numerical validation rejecting non-finite values (NaN or infinity) on load.
 WARNING: keep backup copies before editing .omniframe files manually in external text editors, preserving unique integer identifiers for nodes, materials, and cross sections.
 
-2.2 Opening and Saving Projects (.omniframe)
-To load an existing model, use File > Open (.omniframe)... (Ctrl+O) and pick the target .omniframe file from the modeless file dialog; upon loading, the camera automatically frames the entire structure in the 3D viewport.
-To write changes to disk, use File > Save (.omniframe)... (Ctrl+S), selecting the destination folder and filename; the serializer stores full coordinates, mechanical properties, support restraints, elastic springs, prescribed displacements, member end releases, Roll angles, and both nodal and distributed loads.
+2.2 Opening, Saving (.omniframe) and CAD/BIM Exchange (DXF and IFC4)
+To load an existing model, use File > Open (.omniframe)... (Ctrl+O) and pick the target file from the modeless file dialog; upon loading, the camera automatically frames the entire structure in the 3D viewport.
+To write changes to disk, use File > Save (.omniframe)... (Ctrl+S), selecting the destination folder and filename; the serializer stores full coordinates, mechanical properties, support restraints, elastic springs, prescribed displacements, member end releases, Roll angles, thermal variations ΔT, and both nodal/distributed loads and combinations.
+Beyond the native format, the File menu offers four bidirectional, fully offline CAD and BIM interoperability tools:
+• Import DXF... and Export DXF...: reads 3D wireframe lines and layers from CAD drawings (.dxf) with tolerance-based node merging, and exports structural members and faces back to DXF.
+• Import BIM IFC4... and Export BIM IFC4...: imports open STEP IFC4 (.ifc) structural models reconstructing nodes, members, and surfaces, and exports the OmniFrame 3D model as IFC4 entities compatible with BIM platforms.
 
-2.3 Calculation Report Export (HTML and Markdown)
-The File menu provides two built-in exporters for technical engineering documentation:
+2.3 Calculation Report Export (HTML, Markdown and A4 PDF)
+The File menu provides three built-in exporters for engineering calculation documentation with zero external dependencies:
 • Export Technical Report (HTML)...: generates a self-contained styled web report with formatted tables covering model summary, material and section inventory, global static equilibrium verification, nodal displacements, support reactions, and per-member action extremes.
 • Export Technical Report (Markdown)...: generates a structured plain-text (.md) report compatible with Git version control, technical editors, and corporate documentation pipelines while preserving the exact solver verification metrics.
-TIP: run the FEM solver (F5) before exporting reports so that all displacement, reaction, equilibrium, and extreme internal force tables are populated with freshly solved results.
+• Export Executive Report (A4 PDF)...: opens a configurable options dialog allowing you to include or omit the full ABNT NBR Code Compliance Audit, executive summary, displacement/reaction/force tables, and stability diagnostics, writing a print-ready A4 PDF directly to disk.
+TIP: run the FEM solver (F5) or ABNT NBR Audit before exporting reports so that all tables, code checks, and global static equilibrium residuals reflect the latest results.
 
-2.4 Built-in Structural Examples
-The Examples menu includes three complete 3D structural models ready for immediate analysis and parametric exploration:
+2.4 Built-in Structural Examples and Full Live Re-Editing Practice
+The Examples menu includes three complete 3D structural models ready for immediate analysis, parametric study, and full live re-editing by the user:
 • Example 1: 3D Building Space Frame (2 Stories, Wind and Live Load): multi-story concrete space frame with columns and beams subjected to combined vertical gravity and lateral loads.
 • Example 2: L-Shaped 3D Cantilever under Bending-Torsion: plan L-bent cantilever beam clearly demonstrating torsion-bending coupling between orthogonal spans.
 • Example 3: 3D Space Truss / Steel Footbridge: three-dimensional truss structure with released member ends (Tx, My, and Mz released), exhibiting predominantly axial tension and compression behavior.
+All three built-in examples remain fully editable once loaded: you can select nodes or members in the viewport, switch materials and cross sections directly in the side inspector dropdown lists, modify coordinates, supports, loads, or combinations, apply Undo/Redo (Ctrl+Z / Ctrl+Y), and re-solve immediately (F5) as hands-on practice before tackling real projects.
 
 CHAPTER 3 — 3D NAVIGATION, ACTIVE PLANE AND VISUALIZATION
 
@@ -88,7 +95,7 @@ Graphical symbol legend across the 3D scene:
 • Roller Support: amber/orange pyramid supporting the node.
 • Nodal and Distributed Loads: red arrows indicate concentrated nodal forces; continuous rows of green arrows along members indicate distributed loads; cyan double arrows represent applied moments or moment reactions.
 
-CHAPTER 4 — INTERACTIVE AND NUMERICAL GEOMETRIC MODELING
+CHAPTER 4 — GEOMETRIC MODELING, SIDE INSPECTOR AND MESH GENERATOR
 
 4.1 Adding Nodes on the Active Plane and via Numerical Input
 Two complementary methods allow creating structural nodes accurately:
@@ -97,7 +104,7 @@ Two complementary methods allow creating structural nodes accurately:
 
 4.2 Connecting Members between Nodes
 To connect two existing nodes with a frame/truss member, activate the Add Member (B) tool (or press B).
-Left-click the start node (node i) first and then left-click the end node (node j); the created member automatically adopts default Material ID 1 and Cross Section ID 1 with an initial Roll angle of 0°.
+Left-click the start node (node i) first and then left-click the end node (node j); the created member automatically adopts the default material and cross section with an initial Roll angle of 0°.
 NOTE: clicking the same start node twice or clicking empty space without a valid node prevents zero-length degenerate elements; press Esc at any time to cancel an in-progress member link.
 
 4.3 Spatial Measurement Tool (ΔX, ΔY, ΔZ, L)
@@ -106,14 +113,27 @@ With Measure (M) mode active, click the first point or reference node and then c
 
 4.4 Safe Deletion and Selection Clearing
 To delete unwanted entities, select one or more nodes or members in the viewport and trigger Delete (Del) (Del key or the corresponding toolbar button).
-Deleting a node automatically removes every member attached to that node so the structural mesh remains topologically valid without dangling references.
+Deleting a node automatically removes every member attached to that node so the structural mesh remains topologically valid without dangling references; any deletion can be reverted cleanly via Edit > Undo (Ctrl+Z).
 Pressing Esc exits active chained creation modes or clears the current selection cleanly.
 
-CHAPTER 5 — STRUCTURAL PROPERTIES, BOUNDARY CONDITIONS AND LOADS
+4.5 Side Property Inspector (Selected Element / Node) and Batch Selection
+Clicking any node or member in the 3D Viewport (or holding Ctrl for multi-selection) populates the Selected Element / Node panel on the left dock with direct inline editing controls for the current selection:
+• When one or more nodes are selected: lets you edit X, Y, and Z coordinates directly, apply batch coordinate offsets/increments (ΔX, ΔY, ΔZ), edit Support Conditions and Concentrated Nodal Loads via quick action buttons, and apply changes to the model with optional automatic re-solve.
+• When one or more members are selected: provides clean Material: and Cross-Section: dropdown comboboxes displaying clean catalog names (without numeric hash prefixes) — clicking the arrow or field opens the full list immediately to reassign all selected members — alongside quick edit buttons for Roll (γ), Hinges, Distributed Load, and Thermal Load (ΔT).
+• Quick Criteria Selection: the Same Material and Same Section buttons automatically select every member in the model sharing the active member's material or cross section, streamlining batch adjustments across both new models and the three built-in examples.
 
-5.1 Isotropic Material Library and Editor
-Open Structure > Materials... (or click Materials... on the toolbar) to open the modeless material editor where you can create, edit, or select materials defined by four mechanical constants: Longitudinal Elastic Modulus E (GPa in UI), Poisson's Ratio ν, Thermal Expansion Coefficient α (/°C), and Specific Weight γ (kN/m³).
+4.6 Parametric 1D/2D/3D Mesh Generator (Shells and Solids)
+Open Structure > 1D/2D/3D Mesh Generator... (or 2D/3D Mesh... on Toolbar 2) to generate and attach surface or volumetric finite element meshes anywhere in your project:
+• Supported Element Families: structured 2D shell meshes (Quad4 MITC4, Tri3 MITC3, Tri6, and Quad8 Serendipity) for slabs, shear walls, and shells, as well as 3D solid meshes (Hex8 B-Bar and Tet4) for blocks and volumetric foundations.
+• Automatic Bounding-Box Fitting: the auto-fit action adapts mesh box bounds to the active frame geometry, while letting you specify subdivisions (nx, ny, nz), shell thickness, and automatic boundary/base clamping.
+• Quality Diagnostics and Cleanup: displays element/node counts and mesh aspect-ratio quality metrics; use Clear Mesh to remove the parametric 2D/3D mesh cleanly while keeping the primary 3D frame intact.
+
+CHAPTER 5 — STRUCTURAL PROPERTIES, BOUNDARY CONDITIONS, THERMAL AND COMBINATIONS
+
+5.1 Isotropic Material Library and J2 Plasticity
+Open Structure > Materials... (or click Materials... on the toolbar) to open the modeless material editor where you can create, edit, or select materials defined by their physical constants: Longitudinal Elastic Modulus E (GPa), Poisson's Ratio ν, Thermal Expansion Coefficient α (/°C), Specific Weight γ (kN/m³), and Mass Density ρ.
 Four ready-to-use engineering presets are included: Structural Steel (ASTM A36) (E = 200 GPa, ν = 0.30, γ = 78.5 kN/m³), Structural Concrete C30 (E = 30 GPa, ν = 0.20, γ = 25.0 kN/m³), Aluminum 6061-T6 (E = 70 GPa, ν = 0.33, γ = 27.0 kN/m³), and Structural Timber (E = 14.5 GPa, ν = 0.20, γ = 8.0 kN/m³).
+When enabled for elastoplastic nonlinear analyses, materials also store yield stress σy (MPa) plus isotropic (H_iso) and kinematic (H_kin) hardening moduli for the von Mises J2 Plasticity constitutive model.
 Confirming with members selected in the 3D viewport assigns the chosen material to all selected members immediately without interrupting your modeling workflow.
 
 5.2 Cross Sections and Automatic Inertia Calculation
@@ -147,26 +167,49 @@ To remove nodal loads from selected nodes, set all components to zero or reset t
 5.7 Distributed Member Loads (Global and Local)
 Open Structure > Uniformly Distributed Loads... (or Dist. Load... on the toolbar) with one or more members selected to define uniform distributed loads qx, qy, and qz in kN/m along the full member span (default initial value qz = -10.0 kN/m).
 Select Global System (X, Y, Z) (loads aligned with project X, Y, Z axes, suited to gravity and dead loads) or Member Local System (x, y, z) (loads aligned with the member's own local x, y, z axes, suited to wind pressure or normal roof loads).
-The solver automatically transforms distributed loads (as well as any thermal ΔT recorded on elements) into exact equivalent nodal Fixed-End Force vectors.
+The solver automatically transforms distributed loads and recorded thermal variations into exact equivalent nodal Fixed-End Force vectors.
 
-CHAPTER 6 — FINITE ELEMENT ANALYSIS (3D FEM SOLVER)
+5.8 Uniform and Gradient Thermal Loads (ΔT)
+Open Structure > Thermal Loads (ΔT)... (or Thermal (ΔT)... on Toolbar 2) with one or more members selected to assign uniform temperature variation ΔT (°C) and optional transverse thermal gradients along the member's local axes.
+Using the thermal expansion coefficient α configured on the member material, the solver automatically computes exact fixed-end axial forces and thermal moments in indeterminate frames or free thermal elongation in statically determinate spans.
+
+5.9 Load Cases, ABNT NBR Combinations & 6120/6123 Assistants
+Open Structure > Load Cases, NBR Combinations & Wind... (or Combinations... on Toolbar 2) to manage multiple load cases (Dead G, Live Q, Wind W, Thermal T, Seismic E) and factored combinations:
+• Automatic ABNT NBR Combinations: the Generate NBR Combinations button captures active viewport loads when needed and generates standard combinations (ULS-1 Normal, ULS-2 P-Delta, and SLS Quasi-Permanent), alongside custom entries via + New Combination.
+• Engineering Code Assistants: dedicated tabs assist in estimating basic/characteristic wind speed and stagnation pressure under ABNT NBR 6123:2023 (V0, S1, S2, S3) and reviewing occupancy live-load parameters under ABNT NBR 6120:2019.
+
+CHAPTER 6 — FINITE ELEMENT ANALYSIS, ADVANCED SUITE AND NBR AUDIT
 
 6.1 Model Pre-Validation and Mechanism Detection
 Before assembling the linear system, the model undergoes validate() structural checks verifying sufficient nodes and elements, support restraints preventing rigid-body motion, valid material/section references, and strictly positive member lengths and mechanical moduli.
 If the model contains kinematic mechanisms, global under-restraint, or a non-positive-definite stiffness matrix, the solver halts safely and displays a diagnostic message inside a modeless alert window identifying the probable cause.
 
-6.2 Matrix Formulation and Sparse SimplicialLDLT Solver
-Triggering Structure > RUN ANALYSIS (F5 key or the ▶ RUN ANALYSIS (F5) toolbar button) executes FemSolver3D through the following 64-bit double-precision stages:
-1. Computation of the exact 12×12 local member stiffness matrix including axial (EA/L), torsional (GJ/L), and biaxial Euler-Bernoulli bending (12EI/L³, 6EI/L², 4EI/L, 2EI/L) stiffness terms plus static condensation for end releases.
-2. Orthogonal transformation to global coordinates via block matrix [T] = diag(R, R, R, R) using K_glob = T^T · K_loc · T and fixed-end force vector transformation.
+6.2 Matrix Formulation and Sparse Solver Suite (LinearSolverSuite)
+Triggering Structure > RUN ANALYSIS (F5 key or the ▶ RUN ANALYSIS (F5) toolbar button) executes FemSolver3D asynchronously on a background worker thread through the following 64-bit double-precision stages:
+1. Computation of the exact 12×12 local member stiffness matrix including axial (EA/L), torsional (GJ/L), and biaxial Euler-Bernoulli bending (12EI/L³, 6EI/L², 4EI/L, 2EI/L) stiffness terms plus static condensation for end releases and 2D/3D shell/solid elements when an active mesh exists.
+2. Orthogonal transformation to global coordinates via block matrix [T] = diag(R, R, R, R) using K_glob = T^T · K_loc · T and fixed-end force vector transformation (covering self-weight, distributed loads, and thermal ΔT).
 3. Global sparse stiffness matrix assembly incorporating elastic spring stiffnesses, support restraints, and prescribed displacements.
-4. Direct sparse Cholesky factorization using Eigen::SimplicialLDLT with AMD fill-reducing ordering for high speed and numerical accuracy, reporting total solve time in milliseconds.
+4. Direct or iterative resolution via LinearSolverSuite — SimplicialLDLT with AMD fill-reducing ordering (default), SimplicialLLT, SparseLU, ConjugateGradient, or BiCGSTAB — reporting total solve time in milliseconds.
 
 6.3 Global Static Equilibrium Verification
 Immediately after solving nodal displacements {u} and recovering local end forces and global support reactions {R}, the solver sums applied force and moment resultants against support reaction resultants.
-Residual force errors (ΔFx, ΔFy, ΔFz) and residual moment errors about the origin (ΔMx, ΔMy, ΔMz) are automatically audited in EquilibriumCheck and embedded into both HTML/Markdown calculation reports and analysis summaries.
+Residual force errors (ΔFx, ΔFy, ΔFz) and residual moment errors about the origin (ΔMx, ΔMy, ΔMz) are automatically audited in EquilibriumCheck and embedded into both HTML/Markdown/PDF calculation reports and analysis summaries.
 
-CHAPTER 7 — POST-PROCESSING, DIAGRAMS AND RESULTS INSPECTION
+6.4 Advanced Analysis Suite (Modal, Buckling, Dynamic and Nonlinear)
+Open Structure > Advanced Analysis Suite... (or Advanced... on Toolbar 2) to run multi-physics background simulations on the active structural model:
+• Combinations & Envelope: runs Solve Cases & Combinations across all configured cases and NBR combinations, computes min/max envelopes, and lets you plot any solved case or combination in the 3D Viewport.
+• Modal Analysis: extracts natural frequencies (Hz), periods (s), modal participation factors, and effective masses for the requested number of modes, enabling live 3D mode-shape animation.
+• Linear Buckling (Elastic Stability): solves critical buckling load factors (λ_cr) and global Euler buckling mode shapes for the applied load state.
+• Harmonic FRF & Response Spectrum: computes frequency-response sweeps (amplitude and phase under modal/Rayleigh damping) and CQC/SRSS spectral combinations (with explicit normative-scope transparency).
+• Seismic Transient (Newmark-β) & Nonlinear Analysis (P-Delta / Corotational / J2 Plasticity): integrates time-history ground motions via Newmark-β and resolves geometric nonlinearity (P-Delta or 3D Corotational using Newton-Raphson or Arc-Length) and elastoplastic J2 response over incremental load steps.
+
+6.5 ABNT NBR Code Compliance Audit and 3D DCR Heatmap
+Open Structure > ABNT NBR Code Compliance Audit (6118 / 8800 / 6122)... (or NBR Audit... on Toolbar 2) to evaluate the structural model against locally verified Brazilian technical standards:
+• Audited Normative Scope & Transparency: performs checks under ABNT NBR 6118:2023 (reinforced concrete ULS/SLS helpers), NBR 8800:2024 (steel tension, compression, bending, and shear members plus γz / B2 stability), NBR 6122:2022 (shallow footing bearing stress against allowable soil σ_adm), NBR 6123:2023 (wind), NBR 6120:2019, and NBR 7480:2022, explicitly tagging verified rules as LocalPdfVerified and absent standards as OutOfLocalPdfScope.
+• 3D DCR Heatmap in Viewport: projects member Demand-to-Capacity Ratios (DCR) directly onto the 3D structure with spectral utilization coloring so overstressed elements near or above 1.00 stand out immediately.
+• Direct PDF Report Export: the Export PDF Report (A4)... button inside the audit dialog exports the complete calculation report including clause-by-clause ABNT checks.
+
+CHAPTER 7 — POST-PROCESSING, DIAGRAMS, CLIPPING PLANES AND 3D ANIMATION
 
 7.1 3D Visualization Modes and Deformed Shape
 Following a successful analysis, the toolbar Diagram: selector lets you switch immediately among eight live visualization modes directly over the 3D model:
@@ -187,6 +230,12 @@ Within the Bottom Dock (Result Tables & Structural Diagnostics), three synchroni
 • Support Reactions Tab: lists restrained nodes together with reactive forces (Rx, Ry, Rz in kN) and reactive moments (Mx, My, Mz in kN·m).
 • Member Forces Tab: lists minimum and maximum values of N, Vy, Vz, Tx, My, Mz and maximum deflection recorded along each member.
 
+7.4 Advanced 3D Post-Processing Controls (Contours, Clip Plane and Animation)
+Open Structure > 3D Controls (Contours / Clip / Animation)... (or Clip/Contours... on Toolbar 2) to inspect advanced results inside the OpenGL Viewport:
+• Surface Contour Maps & Mesh Overlay: switch element/surface coloring among None, Displacement |u|, von Mises Stress, Axial Force, and DCR Utilization, alongside showing or hiding generated 2D/3D surface meshes.
+• Interactive 3D Clipping Plane: select a sectioning axis (Off, X, Y, or Z), scrub the slice offset continuously across the model bounding box, and flip side orientation to inspect interior solids and dense frames.
+• Continuous 3D Animation: animate static deformed shapes, natural vibration mode shapes, buckling modes, or harmonic/time-history steps in real time with adjustable playback speed and amplitude.
+
 CHAPTER 8 — GRAPHICS SETTINGS, IMAGE RESOLUTION, THEME AND LANGUAGE
 
 8.1 High-Definition Multi-Stage Rendering Pipeline
@@ -202,7 +251,7 @@ Under Settings > Advanced Resolution and Image Settings... (plus the quick Setti
 • GPU Hardware Telemetry and Persistence: the dialog reports detected GPU renderer name, vendor, OpenGL version, max hardware MSAA/texture limits, and physical rendered pixel resolution; Cancel cleanly restores prior viewport settings, while Apply or OK saves settings locally to graphics.json.
 
 8.3 Active Plane Themes, Interface Theme (Light/Dark) and Contrast
-Under Settings > Theme you can dynamically switch at runtime between Dark and Light modes, instantly adapting windows, modeless dialogs, title bars, tables, HTML documents (Manual and About), the OpenGL viewport, deformed-shape color ramps, and internal force diagrams.
+Under Settings > Theme you can dynamically switch at runtime between Dark and Light modes, instantly adapting windows, modeless dialogs, title bars, tables, HTML documents (Manual and About), Guided Session overlays, the OpenGL viewport, deformed-shape color ramps, and internal force diagrams.
 In addition, under Settings > Active Plane Appearance or inside the advanced resolution dialog you can independently pick the Active Working Plane backdrop:
 • Obsidian Dark (Default) (#07090e): deep obsidian-blue tone balanced for extended modeling sessions without glare or eye strain.
 • Deep Night (Ultra Dark) (#040608): ultra-dark background maximizing contrast for colored force diagrams and slender lines.
@@ -212,21 +261,30 @@ In addition, under Settings > Active Plane Appearance or inside the advanced res
 
 8.4 Dynamic Runtime Language Switching and Persistence
 The Settings > Language submenu switches the interface immediately at runtime between Português (Brasil) and English (US).
-Selecting a language broadcasts QEvent::LanguageChange across the entire application without restarting: menu bar, toolbars, docks, Property Inspector, result tables, 3D viewport HUD, this Manual, the About dialog, and all currently open modeless child dialogs retranslate live in place.
+Selecting a language broadcasts QEvent::LanguageChange across the entire application without restarting: menu bar, toolbars, docks, Property Inspector, result tables, 3D viewport HUD, Guided Session, this Manual, the About dialog, and all currently open modeless child dialogs retranslate live in place.
 The chosen language persists locally inside language.json under the user application data directory (%LOCALAPPDATA%\OmniFrame\OmniFrame\).
 
-CHAPTER 9 — HELP, KEYBOARD SHORTCUTS, LOCAL STORAGE AND COMPANION TOOLS
+CHAPTER 9 — HELP, GUIDED SESSION (F2), KEYBOARD SHORTCUTS AND COMPANION TOOLS
 
 9.1 Interactive Manual (F1) and About Application Dialog
 • Help > Manual (F1): opens this dedicated modeless viewer featuring an interactive chapter/subchapter index tree on the left, high-contrast formatted reader on the right, and live search bar with Next and Previous navigation buttons.
-• Help > About OmniFrame 3D: opens the modeless information center with tabs for About, Release Notes, App History, Code Licensing Commitment (CLC), Copyright and Trademark Notice, Privacy Policy, End User License Agreement (EULA), Third-Party Notices, and complete Open Source Licenses.
+• Help > About OmniFrame 3D: opens the modeless information center with tabs for About, Release Notes, History, EULA, CLC / Licensing, Privacy, Copyright, Third-Party Notices, and Full Licenses.
 
-9.2 Complete Keyboard Shortcuts and Quick Controls Table
+9.2 Interactive Step-by-Step Guided Session (Help > Guided Session..., F2)
+The Help > Guided Session... feature (shortcut F2) runs an automated 30-step walkthrough demonstrating every feature, workflow, and dialog in OmniFrame 3D, simulating a real engineer operating the software starting from any of the three built-in examples:
+• Choosing the Example & Scientific Cognitive Reading Paces (WPM): before starting, select which of the three built-in examples to demonstrate and pick your preferred reading speed profile in Words Per Minute (WPM) — Fluent Typical Reader (250 WPM, 200–300 WPM range), Technical / Engineering Reading (150 WPM, recommended default with +10% margin), Read Aloud Pace (155 WPM), or Dyslexia / Accessible Pace (130 WPM, 100–160 WPM range with +30% extra time for regressions and re-reading without cognitive fatigue).
+• Unified Two-Phase Visual Spotlight & Callout (Zero Overlap): each step highlights the target menu, button, or panel paired with a single unified callout balloon and pointer arrow. In Phase 1 (yellow), the callout explains what the control does and why it is used for a duration proportional to the exact word count and selected WPM; in Phase 2 (green), the step executes (docking child dialogs neatly in the lower-left area while placing the callout without overlapping the child window) using the same word-proportional WPM timing.
+• Modeless Z-Order Controls During Playback: the Guided Session window operates modelessly so you can switch window focus freely at any time, monitor step progress and countdowns, and click Start Guided Session, Pause / Resume, Advance Now, Stop, or Close.
+• Automatic Restoration to Initial State: upon completing step 30, the application automatically clears temporary overlays, contours, clipping planes, animations, and auxiliary dialogs and restores the selected example and workspace cleanly to its initial ready-to-solve state.
+
+9.3 Complete Keyboard Shortcuts and Quick Controls Table
 Use the shortcuts below whenever the main viewport or menu bar holds focus:
 • F1 — Open this Complete Operations and Engineering Manual.
+• F2 — Open the Interactive Guided Session (complete 30-step demonstration).
 • Ctrl+N — Start a New structural project.
 • Ctrl+O — Open an existing project (.omniframe).
 • Ctrl+S — Save the current project (.omniframe).
+• Ctrl+Z / Ctrl+Y — Undo / Redo modeling and property editing actions.
 • Ctrl+Q — Exit OmniFrame 3D (safely closing all open child windows).
 • F5 — RUN ANALYSIS: execute full 3D FEM solver.
 • F — Fit All (F): frame the entire structure inside the 3D camera.
@@ -240,14 +298,14 @@ Use the shortcuts below whenever the main viewport or menu bar holds focus:
 • Shift + Right or Middle Mouse Drag — Pan 3D camera laterally/vertically.
 • Mouse Wheel (Scroll) — Zoom camera in and out.
 
-9.3 Local Storage, Directory Portability and Offline Privacy
-All bilingual documentation assets (about, history, legal notices, licenses, and this manual) and compiled translations (.qm) load dynamically from the distribution directory with automatic fallback to embedded Qt resources inside the executable, guaranteeing full functionality regardless of which folder or drive hosts the app.
-OmniFrame 3D collects zero telemetry, opens zero network sockets, and stores only user-saved project files plus three local configuration files (language.json, theme.json, and graphics.json) inside %LOCALAPPDATA%\OmniFrame\OmniFrame\.
+9.4 Local Storage, Directory Portability and Offline Privacy
+All bilingual documentation assets (about, history, release notes, legal notices, licenses, and this manual) and compiled translations (.qm) load dynamically from the distribution directory with automatic fallback to embedded Qt resources inside the executable, guaranteeing full functionality regardless of which folder or drive hosts the app.
+OmniFrame 3D collects zero telemetry, opens zero network sockets, and stores only user-saved project/report files (.omniframe, .dxf, .ifc, .html, .md, .pdf) plus three local configuration files (language.json, theme.json, and graphics.json) inside %LOCALAPPDATA%\OmniFrame\OmniFrame\.
 When uninstalled via Microsoft Store or removed as a portable distribution, zero kernel drivers or hidden background services remain on the operating system.
 
-9.4 Companion Distribution Utilities
-The OmniFrame 3D suite also includes standalone helper executables packaged in independent distributions for version and localization maintenance:
-• VersionEditor (VersionEditor.exe): graphical utility for synchronized version number and revision date updates across configured Portuguese (BR) and English (US) documents and manifests.
+9.5 Companion Distribution Utilities and Headless CLI
+The OmniFrame 3D ecosystem also provides command-line and maintenance tools compiled and packaged alongside the application:
+• OmniFrame CLI (omniframe-cli.exe): headless command-line executable distributed together with OmniFrame.exe to validate models (.omniframe, .dxf, .ifc), execute static, modal, buckling, harmonic, spectral, or nonlinear analyses in batch mode (--analyze), and export datasets or reports (.pdf, .html, .md, .dxf, .ifc, .json, .csv, .vtk).
+• VersionEditor (VersionEditor.exe): graphical and CLI utility for synchronized version number and revision date updates across configured Portuguese (BR) and English (US) documents and manifests.
 • CompileTranslationsGUI (CompileTranslationsGUI.exe): graphical utility for inspecting, compiling (.ts to .qm), and deploying Qt translations cleanly.
-• Automated Test Suite (CTest): analytical benchmark suite (cantilever beams, frames, trusses, static equilibrium, Roll rotations, and JSON serialization) verifying numerical accuracy on every build.
-
+• Automated Test Suite (CTest): 20 standalone analytical, advanced-solver, mesh, interoperability, ABNT NBR compliance, and UI workflow verification suites safeguarding numerical and interactive accuracy on every build.

@@ -1,8 +1,8 @@
 # OmniFrame 3D — Análise Estrutural Tridimensional por Elementos Finitos (3D Space Frame & Truss FEA Suite)
 
-**Plataforma desktop nativa de engenharia para análise estática linear tridimensional (FEA) de pórticos e treliças espaciais em Windows, desenvolvida em C++23 moderno, Qt 6.11.1, Eigen 3.4.0 e OpenGL 3.3 Core Profile. Implementa formulação matricial exata de viga-coluna de Euler-Bernoulli com 12 graus de liberdade por elemento (6 DOFs por nó), solver direto esparso de Cholesky (`SimplicialLDLT` com ordenação AMD), recuperação contínua de esforços via polinômios cúbicos de Hermite, viewport de alta definição (SSAA até 200%, MSAA GPU e suavização subpixel SDF por shader) e temas claro/escuro dinâmicos com suporte bilíngue integral (`pt-BR` / `en-US`).**
+**Plataforma desktop nativa de engenharia para análise estrutural tridimensional (FEA — estática linear, modal, flambagem, harmônica, espectro de resposta e não linear geométrica/J2) em Windows, desenvolvida em C++23 moderno (`OmniFrameKernel` livre de Qt), Qt 6.11.1, Eigen 3.4.0 e OpenGL 3.3 Core Profile. Oferece elementos 1D/2D/3D, gerador de malhas (`MeshGenerator`), combinações ELU/ELS (`LoadSystem`), suíte de solvers esparsos (`LinearSolverSuite`), interpolação contínua de Hermite, viewport de alta definição (SSAA/MSAA/SDF, Clip Planes e contornos DCR), interoperabilidade `.omniframe` Schema 2.1.0 / DXF / IFC4, auditoria ABNT NBR em PDF local, relatórios PDF A4 e CLI headless `omniframe-cli.exe` (`pt-BR` / `en-US`).**
 
-[![Latest Release](https://img.shields.io/badge/Release-v2026.11.13.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.13.0)
+[![Latest Release](https://img.shields.io/badge/Release-v2026.11.14.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.14.0)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C?logo=c%2B%2B)](CMakeLists.txt)
 [![Qt 6.11.1](https://img.shields.io/badge/Qt-6.11.1-41CD52?logo=qt)](CMakeLists.txt)
 [![Eigen 3.4.0](https://img.shields.io/badge/Eigen-3.4.0-d9534f)](https://eigen.tuxfamily.org)
@@ -42,7 +42,7 @@
 <details>
 <summary><b>Clique para expandir / recolher a documentação em Português (BR)</b></summary><br>
 
-O **OmniFrame 3D** (Versão 2026.11.13.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
+O **OmniFrame 3D** (Versão 2026.11.14.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
 
 Diferente de suítes comerciais de FEA em caixa-preta que bloqueiam cálculos atrás de assinaturas caras, armazenamento obrigatório em nuvem e solvers opacos, o **OmniFrame 3D** foi concebido para entregar transparência matemática integral, soberania absoluta de dados locais (`Local-First`) e alto desempenho computacional em álgebra matricial esparsa:
 
@@ -85,14 +85,14 @@ Elemento Espacial de Viga-Coluna 3D (Nós i -> j)
 - **Repositório / Site Oficial:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
 - **Download Oficial (Microsoft Store — Edição Gratuita Assinada):** [Instalar via Microsoft Store](https://apps.microsoft.com/detail/OmniFrame3D)
 - **Identidade MSIX e Alias no Windows:** `fernandoncidade.OmniFrame3D` · Execution Alias `omniframe.exe` ([`repo/AppxManifest.xml`](repo/AppxManifest.xml))
-- **Normas Técnicas Referenciadas para Análise Elástica:** ABNT NBR 8800:2008 (*Estruturas de aço*), ABNT NBR 6118:2023 (*Estruturas de concreto*), AISC 360-22 (*Structural Steel Buildings*) e Eurocode 3 / EN 1993-1-1 ([`docs/compliance.md`](docs/compliance.md#ptbr))
+- **Escopo Normativo Auditável (`ABNT NBR`):** Verificações locais verificadas em PDF para `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022` e `NBR 8800:2024` (`LocalPdfVerified`), com marcação explícita `OutOfLocalPdfScope` para normas fora do pacote local (`NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360-22` e `Eurocode 3` — [`docs/compliance.md`](docs/compliance.md#ptbr))
 - **Idiomas Suportados Dinamicamente em Tempo de Execução:** Português (Brasil — `pt-BR`) · English (United States — `en-US`)
 - **Requisitos de Sistema:** Windows 10 (build `17763+`) / Windows 11 x64, GPU compatível com **OpenGL 3.3 Core Profile**
 - **Executáveis Gerados pelos Presets CMake (`CMakePresets.json`):**
-  - `OmniFrame.exe` (`build/OmniFrame3D/`): Aplicativo desktop GUI principal em C++23 / Qt 6.11.1 / OpenGL 3.3 Core ([`source/main.cpp`](source/main.cpp))
+  - `OmniFrame.exe` e `omniframe-cli.exe` (`build/OmniFrame3D/` e distribuídos juntos no pacote externo): Aplicativo desktop GUI principal em C++23 / Qt 6.11.1 / OpenGL 3.3 Core ([`source/main.cpp`](source/main.cpp)) e executável headless CLI compartilhado ([`source/cli/main_cli.cpp`](source/cli/main_cli.cpp))
   - `VersionEditor.exe` (`build/Version/`): Utilitário GUI e CLI (`--check` / `--apply`) de auditoria e sincronização de versão/data ([`mocks/VersionEditor.cpp`](mocks/VersionEditor.cpp))
   - `CompileTranslationsGUI.exe` e `CompileTranslationsTerminal.exe` (`build/CompileLanguage/`): Ferramentas de compilação e validação dos catálogos `.ts` → `.qm`
-  - **Suíte Modular CTest (`build/Testes/`):** 7 binários independentes de validação numérica e estrutural (`test_Material`, `test_CrossSection`, `test_Element3D`, `test_CoordinateTransform`, `test_CantileverBenchmark`, `test_EquilibriumReactions`, `test_ProjectSerializer`)
+  - **Suíte Modular CTest (`build/Testes/`):** **20 suítes independentes** de validação numérica, solvers, normas e fluxos de UI (`test_Material`..`test_SpringsSettlementsAndExamples` + `test_Phase0ValidationAndBenchmarks`..`test_Phase9UiAndWorkflows`)
 
 ---
 
@@ -101,21 +101,24 @@ Elemento Espacial de Viga-Coluna 3D (Nós i -> j)
 1. **Formulação Mecânica Exata de Euler-Bernoulli 3D (12 DOFs por Elemento):**
    - Matriz de rigidez local $12 \times 12$ ($[k_e]$) abrangendo rigidez axial ($EA/L$), torção pura de Saint-Venant ($GJ/L$), flexão biaxial acoplada ao cortante ($12EI/L^3$, $6EI/L^2$, $4EI/L$, $2EI/L$), matriz de transformação ortogonal $[T]$ com ângulo de rolamento dos eixos principais (**Roll $\gamma / \psi$**) e condensação estática automática de **rótulas** nas extremidades das barras;
    - Apoios elásticos nodais (**molas $k$**), vínculos rígidos e articulados (**Engastado**, **Articulado Fixo**, **Móvel/Rolete**), **deslocamentos e rotações prescritos**, forças/momentos nodais concentrados e carregamentos distribuídos uniformes com vetores consistentes de forças de engastamento perfeito (*Fixed-End Forces*).
-2. **Solver Direto Esparso de Cholesky de Alta Velocidade (`Eigen::SimplicialLDLT`):**
-   - Montagem esparsa do sistema global $[K]\{U\} = \{F\}$ em precisão dupla de 64 bits com reordenação redutora de preenchimento **AMD (*Approximate Minimum Degree*)**;
-   - Pré-validação automática de integridade geométrica/física (rejeição preventiva de barras com comprimento $L \le 10^{-6}\text{ m}$, parâmetros não positivos ou valores não finitos), detecção automática de **mecanismos cinemáticos** / singularidades e verificação rigorosa do **equilíbrio estático global** ($\sum F = 0$, $\sum M = 0$).
-3. **Recuperação Contínua de Esforços & 8 Modos de Diagramas Coloridos:**
-   - Reconstrução contínua exata por **polinômios cúbicos de Hermite** ao longo de toda a barra;
-   - 8 modos visuais com mapas espectrais contínuos: `Nenhum`, `Deformada 3D`, `Normal N`, `Cortante Vy`, `Cortante Vz`, `Torção Tx`, `Fletor My` e `Fletor Mz`, acompanhados de vetores/setas de reações nodais e controle deslizante de ampliação (`1`–`100`, correspondendo a escala de `1.5x` a `150x`).
+2. **`OmniFrameKernel` em C++23 Puro, Suíte Linear & Solvers Multifísica:**
+   - Núcleo FEA estritamente livre de Qt (`OmniFrameKernel` — C++23 + Eigen 3.4.0) compartilhado por `OmniFrameCore`, `OmniFrame.exe` e `omniframe-cli.exe`;
+   - Montagem esparsa em precisão dupla via `LinearSolverSuite` (`SimplicialLDLT` AMD, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB`) executada assincronamente em *worker threads* na UI;
+   - Recursos multianálise: **Estática Linear**, **Modal (autovalores)**, **Flambagem Linear**, **Varredura Harmônica FRF**, **Espectro de Resposta**, **Não Linear Geométrica (`P-Delta` / Corrotacional `NR` & `Arc-Length`)** e **Plasticidade Material J2** ($\sigma_y, H_{\text{iso}}, H_{\text{kin}}$);
+   - Pré-validação automática (rejeitando $L \le 10^{-6}\text{ m}$, constantes não positivas e valores não finitos), detecção automática de **mecanismos cinemáticos** / singularidades e verificação rigorosa do **equilíbrio estático global** ($\sum F = 0$, $\sum M = 0$).
+3. **Elementos 1D/2D/3D, Recuperação Contínua & Pós-Processamento Avançado:**
+   - Biblioteca de elementos: pórticos/treliças 3D Euler-Bernoulli / Timoshenko (`BeamTruss1D`, `Corotational1D`), cascas Mindlin/DKT (`ShellElements`) e sólidos 3D hexa/tetra (`SolidElements`), além de geração paramétrica de malhas (`MeshGenerator` 1D/2D/3D & Delaunay);
+   - Reconstrução contínua exata por **polinômios cúbicos de Hermite** (`Nenhum`, `Deformada 3D`, `Normal N`, `Cortante Vy`, `Cortante Vz`, `Torção Tx`, `Fletor My`, `Fletor Mz`), vetores de reações, controle de ampliação (`1`–`100`, escala `1.5x`–`150x`), **Planos de Corte 3D (Clip Planes)**, **contornos DCR** e **animação modal/deformada**.
 4. **Viewport OpenGL 3.3 Core com Pipeline de Alta Definição (`SSAA`, `MSAA` e `Shader SDF`):**
    - Pipeline acelerado por GPU em **GLSL 330** com iluminação Phong, câmera orbital fluida (Botão Direito/Meio para orbitar, `Shift` + arraste para pan, roda do mouse para zoom), atalhos instantâneos (`Vista 3D Isométrica`, `Frontal XZ`, `Planta XY`, `Lateral YZ`, `Enquadrar Tudo [F]`) e seleção espacial exata via **Raycasting 3D** (incluindo multisseleção com `Ctrl`);
    - Menu **Configurações → Qualidade Gráfica e Resolução** permitindo configurar predefinições (`Máximo Automático`, `Ultra Qualidade`, etc.), superamostragem interna **SSAA até 200% (`2.00×`)**, **MSAA por GPU até `16×`**, downsampling **Catmull-Rom 16-tap com nitidez CAS**, suavização analítica subpixel de linhas por **Shader SDF**, VSync, contraste de grade e paletas dedicadas para o **Plano Ativo** (`ObsidianDark`, `PureNight`, `GraphiteDark`, `CleanLight`).
-5. **Modelagem em Plano Ativo, Bibliotecas Estruturais & Relatórios Técnicos:**
-   - Ferramentas de modelagem rápida (`Selecionar [S]`, `Inserir Nó [N]`, `Inserir Barra [B]`, `Medir [M]`, `Excluir [Del]`) projetadas sobre planos de trabalho `XY`, `XZ` ou `YZ` em qualquer cota, com **Snap Grid** configurável e visualização dos eixos locais das barras;
-   - Editores para materiais isotrópicos ($E, \nu, \alpha, \gamma$), seções paramétricas (`Retangular`, `Circular`, `Perfil I/W`, `Tubular` e `Personalizada`), **3 exemplos estruturais prontos para cálculo** (edifício espacial de dois pavimentos, balanço espacial em L e passarela em treliça espacial 3D), salvamento aberto em **`.omniframe` (JSON)** e exportação de memoriais de cálculo em **HTML** e **Markdown**.
-6. **Interface Qt 6.11.1 Adaptativa, Janelas Não-Modais (`Z-Order`) & Soberania 100% Offline:**
-   - Alternância dinâmica em tempo de execução de **Idioma** (`Português (BR)` / `English (US)`) e **Tema Visual** (`Escuro` / `Claro`) propagada a todos os menus, painéis acopláveis, tabelas de resultados sincronizadas, gráficos do Plano Ativo e **Manual de Instruções pesquisável (`F1`)**;
-   - Gerenciamento central de janelas **Modeless** com elevação automática na pilha de profundidade **`Z-Order`** (`WindowZOrderManager`);
+5. **Modelagem Paramétrica, Combinações, Interoperabilidade & Relatórios Técnicos:**
+   - Ferramentas em plano ativo (`XY`/`XZ`/`YZ`, Snap Grid, Eixos Locais), casos e combinações ELU/ELS (`LoadSystem`) e auditoria normativa **ABNT NBR** (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explícito para normas ausentes como `NBR 8681`, `14762`, `15421`, `AISC 360` e `Eurocode 3`);
+   - Editores para materiais elásticos/J2 ($E, \nu, \alpha, \gamma, \rho$), seções paramétricas (`Retangular`, `Circular`, `Perfil I/W`, `Tubular`, `Personalizada`), **3 exemplos estruturais prontos e totalmente reeditáveis como exercício** (incluindo edição inline por listas suspensas limpas no Inspetor Lateral e `Desfazer`/`Refazer`), intercâmbio **DXF / IFC4 / VTK / CSV**, formato aberto **`.omniframe` JSON Schema `2.1.0`** (retrocompatível com `1.0` e `2.0`), relatórios em **HTML / Markdown / PDF executivo A4** (`PdfReportGenerator`) e CLI dedicada **`omniframe-cli.exe`** (`20` suítes CTest).
+6. **Interface Qt 6.11.1 Adaptativa, Sessão Guiada (`F2`), Janelas Não-Modais (`Z-Order`) & Soberania 100% Offline:**
+   - Alternância dinâmica em tempo de execução de **Idioma** (`Português (BR)` / `English (US)`) e **Tema Visual** (`Escuro` / `Claro`) propagada a todos os menus, painéis acopláveis, tabelas sincronizadas, gráficos do Plano Ativo, diálogos de engenharia (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), **Manual de Instruções (`F1`)** e **Sessão Guiada (`F2` — `GuidedSessionDialog`)**;
+   - **Sessão Guiada Passo a Passo (`Ajuda > Sessão Guiada...`, `F2`):** percorre **30 etapas** construindo e simulando qualquer um dos 3 exemplos pré-definidos com 4 perfis científicos de ritmo de leitura (PPM — Fluente, Técnico, Voz Alta e Acessível/Dislexia), **callout e destaque visual unificados em 2 fases (sem sobreposição sobre janelas filhas)** e restauração automática do exemplo selecionado ao estado inicial ao concluir;
+   - Gerenciamento central de janelas **Modeless** com abertura em clique único sem contornos fantasmas e elevação automática na pilha de profundidade **`Z-Order`** (`WindowZOrderManager`);
    - Operação **100% Local-First e Offline**: zero telemetria, zero sockets de rede e persistência restrita a projetos do usuário mais 3 arquivos locais de preferência (`language.json`, `theme.json` e `graphics.json`) em `%LOCALAPPDATA%\OmniFrame\OmniFrame\`.
 
 ---
@@ -126,12 +129,12 @@ Capturas reais do **OmniFrame 3D** localizado em **Português (Brasil)** no repo
 
 <p align="center">
   <strong>Tema Escuro (pt-BR) — Pórtico Espacial de Dois Pavimentos: Deformada 3D, Reações e Tabelas de Resultados</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-13%20024647.png" alt="OmniFrame 3D Português (BR) Tema Escuro" width="900">
+  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-14%20013311.png" alt="OmniFrame 3D Português (BR) Tema Escuro" width="900">
 </p>
 
 <p align="center">
   <strong>Tema Claro (pt-BR) — Alternância Dinâmica de Tema com SSAA 2.00×, MSAA 16× e Shader SDF</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-13%20024709.png" alt="OmniFrame 3D Português (BR) Tema Claro" width="900">
+  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-14%20013333.png" alt="OmniFrame 3D Português (BR) Tema Claro" width="900">
 </p>
 
 ---
@@ -174,7 +177,7 @@ cd OmniFrame_cpp
 cmake --preset omniframe-msvc-release
 cmake --build --preset omniframe-msvc-release
 
-# Configurar, compilar e executar os 7 testes estruturais CTest em build/Testes/
+# Configurar, compilar e executar os 20 testes estruturais CTest em build/Testes/
 cmake --preset testes-msvc-release
 cmake --build --preset testes-msvc-release
 ctest --preset testes-msvc-release --output-on-failure
@@ -203,7 +206,7 @@ cmake --preset compile-language-msvc-release && cmake --build --preset compile-l
 
 ### 🏛️ Escopo Técnico, Responsabilidade Profissional e Isenção ("AS IS")
 
-O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise matricial **elástica linear de primeira ordem**, destinada ao estudo acadêmico, ensino, pesquisa e pré-dimensionamento estrutural, podendo conter aproximações numéricas ou limitações frente a comportamentos não lineares. Os resultados gerados (deslocamentos, reações e diagramas de esforços) **NÃO substituem verificações completas em regime último/serviço, efeitos de segunda ordem ($P$-$\Delta$ e $P$-$\delta$), instabilidades globais ou locais, combinações normativas específicas (`ABNT NBR 8800`, `NBR 6118`, `AISC 360-22`, `Eurocode 3`) e supervisão formal de profissional legalmente habilitado com emissão de ART/RRT perante o CREA/CAU**. O software é fornecido **"NO ESTADO EM QUE SE ENCONTRA" ("AS IS")**, com todas as suas falhas e sem garantias explícitas ou implícitas; **qualquer aplicação definitiva em projetos executivos, obras reais ou engenharia de produção ocorre por conta e risco exclusivos do usuário, com integral isenção civil, criminal e técnica do autor**.
+O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutural matricial por Elementos Finitos (**estática linear, modal, flambagem, harmônica, espectro de resposta, segunda ordem $P$-$\Delta$/corrotacional e plasticidade J2**), destinada ao estudo acadêmico, ensino, pesquisa e pré-dimensionamento estrutural, podendo conter aproximações numéricas ou limitações frente a comportamentos não lineares. Os resultados gerados (deslocamentos, reações e diagramas de esforços) **NÃO substituem verificações completas em regime último/serviço, efeitos de segunda ordem ($P$-$\Delta$ e $P$-$\delta$), instabilidades globais ou locais, combinações normativas específicas (`ABNT NBR 8800`, `NBR 6118`, `AISC 360-22`, `Eurocode 3`) e supervisão formal de profissional legalmente habilitado com emissão de ART/RRT perante o CREA/CAU**. O software é fornecido **"NO ESTADO EM QUE SE ENCONTRA" ("AS IS")**, com todas as suas falhas e sem garantias explícitas ou implícitas; **qualquer aplicação definitiva em projetos executivos, obras reais ou engenharia de produção ocorre por conta e risco exclusivos do usuário, com integral isenção civil, criminal e técnica do autor**.
 
 ---
 
@@ -217,7 +220,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise matricia
 - 📖 [Guia do Usuário](docs/user-guide.md#ptbr) · [Manual Técnico Completo (MANUAL.md)](MANUAL.md#parte-1-manual-de-instruções-português---br)
 - 💻 [Referência da Linha de Comando e Utilitários (CLI)](docs/cli-reference.md#ptbr)
 - 💡 [Sugestões de Evolução e Backlog Técnico](docs/suggested-issues.md#ptbr)
-- 🚀 [Notas de Lançamento da Versão 2026.11.13.0](docs/release-v2026.11.13.0.md#ptbr)
+- 🚀 [Notas de Lançamento da Versão 2026.11.14.0](docs/release-v2026.11.14.0.md#ptbr)
 
 ---
 
@@ -239,7 +242,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise matricia
 <details>
 <summary><b>Click to expand / collapse English (US) documentation</b></summary><br>
 
-**OmniFrame 3D** (Version 2026.11.13.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
+**OmniFrame 3D** (Version 2026.11.14.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
 
 Unlike commercial black-box FEA suites that lock calculations behind expensive subscription paywalls, forced cloud storage, and opaque solvers, **OmniFrame 3D** is purpose-built to deliver complete mathematical transparency, strict local data sovereignty (`Local-First`), and high-speed sparse matrix computation:
 
@@ -282,14 +285,14 @@ Unlike commercial black-box FEA suites that lock calculations behind expensive s
 - **Official Repository / Website:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
 - **Official Download (Microsoft Store — Signed Free Edition):** [Install via Microsoft Store](https://apps.microsoft.com/detail/OmniFrame3D)
 - **Windows MSIX Identity & Execution Alias:** `fernandoncidade.OmniFrame3D` · Execution Alias `omniframe.exe` ([`repo/AppxManifest.xml`](repo/AppxManifest.xml))
-- **Referenced Standards for Elastic Analysis:** ABNT NBR 8800:2008 (*Steel Structures*), ABNT NBR 6118:2023 (*Concrete Structures*), AISC 360-22 (*Structural Steel Buildings*), and Eurocode 3 / EN 1993-1-1 ([`docs/compliance.md`](docs/compliance.md#enus))
+- **Auditable Normative Scope (`ABNT NBR`):** Local PDF-verified checks for `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022`, and `NBR 8800:2024` (`LocalPdfVerified`), with absent standards explicitly flagged `OutOfLocalPdfScope` (`NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360-22`, and `Eurocode 3` — [`docs/compliance.md`](docs/compliance.md#enus))
 - **Runtime Dynamic Languages:** English (United States — `en-US`) · Português (Brasil — `pt-BR`)
 - **System Requirements:** Windows 10 (build `17763+`) / Windows 11 x64, GPU supporting **OpenGL 3.3 Core Profile**
 - **Executables Built by CMake Presets (`CMakePresets.json`):**
-  - `OmniFrame.exe` (`build/OmniFrame3D/`): Primary C++23 / Qt 6.11.1 / OpenGL 3.3 Core desktop GUI ([`source/main.cpp`](source/main.cpp))
+  - `OmniFrame.exe` and `omniframe-cli.exe` (`build/OmniFrame3D/` and packaged together in external distributions): Primary C++23 / Qt 6.11.1 / OpenGL 3.3 Core desktop GUI ([`source/main.cpp`](source/main.cpp)) and companion headless CLI ([`source/cli/main_cli.cpp`](source/cli/main_cli.cpp))
   - `VersionEditor.exe` (`build/Version/`): GUI & CLI (`--check` / `--apply`) version and date synchronization/auditing utility ([`mocks/VersionEditor.cpp`](mocks/VersionEditor.cpp))
   - `CompileTranslationsGUI.exe` and `CompileTranslationsTerminal.exe` (`build/CompileLanguage/`): Translation compilation and verification utilities (`.ts` → `.qm`)
-  - **Modular CTest Suite (`build/Testes/`):** 7 standalone numerical and structural validation test binaries (`test_Material`, `test_CrossSection`, `test_Element3D`, `test_CoordinateTransform`, `test_CantileverBenchmark`, `test_EquilibriumReactions`, `test_ProjectSerializer`)
+  - **Modular CTest Suite (`build/Testes/`):** **20 standalone suites** covering mechanics, solvers, mesh/interop, NBR compliance, and UI workflows (`test_Material`..`test_SpringsSettlementsAndExamples` + `test_Phase0ValidationAndBenchmarks`..`test_Phase9UiAndWorkflows`)
 
 ---
 
@@ -298,21 +301,24 @@ Unlike commercial black-box FEA suites that lock calculations behind expensive s
 1. **Exact 3D Euler-Bernoulli Beam-Column Formulation (12 DOFs per Member):**
    - $12 \times 12$ local stiffness matrix ($[k_e]$) covering axial response ($EA/L$), Saint-Venant pure torsion ($GJ/L$), biaxial bending coupled with shear ($12EI/L^3$, $6EI/L^2$, $4EI/L$, $2EI/L$), orthogonal 3D transformation $[T]$ with principal axis orientation (**Roll Angle $\gamma / \psi$**), and automatic static condensation of member **end releases (hinges)**;
    - Elastic nodal **spring supports ($k$)**, **Fixed**, **Pinned**, and **Roller** restraints, **prescribed displacements/rotations**, concentrated nodal forces/moments, and uniform distributed member loads using consistent Fixed-End Forces.
-2. **High-Speed Sparse Direct Cholesky Solver (`Eigen::SimplicialLDLT`):**
-   - Double-precision (64-bit) sparse assembly of $[K]\{U\} = \{F\}$ using **Approximate Minimum Degree (AMD)** fill-reducing reordering;
+2. **Pure C++23 `OmniFrameKernel`, Sparse Linear Suite & Multi-Physics Solvers:**
+   - Strictly Qt-free FEA kernel (`OmniFrameKernel` — C++23 + Eigen 3.4.0) powering `OmniFrameCore`, `OmniFrame.exe`, and `omniframe-cli.exe`;
+   - Double-precision (64-bit) sparse assembly via `LinearSolverSuite` (`SimplicialLDLT` with AMD ordering, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB`) executed asynchronously on worker threads in the UI;
+   - Multi-analysis capabilities: **Linear Static**, **Modal Eigenvalue**, **Linear Buckling**, **Harmonic FRF Sweep**, **Response Spectrum**, **Geometric Nonlinear (`P-Delta` / Corotational `NR` & `Arc-Length`)**, and **Material J2 Plasticity** ($\sigma_y, H_{\text{iso}}, H_{\text{kin}}$);
    - Automated geometric/physical pre-validation (rejecting zero-length members $L \le 10^{-6}\text{ m}$, non-positive constants, and non-finite inputs), automatic **kinematic mechanism** / singularity detection, and strict global static equilibrium verification ($\sum F = 0$, $\sum M = 0$).
-3. **Continuous Internal Force Recovery & 8 Color-Mapped Diagram Modes:**
-   - Exact continuous diagram recovery via **cubic Hermite interpolation** along every element;
-   - 8 visualization modes with continuous spectral gradients: `None`, `Deformed 3D`, `Normal N`, `Shear Vy`, `Shear Vz`, `Torsion Tx`, `Moment My`, and `Moment Mz`, plus nodal reaction arrows and adjustable amplification slider (`1`–`100`, scaling from `1.5x` to `150x`).
+3. **1D/2D/3D Elements, Continuous Recovery & Post-Processing Controls:**
+   - Element library covering 3D Euler-Bernoulli / Timoshenko beams & trusses (`BeamTruss1D`, `Corotational1D`), Mindlin/DKT shells (`ShellElements`), and 8-node/4-node solids (`SolidElements`), plus parametric mesh generation (`MeshGenerator` 1D/2D/3D & Delaunay);
+   - Exact continuous diagram recovery via **cubic Hermite interpolation** along every frame element, supporting `None`, `Deformed 3D`, `Normal N`, `Shear Vy`, `Shear Vz`, `Torsion Tx`, `Moment My`, and `Moment Mz`, nodal reaction arrows, adjustable amplification slider (`1`–`100`, scaling `1.5x`–`150x`), **3D Clip Planes**, **DCR utilization contours**, and **modal/deformed animation**.
 4. **OpenGL 3.3 Core Viewport with High-Definition Rendering (`SSAA`, `MSAA` & `Shader SDF`):**
    - Hardware-accelerated **GLSL 330** Phong lighting pipeline, orbital camera (Right/Middle drag to orbit, `Shift` + drag to pan, scroll wheel to zoom), instant preset views (`3D Iso`, `Front XZ`, `Plan XY`, `Side YZ`, `Fit View [F]`), and exact **3D Raycasting** selection (including `Ctrl` multi-selection);
    - **Settings → Graphics Quality & Resolution** dialog with presets (`Auto Max`, `Ultra Quality`, etc.), internal supersampling **SSAA up to 200% (`2.00×`)**, **GPU MSAA up to `16×`**, **Catmull-Rom 16-tap downsampling with CAS sharpening**, analytical subpixel **Shader SDF** line anti-aliasing, VSync toggle, grid contrast control, and dedicated **Active Plane** palettes (`ObsidianDark`, `PureNight`, `GraphiteDark`, `CleanLight`).
-5. **Active Working Plane Modeling, Parametric Libraries & Engineering Reports:**
-   - Modeling tools (`Select [S]`, `Add Node [N]`, `Add Member [B]`, `Measure [M]`, `Delete [Del]`) projected onto configurable `XY`, `XZ`, or `YZ` working planes with **Snap Grid** and local triad axes display;
-   - Built-in editors for isotropic materials ($E, \nu, \alpha, \gamma$), parametric cross-sections (`Rectangular`, `Circular`, `I-Beam`, `Tubular`, and `Custom`), **3 ready-to-solve structural examples** (two-story 3D frame building, 3D L-cantilever, and 3D space truss pedestrian bridge), open **`.omniframe` (JSON)** persistence, and **HTML / Markdown** technical calculation report export.
-6. **Adaptive Qt 6.11.1 Workspace, Modeless Windows (`Z-Order`) & 100% Offline Privacy:**
-   - Dynamic runtime switching for **Language** (`English (US)` / `Português (BR)`) and **GUI Theme** (`Dark` / `Light`) propagated across all menus, dock panels, synchronized result tables, Active Plane palettes, and the searchable **Operations Manual (`F1`)**;
-   - Centralized **Modeless** child-window stack management with click-to-raise **`Z-Order`** control (`WindowZOrderManager`);
+5. **Parametric Modeling, Load Combinations, Interoperability & Engineering Reports:**
+   - Modeling tools (`Select [S]`, `Add Node [N]`, `Add Member [B]`, `Measure [M]`, `Delete [Del]`) projected onto configurable `XY`, `XZ`, or `YZ` working planes with **Snap Grid**, local triad axes display, `LoadSystem` load cases/combinations, and **ABNT NBR** code audit (`LocalPdfVerified`: `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022`, `NBR 8800:2024`; `OutOfLocalPdfScope` explicitly flagged for absent standards such as `NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360`, and `Eurocode 3`);
+   - Built-in editors for linear/J2 materials ($E, \nu, \alpha, \gamma, \rho$), parametric cross-sections (`Rectangular`, `Circular`, `I-Beam`, `Tubular`, and `Custom`), **3 ready-to-solve and fully re-editable structural examples** (including clean inline dropdown editing in the Side Property Inspector and `Undo`/`Redo`), **DXF / IFC4 / VTK / CSV** interoperability, open **`.omniframe` JSON Schema `2.1.0`** (backward-compatible with `1.0` & `2.0`), and native **HTML / Markdown / A4 PDF** (`PdfReportGenerator`) calculation report export alongside headless **`omniframe-cli.exe`** (`20` modular CTest targets).
+6. **Adaptive Qt 6.11.1 Workspace, Guided Session (`F2`), Modeless Windows (`Z-Order`) & 100% Offline Privacy:**
+   - Dynamic runtime switching for **Language** (`English (US)` / `Português (BR)`) and **GUI Theme** (`Dark` / `Light`) propagated across all menus, dock panels, synchronized result tables, Active Plane palettes, engineering dialogs (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), the searchable **Operations Manual (`F1`)**, and the **Guided Session (`F2` — `GuidedSessionDialog`)**;
+   - **Step-by-Step Guided Session (`Help > Guided Session...`, `F2`):** walks through **30 automated steps** demonstrating every tool on any chosen preset example across 4 scientific cognitive reading-speed profiles in WPM (Fluent, Technical, Read Aloud, and Dyslexia/Accessible), featuring a **unified two-phase spotlight & non-overlapping callout** and automatic restoration of the selected example to its initial state upon completion;
+   - Centralized **Modeless** child-window stack management with single-click opening without ghost outlines and click-to-raise **`Z-Order`** control (`WindowZOrderManager`);
    - Strictly **100% Local-First & Offline**: zero telemetry, zero network sockets, and local persistence restricted to user-saved project files plus three preference files (`language.json`, `theme.json`, and `graphics.json`) inside `%LOCALAPPDATA%\OmniFrame\OmniFrame\`.
 
 ---
@@ -323,12 +329,12 @@ Actual captures of **OmniFrame 3D** localized in **English (US)** stored under [
 
 <p align="center">
   <strong>Dark Theme (en-US) — Two-Story 3D Frame: Deformed Shape, Nodal Reactions &amp; Result Tables</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-13%20024729.png" alt="OmniFrame 3D English (US) Dark Theme" width="900">
+  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-14%20013358.png" alt="OmniFrame 3D English (US) Dark Theme" width="900">
 </p>
 
 <p align="center">
   <strong>Light Theme (en-US) — Dynamic Theme Switching with SSAA 2.00×, MSAA 16× &amp; Shader SDF</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-13%20024741.png" alt="OmniFrame 3D English (US) Light Theme" width="900">
+  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-14%20013412.png" alt="OmniFrame 3D English (US) Light Theme" width="900">
 </p>
 
 ---
@@ -371,7 +377,7 @@ cd OmniFrame_cpp
 cmake --preset omniframe-msvc-release
 cmake --build --preset omniframe-msvc-release
 
-# Configure, build, and run the 7 structural CTest checks in build/Testes/
+# Configure, build, and run the 20 structural CTest checks in build/Testes/
 cmake --preset testes-msvc-release
 cmake --build --preset testes-msvc-release
 ctest --preset testes-msvc-release --output-on-failure
@@ -400,7 +406,7 @@ cmake --preset compile-language-msvc-release && cmake --build --preset compile-l
 
 ### 🏛️ Auxiliary Technical Scope, Professional Responsibility & Exemption ("AS IS")
 
-**OmniFrame 3D** is an auxiliary computational tool for **first-order linear elastic** matrix structural analysis intended for academic study, teaching, research, and preliminary modeling, and may contain numerical approximations or scope limitations relative to nonlinear behavior. Outputs (displacements, support reactions, and internal force diagrams) **MUST NOT be used as sole final evidence in construction designs, civil/structural works, or production decisions without complete manual verification, evaluation of second-order ($P$-$\Delta$ and $P$-$\delta$) and stability effects, full normative load combinations (`ABNT NBR 8800`, `NBR 6118`, `AISC 360-22`, `Eurocode 3`), cross-validation, and formal oversight by a legally licensed engineer (including mandatory professional responsibility filings such as ART/RRT before CREA/CAU where applicable)**. The software is provided **"AS IS"** with all faults and without express or implied warranties; **all engineering deployment occurs at the user's sole risk, with complete legal, civil, criminal, and technical exemption of the author**.
+**OmniFrame 3D** is an auxiliary computational tool for **Finite Element structural analysis (linear static, modal, buckling, harmonic FRF, response spectrum, second-order $P$-$\Delta$/corotational, and J2 plasticity)** intended for academic study, teaching, research, and preliminary modeling, and may contain numerical approximations or scope limitations relative to nonlinear behavior. Outputs (displacements, support reactions, and internal force diagrams) **MUST NOT be used as sole final evidence in construction designs, civil/structural works, or production decisions without complete manual verification, evaluation of second-order ($P$-$\Delta$ and $P$-$\delta$) and stability effects, full normative load combinations (`ABNT NBR 8800`, `NBR 6118`, `AISC 360-22`, `Eurocode 3`), cross-validation, and formal oversight by a legally licensed engineer (including mandatory professional responsibility filings such as ART/RRT before CREA/CAU where applicable)**. The software is provided **"AS IS"** with all faults and without express or implied warranties; **all engineering deployment occurs at the user's sole risk, with complete legal, civil, criminal, and technical exemption of the author**.
 
 ---
 
@@ -414,7 +420,7 @@ cmake --preset compile-language-msvc-release && cmake --build --preset compile-l
 - 📖 [User Guide](docs/user-guide.md#enus) · [Complete Technical Manual (MANUAL.md)](MANUAL.md#part-2-operations-manual--3d-fea-engineering-guide-english---us)
 - 💻 [Command-Line & Utilities Reference (CLI)](docs/cli-reference.md#enus)
 - 💡 [Suggested Issues & Technical Backlog](docs/suggested-issues.md#enus)
-- 🚀 [Release Notes for Version 2026.11.13.0](docs/release-v2026.11.13.0.md#enus)
+- 🚀 [Release Notes for Version 2026.11.14.0](docs/release-v2026.11.14.0.md#enus)
 
 ---
 

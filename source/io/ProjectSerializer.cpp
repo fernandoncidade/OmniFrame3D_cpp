@@ -2,13 +2,16 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTextStream>
 #include <QDateTime>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <unordered_set>
 
 namespace omniframe
 {
@@ -19,14 +22,79 @@ namespace omniframe
         {
             return QCoreApplication::translate("InterfaceGrafica", text);
         }
+
+        bool readFiniteDouble(const QJsonObject &obj, const char *key, double defaultVal, bool required, double &out)
+        {
+            if (!obj.contains(key))
+            {
+                if (required)
+                    return false;
+                out = defaultVal;
+                return std::isfinite(out);
+            }
+            const QJsonValue v = obj.value(key);
+            if (!v.isDouble())
+                return false;
+            const double val = v.toDouble();
+            if (!std::isfinite(val))
+                return false;
+            out = val;
+            return true;
+        }
+
+        bool readValidInt(const QJsonObject &obj, const char *key, int defaultVal, bool required, int &out)
+        {
+            if (!obj.contains(key))
+            {
+                if (required)
+                    return false;
+                out = defaultVal;
+                return true;
+            }
+            const QJsonValue v = obj.value(key);
+            if (!v.isDouble())
+                return false;
+            const double d = v.toDouble();
+            if (!std::isfinite(d) || std::floor(d) != d)
+                return false;
+            out = static_cast<int>(d);
+            return true;
+        }
     } // namespace
 
     bool ProjectSerializer::saveToFile(const QString &filePath, const StructuralModel &model)
     {
         QJsonObject rootObj;
-        rootObj["version"] = "1.0.0";
+        if (!model.preservedUnknownJson().empty())
+        {
+            const QJsonDocument unkDoc = QJsonDocument::fromJson(QByteArray::fromStdString(model.preservedUnknownJson()));
+            if (unkDoc.isObject())
+            {
+                rootObj = unkDoc.object();
+            }
+        }
+        rootObj["version"] = "2.1.0";
+        rootObj["schemaVersion"] = "2.1.0";
         rootObj["application"] = "OmniFrame 3D";
         rootObj["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+        // 0. Metadados do Projeto e Parametros NBR (Schema 2.1.0)
+        {
+            const auto &meta = model.metadata();
+            QJsonObject metaObj;
+            metaObj["projectName"] = QString::fromStdString(meta.projectName);
+            metaObj["engineerName"] = QString::fromStdString(meta.engineerName);
+            metaObj["clientName"] = QString::fromStdString(meta.clientName);
+            metaObj["siteLocation"] = QString::fromStdString(meta.siteLocation);
+            metaObj["soilSigmaAdm_kPa"] = meta.soilSigmaAdm_kPa;
+            metaObj["footingB_m"] = meta.footingB_m;
+            metaObj["footingL_m"] = meta.footingL_m;
+            metaObj["windV0_ms"] = meta.windV0_ms;
+            metaObj["windS1"] = meta.windS1;
+            metaObj["windS2"] = meta.windS2;
+            metaObj["windS3"] = meta.windS3;
+            rootObj["projectMetadata"] = metaObj;
+        }
 
         // 1. Materiais
         QJsonArray matArray;
@@ -39,6 +107,11 @@ namespace omniframe
             mObj["nu"] = mat.nu;
             mObj["alpha"] = mat.alpha;
             mObj["gamma"] = mat.gamma;
+            mObj["rho"] = mat.rho;
+            mObj["isPlastic"] = mat.isPlastic;
+            mObj["sigmaY"] = mat.sigmaY;
+            mObj["H_iso"] = mat.H_iso;
+            mObj["H_kin"] = mat.H_kin;
             matArray.append(mObj);
         }
         rootObj["materials"] = matArray;
@@ -55,10 +128,54 @@ namespace omniframe
             sObj["dim2"] = sec.dim2;
             sObj["dim3"] = sec.dim3;
             sObj["dim4"] = sec.dim4;
+            sObj["dim5"] = sec.dim5;
+            sObj["dim6"] = sec.dim6;
             sObj["A"] = sec.A;
             sObj["Iy"] = sec.Iy;
             sObj["Iz"] = sec.Iz;
             sObj["J"] = sec.J;
+            sObj["Iyz"] = sec.Iyz;
+            sObj["I1"] = sec.I1;
+            sObj["I2"] = sec.I2;
+            sObj["principalAngle"] = sec.principalAngle;
+            sObj["Cw"] = sec.Cw;
+            sObj["Asy"] = sec.Asy;
+            sObj["Asz"] = sec.Asz;
+            if (!sec.polygonLoops.empty())
+            {
+                QJsonArray loopsArr;
+                for (const auto &lp : sec.polygonLoops)
+                {
+                    QJsonObject lObj;
+                    lObj["isHole"] = lp.isHole;
+                    QJsonArray pts;
+                    for (const auto &pt : lp.vertices)
+                    {
+                        QJsonArray pArr;
+                        pArr.append(pt[0]);
+                        pArr.append(pt[1]);
+                        pts.append(pArr);
+                    }
+                    lObj["vertices"] = pts;
+                    loopsArr.append(lObj);
+                }
+                sObj["polygonLoops"] = loopsArr;
+            }
+            if (!sec.compositeParts.empty())
+            {
+                QJsonArray compArr;
+                for (const auto &cp : sec.compositeParts)
+                {
+                    QJsonObject cObj;
+                    cObj["yCenter"] = cp.yCenter;
+                    cObj["zCenter"] = cp.zCenter;
+                    cObj["widthB"] = cp.widthB;
+                    cObj["heightH"] = cp.heightH;
+                    cObj["modularRatioN"] = cp.modularRatioN;
+                    compArr.append(cObj);
+                }
+                sObj["compositeParts"] = compArr;
+            }
             secArray.append(sObj);
         }
         rootObj["sections"] = secArray;
@@ -114,6 +231,7 @@ namespace omniframe
             eObj["materialId"] = e.materialId;
             eObj["sectionId"] = e.sectionId;
             eObj["rollAngle"] = e.rollAngle;
+            eObj["formulation"] = static_cast<int>(e.formulation);
 
             // Rótulas
             QJsonObject relObj;
@@ -146,16 +264,189 @@ namespace omniframe
         }
         rootObj["elements"] = elemArray;
 
-        QFile file(filePath);
+        // 5. Casos de Carga (Schema 2.0.0)
+        QJsonArray lcArray;
+        for (const auto &lc : model.getLoadCases())
+        {
+            QJsonObject lcObj;
+            lcObj["id"] = lc.id;
+            lcObj["name"] = QString::fromStdString(lc.name);
+            lcObj["category"] = static_cast<int>(lc.category);
+
+            QJsonObject swObj;
+            swObj["enabled"] = lc.selfWeight.enabled;
+            swObj["factor"] = lc.selfWeight.factor;
+            swObj["dx"] = lc.selfWeight.direction.x();
+            swObj["dy"] = lc.selfWeight.direction.y();
+            swObj["dz"] = lc.selfWeight.direction.z();
+            lcObj["selfWeight"] = swObj;
+
+            QJsonArray nlArr;
+            for (const auto &nl : lc.nodalLoads)
+            {
+                QJsonObject nlObj;
+                nlObj["nodeId"] = nl.nodeId;
+                nlObj["fx"] = nl.forceMoment[0];
+                nlObj["fy"] = nl.forceMoment[1];
+                nlObj["fz"] = nl.forceMoment[2];
+                nlObj["mx"] = nl.forceMoment[3];
+                nlObj["my"] = nl.forceMoment[4];
+                nlObj["mz"] = nl.forceMoment[5];
+                nlArr.append(nlObj);
+            }
+            lcObj["nodalLoads"] = nlArr;
+
+            QJsonArray elArr;
+            for (const auto &el : lc.elementLoads)
+            {
+                QJsonObject elObj;
+                elObj["elementId"] = el.elementId;
+                elObj["hasDistributed"] = el.load.hasDistributed;
+                elObj["coordSystem"] = el.load.coordSystem;
+                elObj["qx"] = el.load.distributedForce.x();
+                elObj["qy"] = el.load.distributedForce.y();
+                elObj["qz"] = el.load.distributedForce.z();
+                elObj["hasThermal"] = el.load.hasThermal;
+                elObj["deltaT"] = el.load.deltaT;
+                elObj["normalPressure"] = el.load.normalPressure;
+                elArr.append(elObj);
+            }
+            lcObj["elementLoads"] = elArr;
+            lcArray.append(lcObj);
+        }
+        rootObj["loadCases"] = lcArray;
+
+        // 6. Combinações
+        QJsonArray combArray;
+        for (const auto &comb : model.getLoadCombinations())
+        {
+            QJsonObject cObj;
+            cObj["id"] = comb.id;
+            cObj["name"] = QString::fromStdString(comb.name);
+            cObj["limitState"] = static_cast<int>(comb.limitState);
+            cObj["pDeltaEnabled"] = comb.pDeltaEnabled;
+            QJsonArray facArr;
+            for (const auto &f : comb.factors)
+            {
+                QJsonObject fObj;
+                fObj["loadCaseId"] = f.loadCaseId;
+                fObj["gamma"] = f.gamma;
+                facArr.append(fObj);
+            }
+            cObj["factors"] = facArr;
+            combArray.append(cObj);
+        }
+        rootObj["loadCombinations"] = combArray;
+
+        // 7. Históricos temporais
+        QJsonArray histArray;
+        for (const auto &h : model.getLoadHistories())
+        {
+            QJsonObject hObj;
+            hObj["id"] = h.id;
+            hObj["name"] = QString::fromStdString(h.name);
+            hObj["loadCaseId"] = h.loadCaseId;
+            QJsonArray pts;
+            for (const auto &p : h.points)
+            {
+                QJsonObject pObj;
+                pObj["t"] = p.timeOrStep;
+                pObj["f"] = p.factor;
+                pts.append(pObj);
+            }
+            hObj["points"] = pts;
+            histArray.append(hObj);
+        }
+        rootObj["loadHistories"] = histArray;
+
+        // 8. Vínculos MPC (Ligações Rígidas e Diafragmas)
+        QJsonArray rlArray;
+        for (const auto &rl : model.getRigidLinks())
+        {
+            QJsonObject o;
+            o["masterNode"] = rl.masterNode;
+            o["slaveNode"] = rl.slaveNode;
+            o["coupleRotations"] = rl.coupleRotations;
+            rlArray.append(o);
+        }
+        rootObj["rigidLinks"] = rlArray;
+
+        QJsonArray diaArray;
+        for (const auto &dia : model.getRigidDiaphragms())
+        {
+            QJsonObject o;
+            o["masterNode"] = dia.masterNode;
+            o["normalAxis"] = dia.normalAxis;
+            QJsonArray sl;
+            for (NodeId sid : dia.slaveNodes) sl.append(sid);
+            o["slaveNodes"] = sl;
+            diaArray.append(o);
+        }
+        rootObj["rigidDiaphragms"] = diaArray;
+
+        // 9. Opções de Solver Linear
+        const auto &so = model.solverOptions();
+        QJsonObject soObj;
+        soObj["type"] = static_cast<int>(so.type);
+        soObj["ordering"] = static_cast<int>(so.ordering);
+        soObj["preconditioner"] = static_cast<int>(so.preconditioner);
+        soObj["maxIterations"] = so.maxIterations;
+        soObj["tolerance"] = so.tolerance;
+        soObj["iterativeRefinement"] = so.iterativeRefinement;
+        soObj["refinementSteps"] = so.refinementSteps;
+        rootObj["solverOptions"] = soObj;
+
+        // 10. Malha Superficial / Solida (Schema 2.1.0)
+        const auto &sm = model.surfaceMesh();
+        if (!sm.nodes.empty() || !sm.elements.empty())
+        {
+            QJsonObject smObj;
+            QJsonArray smNodes;
+            for (const auto &mn : sm.nodes)
+            {
+                QJsonObject nObj;
+                nObj["id"] = mn.id;
+                nObj["x"] = mn.position.x();
+                nObj["y"] = mn.position.y();
+                nObj["z"] = mn.position.z();
+                nObj["isBoundary"] = mn.isBoundary;
+                if (!mn.tag.empty())
+                    nObj["tag"] = QString::fromStdString(mn.tag);
+                smNodes.append(nObj);
+            }
+            smObj["nodes"] = smNodes;
+
+            QJsonArray smElems;
+            for (const auto &me : sm.elements)
+            {
+                QJsonObject eObj;
+                eObj["id"] = me.id;
+                eObj["type"] = static_cast<int>(me.type);
+                if (!me.groupTag.empty())
+                    eObj["groupTag"] = QString::fromStdString(me.groupTag);
+                QJsonArray nidArr;
+                for (int nid : me.nodeIds)
+                    nidArr.append(nid);
+                eObj["nodeIds"] = nidArr;
+                smElems.append(eObj);
+            }
+            smObj["elements"] = smElems;
+            rootObj["surfaceMesh"] = smObj;
+        }
+
+        QSaveFile file(filePath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         {
             return false;
         }
 
-        QJsonDocument doc(rootObj);
-        file.write(doc.toJson(QJsonDocument::Indented));
-        file.close();
-        return true;
+        const QByteArray payload = QJsonDocument(rootObj).toJson(QJsonDocument::Indented);
+        if (file.write(payload) != payload.size())
+        {
+            file.cancelWriting();
+            return false;
+        }
+        return file.commit();
     }
 
     bool ProjectSerializer::loadFromFile(const QString &filePath, StructuralModel &model)
@@ -166,127 +457,280 @@ namespace omniframe
             return false;
         }
 
-        QByteArray data = file.readAll();
+        const QByteArray data = file.readAll();
         file.close();
 
         QJsonParseError parseError;
-        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
         if (parseError.error != QJsonParseError::NoError || !doc.isObject())
         {
             return false;
         }
 
-        QJsonObject rootObj = doc.object();
-        model.clear();
+        const QJsonObject rootObj = doc.object();
+        StructuralModel loaded;
+        loaded.clear();
+
+        // Preserva campos desconhecidos de esquemas futuros com aviso explícito
+        {
+            static const std::unordered_set<std::string> knownKeys{
+                "version", "schemaVersion", "application", "timestamp", "projectMetadata",
+                "materials", "sections", "nodes", "elements",
+                "loadCases", "loadCombinations", "loadHistories",
+                "rigidLinks", "rigidDiaphragms", "solverOptions", "surfaceMesh"
+            };
+            QJsonObject unknownObj;
+            QStringList unknownNames;
+            for (auto it = rootObj.constBegin(); it != rootObj.constEnd(); ++it)
+            {
+                if (!knownKeys.contains(it.key().toStdString()))
+                {
+                    unknownObj.insert(it.key(), it.value());
+                    unknownNames.push_back(it.key());
+                }
+            }
+            if (!unknownObj.isEmpty())
+            {
+                loaded.preservedUnknownJson() =
+                    QJsonDocument(unknownObj).toJson(QJsonDocument::Compact).toStdString();
+                loaded.serializationWarnings().push_back(
+                    "Campos desconhecidos de esquema preservados sem alteração: " +
+                    unknownNames.join(", ").toStdString());
+            }
+        }
+
+        // 0. Metadados do Projeto (Schema 2.1.0, opcional para compatibilidade 1.0/2.0)
+        if (rootObj.contains("projectMetadata") && rootObj["projectMetadata"].isObject())
+        {
+            const QJsonObject metaObj = rootObj["projectMetadata"].toObject();
+            auto &meta = loaded.metadata();
+            if (metaObj.contains("projectName")) meta.projectName = metaObj["projectName"].toString().toStdString();
+            if (metaObj.contains("engineerName")) meta.engineerName = metaObj["engineerName"].toString().toStdString();
+            if (metaObj.contains("clientName")) meta.clientName = metaObj["clientName"].toString().toStdString();
+            if (metaObj.contains("siteLocation")) meta.siteLocation = metaObj["siteLocation"].toString().toStdString();
+            readFiniteDouble(metaObj, "soilSigmaAdm_kPa", meta.soilSigmaAdm_kPa, false, meta.soilSigmaAdm_kPa);
+            readFiniteDouble(metaObj, "footingB_m", meta.footingB_m, false, meta.footingB_m);
+            readFiniteDouble(metaObj, "footingL_m", meta.footingL_m, false, meta.footingL_m);
+            readFiniteDouble(metaObj, "windV0_ms", meta.windV0_ms, false, meta.windV0_ms);
+            readFiniteDouble(metaObj, "windS1", meta.windS1, false, meta.windS1);
+            readFiniteDouble(metaObj, "windS2", meta.windS2, false, meta.windS2);
+            readFiniteDouble(metaObj, "windS3", meta.windS3, false, meta.windS3);
+        }
 
         // 1. Materiais
-        if (rootObj.contains("materials") && rootObj["materials"].isArray())
+        if (rootObj.contains("materials"))
         {
-            model.getMaterials().clear();
+            if (!rootObj["materials"].isArray())
+                return false;
+            loaded.getMaterials().clear();
+            std::unordered_set<MaterialId> matIds;
             for (const auto &val : rootObj["materials"].toArray())
             {
-                QJsonObject mObj = val.toObject();
+                if (!val.isObject())
+                    return false;
+                const QJsonObject mObj = val.toObject();
                 Material mat;
-                mat.id = mObj["id"].toInt();
+                if (!readValidInt(mObj, "id", 0, true, mat.id) || mat.id <= 0 || !matIds.insert(mat.id).second)
+                    return false;
                 mat.name = mObj["name"].toString().toStdString();
-                mat.E = mObj["E"].toDouble(2.0e8);
-                mat.nu = mObj["nu"].toDouble(0.3);
-                mat.alpha = mObj["alpha"].toDouble(1.2e-5);
-                mat.gamma = mObj["gamma"].toDouble(78.5);
-                model.addMaterial(mat);
+                if (!readFiniteDouble(mObj, "E", 2.0e8, false, mat.E) || mat.E <= 0.0 ||
+                    !readFiniteDouble(mObj, "nu", 0.3, false, mat.nu) || mat.nu <= -1.0 || mat.nu >= 0.5 ||
+                    !readFiniteDouble(mObj, "alpha", 1.2e-5, false, mat.alpha) || mat.alpha < 0.0 ||
+                    !readFiniteDouble(mObj, "gamma", 78.5, false, mat.gamma) || mat.gamma < 0.0)
+                    return false;
+                const double defaultRho = mat.gamma * (1000.0 / 9.80665);
+                if (!readFiniteDouble(mObj, "rho", defaultRho, false, mat.rho) || mat.rho < 0.0)
+                    return false;
+                mat.isPlastic = mObj["isPlastic"].toBool(false);
+                if (!readFiniteDouble(mObj, "sigmaY", 2.5e5, false, mat.sigmaY) || mat.sigmaY < 0.0 ||
+                    !readFiniteDouble(mObj, "H_iso", 0.0, false, mat.H_iso) ||
+                    !readFiniteDouble(mObj, "H_kin", 0.0, false, mat.H_kin))
+                    return false;
+                loaded.addMaterial(mat);
             }
         }
 
         // 2. Seções
-        if (rootObj.contains("sections") && rootObj["sections"].isArray())
+        if (rootObj.contains("sections"))
         {
-            model.getCrossSections().clear();
+            if (!rootObj["sections"].isArray())
+                return false;
+            loaded.getCrossSections().clear();
+            std::unordered_set<SectionId> secIds;
             for (const auto &val : rootObj["sections"].toArray())
             {
-                QJsonObject sObj = val.toObject();
+                if (!val.isObject())
+                    return false;
+                const QJsonObject sObj = val.toObject();
                 CrossSection sec;
-                sec.id = sObj["id"].toInt();
+                if (!readValidInt(sObj, "id", 0, true, sec.id) || sec.id <= 0 || !secIds.insert(sec.id).second)
+                    return false;
                 sec.name = sObj["name"].toString().toStdString();
-                sec.shape = static_cast<SectionShape>(sObj["shape"].toInt());
-                sec.dim1 = sObj["dim1"].toDouble();
-                sec.dim2 = sObj["dim2"].toDouble();
-                sec.dim3 = sObj["dim3"].toDouble();
-                sec.dim4 = sObj["dim4"].toDouble();
-                sec.A = sObj["A"].toDouble();
-                sec.Iy = sObj["Iy"].toDouble();
-                sec.Iz = sObj["Iz"].toDouble();
-                sec.J = sObj["J"].toDouble();
-                model.addCrossSection(sec);
+                int shapeInt = 0;
+                if (!readValidInt(sObj, "shape", 0, false, shapeInt) || shapeInt < 0 || shapeInt > 11)
+                    return false;
+                sec.shape = static_cast<SectionShape>(shapeInt);
+                if (!readFiniteDouble(sObj, "dim1", 0.2, false, sec.dim1) ||
+                    !readFiniteDouble(sObj, "dim2", 0.4, false, sec.dim2) ||
+                    !readFiniteDouble(sObj, "dim3", 0.01, false, sec.dim3) ||
+                    !readFiniteDouble(sObj, "dim4", 0.01, false, sec.dim4) ||
+                    !readFiniteDouble(sObj, "dim5", 0.165, false, sec.dim5) ||
+                    !readFiniteDouble(sObj, "dim6", 0.0102, false, sec.dim6) ||
+                    !readFiniteDouble(sObj, "A", 0.08, true, sec.A) || sec.A <= 0.0 ||
+                    !readFiniteDouble(sObj, "Iy", 1e-3, true, sec.Iy) || sec.Iy <= 0.0 ||
+                    !readFiniteDouble(sObj, "Iz", 1e-3, true, sec.Iz) || sec.Iz <= 0.0 ||
+                    !readFiniteDouble(sObj, "J", 5e-4, true, sec.J) || sec.J <= 0.0 ||
+                    !readFiniteDouble(sObj, "Iyz", 0.0, false, sec.Iyz) ||
+                    !readFiniteDouble(sObj, "I1", sec.Iy, false, sec.I1) ||
+                    !readFiniteDouble(sObj, "I2", sec.Iz, false, sec.I2) ||
+                    !readFiniteDouble(sObj, "principalAngle", 0.0, false, sec.principalAngle) ||
+                    !readFiniteDouble(sObj, "Cw", 0.0, false, sec.Cw) ||
+                    !readFiniteDouble(sObj, "Asy", (5.0 / 6.0) * sec.A, false, sec.Asy) ||
+                    !readFiniteDouble(sObj, "Asz", (5.0 / 6.0) * sec.A, false, sec.Asz))
+                    return false;
+                if (sObj.contains("polygonLoops") && sObj["polygonLoops"].isArray())
+                {
+                    for (const auto &lv : sObj["polygonLoops"].toArray())
+                    {
+                        if (!lv.isObject()) return false;
+                        const QJsonObject lObj = lv.toObject();
+                        kernel::PolygonLoop2D lp;
+                        lp.isHole = lObj["isHole"].toBool(false);
+                        if (lObj.contains("vertices") && lObj["vertices"].isArray())
+                        {
+                            for (const auto &pv : lObj["vertices"].toArray())
+                            {
+                                if (!pv.isArray()) return false;
+                                const QJsonArray pArr = pv.toArray();
+                                if (pArr.size() != 2 || !pArr[0].isDouble() || !pArr[1].isDouble()) return false;
+                                const double py = pArr[0].toDouble();
+                                const double pz = pArr[1].toDouble();
+                                if (!std::isfinite(py) || !std::isfinite(pz)) return false;
+                                lp.vertices.push_back({py, pz});
+                            }
+                        }
+                        sec.polygonLoops.push_back(std::move(lp));
+                    }
+                }
+                if (sObj.contains("compositeParts") && sObj["compositeParts"].isArray())
+                {
+                    for (const auto &cv : sObj["compositeParts"].toArray())
+                    {
+                        if (!cv.isObject()) return false;
+                        const QJsonObject cObj = cv.toObject();
+                        kernel::CompositeRectPart cp;
+                        if (!readFiniteDouble(cObj, "yCenter", 0.0, false, cp.yCenter) ||
+                            !readFiniteDouble(cObj, "zCenter", 0.0, false, cp.zCenter) ||
+                            !readFiniteDouble(cObj, "widthB", 0.1, false, cp.widthB) ||
+                            !readFiniteDouble(cObj, "heightH", 0.1, false, cp.heightH) ||
+                            !readFiniteDouble(cObj, "modularRatioN", 1.0, false, cp.modularRatioN))
+                            return false;
+                        sec.compositeParts.push_back(cp);
+                    }
+                }
+                loaded.addCrossSection(sec);
             }
         }
 
         // 3. Nós
-        if (rootObj.contains("nodes") && rootObj["nodes"].isArray())
+        std::unordered_set<NodeId> nodeIds;
+        if (rootObj.contains("nodes"))
         {
+            if (!rootObj["nodes"].isArray())
+                return false;
             for (const auto &val : rootObj["nodes"].toArray())
             {
-                QJsonObject nObj = val.toObject();
+                if (!val.isObject())
+                    return false;
+                const QJsonObject nObj = val.toObject();
                 Node n;
-                n.id = nObj["id"].toInt();
-                n.position.x = nObj["x"].toDouble();
-                n.position.y = nObj["y"].toDouble();
-                n.position.z = nObj["z"].toDouble();
+                if (!readValidInt(nObj, "id", 0, true, n.id) || n.id <= 0 || !nodeIds.insert(n.id).second)
+                    return false;
+                if (!readFiniteDouble(nObj, "x", 0.0, true, n.position.x) ||
+                    !readFiniteDouble(nObj, "y", 0.0, true, n.position.y) ||
+                    !readFiniteDouble(nObj, "z", 0.0, true, n.position.z))
+                    return false;
 
-                if (nObj.contains("support") && nObj["support"].isObject())
+                if (nObj.contains("support"))
                 {
-                    QJsonObject supObj = nObj["support"].toObject();
-                    QJsonArray fixArr = supObj["fixed"].toArray();
-                    QJsonArray sprArr = supObj["springs"].toArray();
-                    QJsonArray prsArr = supObj["prescribed"].toArray();
-                    QJsonArray hasPrsArr = supObj["hasPrescribed"].toArray();
+                    if (!nObj["support"].isObject())
+                        return false;
+                    const QJsonObject supObj = nObj["support"].toObject();
+                    const QJsonArray fixArr = supObj["fixed"].toArray();
+                    const QJsonArray sprArr = supObj["springs"].toArray();
+                    const QJsonArray prsArr = supObj["prescribed"].toArray();
+                    const QJsonArray hasPrsArr = supObj["hasPrescribed"].toArray();
 
                     for (int k = 0; k < 6; ++k)
                     {
                         if (k < fixArr.size())
                             n.support.fixed[k] = fixArr[k].toBool();
                         if (k < sprArr.size())
+                        {
+                            if (!sprArr[k].isDouble() || !std::isfinite(sprArr[k].toDouble()) || sprArr[k].toDouble() < 0.0)
+                                return false;
                             n.support.springStiffness[k] = sprArr[k].toDouble();
+                        }
                         if (k < prsArr.size())
+                        {
+                            if (!prsArr[k].isDouble() || !std::isfinite(prsArr[k].toDouble()))
+                                return false;
                             n.support.prescribedValue[k] = prsArr[k].toDouble();
+                        }
                         if (k < hasPrsArr.size())
                             n.support.hasPrescribed[k] = hasPrsArr[k].toBool();
                     }
                 }
 
-                if (nObj.contains("load") && nObj["load"].isObject())
+                if (nObj.contains("load"))
                 {
-                    QJsonObject ldObj = nObj["load"].toObject();
-                    n.load.force.x = ldObj["fx"].toDouble();
-                    n.load.force.y = ldObj["fy"].toDouble();
-                    n.load.force.z = ldObj["fz"].toDouble();
-                    n.load.moment.x = ldObj["mx"].toDouble();
-                    n.load.moment.y = ldObj["my"].toDouble();
-                    n.load.moment.z = ldObj["mz"].toDouble();
+                    if (!nObj["load"].isObject())
+                        return false;
+                    const QJsonObject ldObj = nObj["load"].toObject();
+                    if (!readFiniteDouble(ldObj, "fx", 0.0, false, n.load.force.x) ||
+                        !readFiniteDouble(ldObj, "fy", 0.0, false, n.load.force.y) ||
+                        !readFiniteDouble(ldObj, "fz", 0.0, false, n.load.force.z) ||
+                        !readFiniteDouble(ldObj, "mx", 0.0, false, n.load.moment.x) ||
+                        !readFiniteDouble(ldObj, "my", 0.0, false, n.load.moment.y) ||
+                        !readFiniteDouble(ldObj, "mz", 0.0, false, n.load.moment.z))
+                        return false;
                 }
 
-                model.addNode(n);
+                loaded.addNode(n);
             }
         }
 
         // 4. Elementos
-        if (rootObj.contains("elements") && rootObj["elements"].isArray())
+        if (rootObj.contains("elements"))
         {
+            if (!rootObj["elements"].isArray())
+                return false;
+            std::unordered_set<ElementId> elemIds;
             for (const auto &val : rootObj["elements"].toArray())
             {
-                QJsonObject eObj = val.toObject();
+                if (!val.isObject())
+                    return false;
+                const QJsonObject eObj = val.toObject();
                 Element e;
-                e.id = eObj["id"].toInt();
-                e.nodeStart = eObj["nodeStart"].toInt();
-                e.nodeEnd = eObj["nodeEnd"].toInt();
-                e.materialId = eObj["materialId"].toInt(1);
-                e.sectionId = eObj["sectionId"].toInt(1);
-                e.rollAngle = eObj["rollAngle"].toDouble(0.0);
+                if (!readValidInt(eObj, "id", 0, true, e.id) || e.id <= 0 || !elemIds.insert(e.id).second ||
+                    !readValidInt(eObj, "nodeStart", 0, true, e.nodeStart) ||
+                    !readValidInt(eObj, "nodeEnd", 0, true, e.nodeEnd) ||
+                    !readValidInt(eObj, "materialId", 1, false, e.materialId) ||
+                    !readValidInt(eObj, "sectionId", 1, false, e.sectionId) ||
+                    !readFiniteDouble(eObj, "rollAngle", 0.0, false, e.rollAngle))
+                    return false;
+                int formInt = 0;
+                if (!readValidInt(eObj, "formulation", 0, false, formInt) || formInt < 0 || formInt > 2)
+                    return false;
+                e.formulation = static_cast<ElementFormulation>(formInt);
 
-                if (eObj.contains("releases") && eObj["releases"].isObject())
+                if (eObj.contains("releases"))
                 {
-                    QJsonObject relObj = eObj["releases"].toObject();
-                    QJsonArray sArr = relObj["start"].toArray();
-                    QJsonArray eArr = relObj["end"].toArray();
+                    if (!eObj["releases"].isObject())
+                        return false;
+                    const QJsonObject relObj = eObj["releases"].toObject();
+                    const QJsonArray sArr = relObj["start"].toArray();
+                    const QJsonArray eArr = relObj["end"].toArray();
                     for (int k = 0; k < 6; ++k)
                     {
                         if (k < sArr.size())
@@ -296,35 +740,302 @@ namespace omniframe
                     }
                 }
 
-                if (eObj.contains("distLoad") && eObj["distLoad"].isObject())
+                if (eObj.contains("distLoad"))
                 {
-                    QJsonObject qObj = eObj["distLoad"].toObject();
+                    if (!eObj["distLoad"].isObject())
+                        return false;
+                    const QJsonObject qObj = eObj["distLoad"].toObject();
                     e.distLoad.active = qObj["active"].toBool();
-                    e.distLoad.coordSystem = static_cast<CoordSystem>(qObj["coordSystem"].toInt());
-                    e.distLoad.w.x = qObj["qx"].toDouble();
-                    e.distLoad.w.y = qObj["qy"].toDouble();
-                    e.distLoad.w.z = qObj["qz"].toDouble();
+                    int csInt = 0;
+                    if (!readValidInt(qObj, "coordSystem", 0, false, csInt) || csInt < 0 || csInt > 1)
+                        return false;
+                    e.distLoad.coordSystem = static_cast<CoordSystem>(csInt);
+                    if (!readFiniteDouble(qObj, "qx", 0.0, false, e.distLoad.w.x) ||
+                        !readFiniteDouble(qObj, "qy", 0.0, false, e.distLoad.w.y) ||
+                        !readFiniteDouble(qObj, "qz", 0.0, false, e.distLoad.w.z))
+                        return false;
                 }
 
-                if (eObj.contains("thermalLoad") && eObj["thermalLoad"].isObject())
+                if (eObj.contains("thermalLoad"))
                 {
-                    QJsonObject thObj = eObj["thermalLoad"].toObject();
+                    if (!eObj["thermalLoad"].isObject())
+                        return false;
+                    const QJsonObject thObj = eObj["thermalLoad"].toObject();
                     e.thermalLoad.active = thObj["active"].toBool();
-                    e.thermalLoad.deltaT = thObj["deltaT"].toDouble();
+                    if (!readFiniteDouble(thObj, "deltaT", 0.0, false, e.thermalLoad.deltaT))
+                        return false;
                 }
 
-                model.addElement(e);
+                loaded.addElement(e);
             }
         }
 
-        model.clearUndoHistory();
-        model.pushUndo();
+        // 5. Casos de Carga (Schema 2.0.0)
+        if (rootObj.contains("loadCases"))
+        {
+            if (!rootObj["loadCases"].isArray())
+                return false;
+            std::unordered_set<kernel::LoadCaseId> lcIds;
+            for (const auto &val : rootObj["loadCases"].toArray())
+            {
+                if (!val.isObject())
+                    return false;
+                const QJsonObject lcObj = val.toObject();
+                kernel::LoadCase lc;
+                if (!readValidInt(lcObj, "id", 0, true, lc.id) || lc.id <= 0 || !lcIds.insert(lc.id).second)
+                    return false;
+                lc.name = lcObj["name"].toString().toStdString();
+                int catInt = 0;
+                if (!readValidInt(lcObj, "category", 0, false, catInt) || catInt < 0 || catInt > 8)
+                    return false;
+                lc.category = static_cast<kernel::LoadCaseCategory>(catInt);
+
+                if (lcObj.contains("selfWeight") && lcObj["selfWeight"].isObject())
+                {
+                    const QJsonObject swObj = lcObj["selfWeight"].toObject();
+                    lc.selfWeight.enabled = swObj["enabled"].toBool(false);
+                    double dx = 0.0, dy = 0.0, dz = -1.0;
+                    if (!readFiniteDouble(swObj, "factor", 1.0, false, lc.selfWeight.factor) ||
+                        !readFiniteDouble(swObj, "dx", 0.0, false, dx) ||
+                        !readFiniteDouble(swObj, "dy", 0.0, false, dy) ||
+                        !readFiniteDouble(swObj, "dz", -1.0, false, dz))
+                        return false;
+                    lc.selfWeight.direction = {dx, dy, dz};
+                }
+
+                if (lcObj.contains("nodalLoads") && lcObj["nodalLoads"].isArray())
+                {
+                    for (const auto &nv : lcObj["nodalLoads"].toArray())
+                    {
+                        if (!nv.isObject()) return false;
+                        const QJsonObject nObj = nv.toObject();
+                        kernel::NodalLoadPatternEntry ne;
+                        if (!readValidInt(nObj, "nodeId", 0, true, ne.nodeId) ||
+                            !readFiniteDouble(nObj, "fx", 0.0, false, ne.forceMoment[0]) ||
+                            !readFiniteDouble(nObj, "fy", 0.0, false, ne.forceMoment[1]) ||
+                            !readFiniteDouble(nObj, "fz", 0.0, false, ne.forceMoment[2]) ||
+                            !readFiniteDouble(nObj, "mx", 0.0, false, ne.forceMoment[3]) ||
+                            !readFiniteDouble(nObj, "my", 0.0, false, ne.forceMoment[4]) ||
+                            !readFiniteDouble(nObj, "mz", 0.0, false, ne.forceMoment[5]))
+                            return false;
+                        lc.nodalLoads.push_back(ne);
+                    }
+                }
+
+                if (lcObj.contains("elementLoads") && lcObj["elementLoads"].isArray())
+                {
+                    for (const auto &ev : lcObj["elementLoads"].toArray())
+                    {
+                        if (!ev.isObject()) return false;
+                        const QJsonObject eObj = ev.toObject();
+                        kernel::ElementLoadPatternEntry ee;
+                        if (!readValidInt(eObj, "elementId", 0, true, ee.elementId))
+                            return false;
+                        ee.load.hasDistributed = eObj["hasDistributed"].toBool(false);
+                        if (!readValidInt(eObj, "coordSystem", 0, false, ee.load.coordSystem) ||
+                            ee.load.coordSystem < 0 || ee.load.coordSystem > 1)
+                            return false;
+                        double qx = 0.0, qy = 0.0, qz = 0.0;
+                        if (!readFiniteDouble(eObj, "qx", 0.0, false, qx) ||
+                            !readFiniteDouble(eObj, "qy", 0.0, false, qy) ||
+                            !readFiniteDouble(eObj, "qz", 0.0, false, qz))
+                            return false;
+                        ee.load.distributedForce = {qx, qy, qz};
+                        ee.load.hasThermal = eObj["hasThermal"].toBool(false);
+                        if (!readFiniteDouble(eObj, "deltaT", 0.0, false, ee.load.deltaT) ||
+                            !readFiniteDouble(eObj, "normalPressure", 0.0, false, ee.load.normalPressure))
+                            return false;
+                        lc.elementLoads.push_back(ee);
+                    }
+                }
+                loaded.addLoadCase(lc);
+            }
+        }
+
+        // 6. Combinações
+        if (rootObj.contains("loadCombinations"))
+        {
+            if (!rootObj["loadCombinations"].isArray())
+                return false;
+            std::unordered_set<kernel::LoadComboId> combIds;
+            for (const auto &val : rootObj["loadCombinations"].toArray())
+            {
+                if (!val.isObject()) return false;
+                const QJsonObject cObj = val.toObject();
+                kernel::LoadCombination comb;
+                if (!readValidInt(cObj, "id", 0, true, comb.id) || comb.id <= 0 || !combIds.insert(comb.id).second)
+                    return false;
+                comb.name = cObj["name"].toString().toStdString();
+                int lsInt = 0;
+                if (!readValidInt(cObj, "limitState", 0, false, lsInt) || lsInt < 0 || lsInt > 6)
+                    return false;
+                comb.limitState = static_cast<kernel::LimitStateType>(lsInt);
+                comb.pDeltaEnabled = cObj["pDeltaEnabled"].toBool(false);
+                if (cObj.contains("factors") && cObj["factors"].isArray())
+                {
+                    for (const auto &fv : cObj["factors"].toArray())
+                    {
+                        if (!fv.isObject()) return false;
+                        const QJsonObject fObj = fv.toObject();
+                        kernel::LoadCombinationFactor lcf;
+                        if (!readValidInt(fObj, "loadCaseId", 0, true, lcf.loadCaseId) ||
+                            !readFiniteDouble(fObj, "gamma", 1.0, false, lcf.gamma))
+                            return false;
+                        comb.factors.push_back(lcf);
+                    }
+                }
+                loaded.addLoadCombination(comb);
+            }
+        }
+
+        // 7. Históricos temporais
+        if (rootObj.contains("loadHistories"))
+        {
+            if (!rootObj["loadHistories"].isArray()) return false;
+            for (const auto &val : rootObj["loadHistories"].toArray())
+            {
+                if (!val.isObject()) return false;
+                const QJsonObject hObj = val.toObject();
+                kernel::LoadHistory h;
+                if (!readValidInt(hObj, "id", 1, false, h.id) ||
+                    !readValidInt(hObj, "loadCaseId", 1, false, h.loadCaseId))
+                    return false;
+                h.name = hObj["name"].toString().toStdString();
+                if (hObj.contains("points") && hObj["points"].isArray())
+                {
+                    for (const auto &pv : hObj["points"].toArray())
+                    {
+                        if (!pv.isObject()) return false;
+                        const QJsonObject pObj = pv.toObject();
+                        kernel::LoadHistoryPoint pt;
+                        if (!readFiniteDouble(pObj, "t", 0.0, true, pt.timeOrStep) ||
+                            !readFiniteDouble(pObj, "f", 0.0, true, pt.factor))
+                            return false;
+                        h.points.push_back(pt);
+                    }
+                }
+                loaded.getLoadHistories().push_back(std::move(h));
+            }
+        }
+
+        // 8. Ligações Rígidas e Diafragmas
+        if (rootObj.contains("rigidLinks"))
+        {
+            if (!rootObj["rigidLinks"].isArray()) return false;
+            for (const auto &val : rootObj["rigidLinks"].toArray())
+            {
+                if (!val.isObject()) return false;
+                const QJsonObject o = val.toObject();
+                RigidLinkSpec rl;
+                if (!readValidInt(o, "masterNode", 0, true, rl.masterNode) ||
+                    !readValidInt(o, "slaveNode", 0, true, rl.slaveNode))
+                    return false;
+                rl.coupleRotations = o["coupleRotations"].toBool(true);
+                loaded.getRigidLinks().push_back(rl);
+            }
+        }
+        if (rootObj.contains("rigidDiaphragms"))
+        {
+            if (!rootObj["rigidDiaphragms"].isArray()) return false;
+            for (const auto &val : rootObj["rigidDiaphragms"].toArray())
+            {
+                if (!val.isObject()) return false;
+                const QJsonObject o = val.toObject();
+                RigidDiaphragmSpec dia;
+                if (!readValidInt(o, "masterNode", 0, true, dia.masterNode) ||
+                    !readValidInt(o, "normalAxis", 2, false, dia.normalAxis) ||
+                    dia.normalAxis < 0 || dia.normalAxis > 2)
+                    return false;
+                if (o.contains("slaveNodes") && o["slaveNodes"].isArray())
+                {
+                    for (const auto &sv : o["slaveNodes"].toArray())
+                    {
+                        if (!sv.isDouble()) return false;
+                        dia.slaveNodes.push_back(sv.toInt());
+                    }
+                }
+                loaded.getRigidDiaphragms().push_back(std::move(dia));
+            }
+        }
+
+        // 9. Opções de Solver
+        if (rootObj.contains("solverOptions") && rootObj["solverOptions"].isObject())
+        {
+            const QJsonObject soObj = rootObj["solverOptions"].toObject();
+            int tInt = 0, oInt = 0, pInt = 0;
+            if (!readValidInt(soObj, "type", 0, false, tInt) || tInt < 0 || tInt > 5 ||
+                !readValidInt(soObj, "ordering", 0, false, oInt) || oInt < 0 || oInt > 3 ||
+                !readValidInt(soObj, "preconditioner", 0, false, pInt) || pInt < 0 || pInt > 4 ||
+                !readValidInt(soObj, "maxIterations", 5000, false, loaded.solverOptions().maxIterations) ||
+                !readFiniteDouble(soObj, "tolerance", 1e-10, false, loaded.solverOptions().tolerance) ||
+                !readValidInt(soObj, "refinementSteps", 2, false, loaded.solverOptions().refinementSteps))
+                return false;
+            loaded.solverOptions().type = static_cast<kernel::LinearSolverType>(tInt);
+            loaded.solverOptions().ordering = static_cast<kernel::SparseOrderingType>(oInt);
+            loaded.solverOptions().preconditioner = static_cast<kernel::PreconditionerType>(pInt);
+            loaded.solverOptions().iterativeRefinement = soObj["iterativeRefinement"].toBool(true);
+        }
+
+        // 10. Malha Superficial / Solida (Schema 2.1.0)
+        if (rootObj.contains("surfaceMesh") && rootObj["surfaceMesh"].isObject())
+        {
+            const QJsonObject smObj = rootObj["surfaceMesh"].toObject();
+            kernel::MeshContainer sm;
+            if (smObj.contains("nodes") && smObj["nodes"].isArray())
+            {
+                for (const auto &nv : smObj["nodes"].toArray())
+                {
+                    if (!nv.isObject()) return false;
+                    const QJsonObject nObj = nv.toObject();
+                    kernel::MeshNode mn;
+                    double x = 0.0, y = 0.0, z = 0.0;
+                    if (!readValidInt(nObj, "id", 0, true, mn.id) ||
+                        !readFiniteDouble(nObj, "x", 0.0, true, x) ||
+                        !readFiniteDouble(nObj, "y", 0.0, true, y) ||
+                        !readFiniteDouble(nObj, "z", 0.0, true, z))
+                        return false;
+                    mn.position = kernel::Vec3(x, y, z);
+                    mn.isBoundary = nObj["isBoundary"].toBool(false);
+                    mn.tag = nObj["tag"].toString().toStdString();
+                    sm.nodes.push_back(std::move(mn));
+                }
+            }
+            if (smObj.contains("elements") && smObj["elements"].isArray())
+            {
+                for (const auto &ev : smObj["elements"].toArray())
+                {
+                    if (!ev.isObject()) return false;
+                    const QJsonObject eObj = ev.toObject();
+                    kernel::MeshElement me;
+                    int tInt = 2;
+                    if (!readValidInt(eObj, "id", 0, true, me.id) ||
+                        !readValidInt(eObj, "type", 2, false, tInt) || tInt < 0 || tInt > 7)
+                        return false;
+                    me.type = static_cast<kernel::MeshCellType>(tInt);
+                    me.groupTag = eObj["groupTag"].toString().toStdString();
+                    if (eObj.contains("nodeIds") && eObj["nodeIds"].isArray())
+                    {
+                        for (const auto &nidVal : eObj["nodeIds"].toArray())
+                        {
+                            if (!nidVal.isDouble()) return false;
+                            me.nodeIds.push_back(nidVal.toInt());
+                        }
+                    }
+                    sm.elements.push_back(std::move(me));
+                }
+            }
+            loaded.surfaceMesh() = std::move(sm);
+        }
+
+        loaded.clearUndoHistory();
+        loaded.pushUndo();
+        model = std::move(loaded);
         return true;
     }
 
     bool ProjectSerializer::exportTechnicalReportHtml(const QString &filePath, const StructuralModel &model, const SolverResult &result)
     {
-        QFile file(filePath);
+        QSaveFile file(filePath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
         {
             return false;
@@ -423,13 +1134,18 @@ namespace omniframe
         out << "</table>\n";
 
         out << "</body>\n</html>\n";
-        file.close();
-        return true;
+        out.flush();
+        if (out.status() != QTextStream::Ok)
+        {
+            file.cancelWriting();
+            return false;
+        }
+        return file.commit();
     }
 
     bool ProjectSerializer::exportTechnicalReportMarkdown(const QString &filePath, const StructuralModel &model, const SolverResult &result)
     {
-        QFile file(filePath);
+        QSaveFile file(filePath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
         {
             return false;
@@ -502,9 +1218,13 @@ namespace omniframe
                 << " | " << QString::number(ext.maxDeflection * 1000.0, 'f', 2) << " |\n";
         }
         out << "\n";
-
-        file.close();
-        return true;
+        out.flush();
+        if (out.status() != QTextStream::Ok)
+        {
+            file.cancelWriting();
+            return false;
+        }
+        return file.commit();
     }
 
 } // namespace omniframe

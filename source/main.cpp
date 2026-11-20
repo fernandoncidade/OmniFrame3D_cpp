@@ -9,7 +9,7 @@
 
 int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationName("OmniFrame");
-    QCoreApplication::setApplicationVersion("2026.11.13.0");
+    QCoreApplication::setApplicationVersion("2026.11.14.0");
     QCoreApplication::setOrganizationName("OmniFrame");
 
     QApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);

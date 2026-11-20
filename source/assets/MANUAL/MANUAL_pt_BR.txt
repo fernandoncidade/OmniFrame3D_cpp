@@ -1,22 +1,23 @@
 ================================================================================
 OMNIFRAME 3D — MANUAL COMPLETO DE OPERAÇÃO E ENGENHARIA
-Versão: 2026.11.13.0 | Data: 13 de novembro de 2026 | Autor: Fernando Nillsson Cidade
+Versão: 2026.11.14.0 | Data: 14 de novembro de 2026 | Autor: Fernando Nillsson Cidade
 Idioma do Documento: Português (Brasil) — Correspondência rigorosa linha a linha com en-US
 ================================================================================
 
 CAPÍTULO 1 — VISÃO GERAL, ARQUITETURA E ÁREA DE TRABALHO MODELESS
 
 1.1 Finalidade e Escopo de Engenharia
-O OmniFrame 3D é um aplicativo desktop nativo para Windows desenvolvido em C++23, Qt 6, Eigen 3.4 e OpenGL 3.3 Core Profile destinado à modelagem interativa, análise matricial de rigidez pelo Método dos Elementos Finitos (FEM 3D) e pós-processamento gráfico de pórticos espaciais, grelhas e treliças tridimensionais.
-Cada nó estrutural possui seis graus de liberdade no espaço (translações ux, uy, uz e rotações Rx, Ry, Rz), permitindo analisar barras submetidas simultaneamente a esforço normal, cortantes biaxiais, torção de Saint-Venant e flexão biaxial segundo a formulação exata de viga-coluna de Euler-Bernoulli.
+O OmniFrame 3D é um aplicativo desktop nativo para Windows desenvolvido em C++23, Qt 6, Eigen 3.4 e OpenGL 3.3 Core Profile destinado à modelagem interativa, análise matricial de rigidez pelo Método dos Elementos Finitos (FEM 3D) e pós-processamento gráfico de pórticos espaciais, grelhas, treliças tridimensionais, cascas e sólidos.
+Cada nó estrutural possui seis graus de liberdade no espaço (translações ux, uy, uz e rotações Rx, Ry, Rz), permitindo analisar barras submetidas simultaneamente a esforço normal, cortantes biaxiais, torção de Saint-Venant e flexão biaxial segundo a formulação exata de viga-coluna de Euler-Bernoulli, além de análises modais, flambagem linear, dinâmica espectral/harmônica/transiente e não linearidade geométrica e física (Plasticidade J2).
 Todas as operações matemáticas e de persistência são executadas 100% localmente no computador do usuário, sem telemetria, sem contas obrigatórias, sem servidores remotos e utilizando unidades consistentes do Sistema Internacional: metros (m) para coordenadas e dimensões, quilonewtons (kN) para forças, quilonewtons-metro (kN·m) para momentos, quilonewtons por metro (kN/m) para cargas distribuídas, gigapascals (GPa) para módulos de elasticidade e graus (°) para ângulos de giro Roll e temperatura (°C).
 
 1.2 Anatomia da Janela Principal (MainWindow)
-A janela principal organiza o fluxo de trabalho em cinco regiões integradas e redimensionáveis:
-• Barra de Menus Superior: agrupa todos os comandos em seis menus temáticos (Arquivo, Exemplos, Estrutura, Exibir, Configurações e Ajuda).
-• Barra de Ferramentas Principal (Toolbar): fornece botões de acesso rápido para ferramentas de interação com o cursor, plano de trabalho ativo, controle de Snap, atribuições estruturais, execução do solver FEM, seleção de diagrama, escala visual e exibição de reações e eixos locais.
-• Viewport 3D OpenGL Central: renderiza a estrutura tridimensional, o Plano Ativo escuro em alta definição, apoios, forças concentradas, cargas distribuídas, deformadas, diagramas de esforços e o painel informativo (HUD) no canto da vista.
-• Painel Lateral Esquerdo (Dock Inspetor e Entrada Rápida): concentra a inserção exata de nós por coordenadas cartesianas (X, Y, Z) e o Inspetor de Propriedades dinâmico do nó ou da barra selecionada.
+A janela principal organiza o fluxo de trabalho em seis regiões integradas e redimensionáveis:
+• Barra de Menus Superior: agrupa todos os comandos em sete menus temáticos (Arquivo, Editar, Exemplos, Estrutura, Exibir, Configurações e Ajuda).
+• Barra de Ferramentas 1 (Interação, Plano e Vistas): concentra as ferramentas de cursor (Selecionar, Inserir Nó, Inserir Barra, Medir, Excluir), seletor de Plano Ativo (XZ, XY, YZ), Cota, Passo da grade, Snap Grid, Eixos Locais e vistas rápidas (3D Iso, Frontal, Planta, Lateral, Enquadrar).
+• Barra de Ferramentas 2 (Engenharia, Análises e Resultados): reúne os atalhos de atribuição (Materiais, Seções, Apoios, Rótulas, Roll γ, Carga Nodal, Carga Distr., Térmica ΔT), módulos avançados (Combinações, Malha 2D/3D, Avançadas, Corte/Contornos, Auditoria NBR), botão CALCULAR ESTRUTURA (F5), seletor de Diagrama, Reações e controle deslizante Escala.
+• Viewport 3D OpenGL Central: renderiza a estrutura tridimensional, o Plano Ativo em alta definição, apoios, forças concentradas, cargas distribuídas, malhas 2D/3D, mapas de contorno, planos de corte 3D, deformadas, diagramas de esforços e o painel informativo (HUD) no canto da vista.
+• Painel Lateral Esquerdo (Dock Inspetor e Entrada Rápida): concentra a inserção exata de nós por coordenadas cartesianas (X, Y, Z) e o quadro interativo Elemento / Nó Selecionado com listas suspensas e botões de edição direta.
 • Painel Inferior (Dock Tabelas de Resultados e Diagnóstico Estrutural) e Barra de Status: exibe as abas sincronizadas de Deslocamentos Nodais, Reações de Apoio e Esforços nas Barras, enquanto a barra de status reporta continuamente as coordenadas 3D do cursor, contadores de nós/barras e mensagens de diagnóstico.
 
 1.3 Painéis Encaixáveis (Docks) e Personalização do Workspace
@@ -25,34 +26,40 @@ A qualquer momento você pode alternar a visibilidade de cada painel ou trazê-l
 Quando um dock é destacado como janela flutuante, ele participa integralmente do gerenciamento de empilhamento visual (Z-Order), permitindo alternar livremente o foco entre o dock flutuante, a janela principal e qualquer janela filha aberta.
 
 1.4 Janelas Filhas Modeless e Gerenciamento de Z-Order
-No OmniFrame 3D, todas as janelas filhas e caixas de diálogo — incluindo este Manual, Sobre o OmniFrame 3D, Configurações Avançadas de Resolução e Imagem, Materiais, Seções Transversais, Condições de Apoio, Rótulas / Liberações, Ângulo de Roll da Seção (γ), Cargas Nodais Concentradas, Cargas Uniformemente Distribuídas, seletores de arquivo e avisos — operam em modo Modeless (não-modal).
-• Operação Modeless (Não-Modal): abrir uma janela filha nunca bloqueia nem congela a janela principal; você pode continuar orbitando o modelo 3D, selecionando outros nós ou barras no viewport, inspecionando tabelas ou abrindo outras janelas simultaneamente enquanto consulta parâmetros ou edita propriedades.
-• Pilha Z-Order e Elevação ao Clicar (Raise): o eixo Z virtual define qual janela aparece visualmente à frente das demais na tela; clicar na área cliente ou na barra de título de qualquer janela ativa (inclusive a própria janela principal) eleva imediatamente essa janela para o topo da pilha de Z-Order.
-• Instância Única Inteligente por Ferramenta: caso uma janela específica (por exemplo Materiais ou Manual) já esteja aberta atrás da janela principal e você acione novamente o seu comando no menu ou na barra de ferramentas, o gerenciador de janelas traz a instância existente para a frente (raise e foco) com cascateamento limpo, evitando duplicação desordenada.
+No OmniFrame 3D, todas as janelas filhas e caixas de diálogo — incluindo este Manual (F1), Sessão Guiada (F2), Sobre o OmniFrame 3D, Configurações Avançadas de Resolução e Imagem, Materiais, Seções Transversais, Condições de Apoio, Rótulas / Liberações, Ângulo de Roll da Seção (γ), Cargas Nodais Concentradas, Cargas Uniformemente Distribuídas, Cargas Térmicas (ΔT), Casos de Carga e Combinações NBR, Gerador de Malha 1D/2D/3D, Suíte de Análises Avançadas, Controles de Pós-Processamento 3D, Auditoria Normativa ABNT NBR, Opções do Memorial PDF A4, seletores de arquivo e avisos — operam em modo Modeless (não-modal).
+• Operação Modeless (Não-Modal): abrir uma janela filha com um único clique nunca bloqueia nem congela a janela principal; você pode continuar orbitando o modelo 3D, selecionando outros nós ou barras no viewport, inspecionando tabelas ou mantendo diálogos abertos simultaneamente enquanto consulta parâmetros ou edita propriedades.
+• Pilha Z-Order e Elevação ao Clicar (Raise): o eixo Z virtual define qual janela aparece visualmente à frente das demais na tela; clicar na área cliente ou na barra de título de qualquer janela ativa (inclusive a própria janela principal) eleva imediatamente essa janela para o topo da pilha de Z-Order sem enviar janelas filhas ativas para trás involuntariamente durante interações normais.
+• Abertura Direta sem Janelas Fantasmas e Instância Única: os botões da interface abrem suas janelas no primeiro clique sem exibir contornos transitórios; se uma janela específica já estiver aberta atrás da janela principal, acionar o comando novamente eleva e foca a instância existente.
 • Limpeza Automática ao Encerrar: ao fechar a janela principal pelo menu Arquivo > Sair (Ctrl+Q) ou pelo botão fechar da janela, todas as janelas filhas modeless abertas são encerradas automaticamente de forma segura.
 
-CAPÍTULO 2 — GERENCIAMENTO DE PROJETOS, ARQUIVOS E EXEMPLOS
+CAPÍTULO 2 — GERENCIAMENTO DE PROJETOS, ARQUIVOS, INTEROPERABILIDADE E EXEMPLOS
 
-2.1 Novo Projeto e Formato Aberto .omniframe
-O comando Arquivo > Novo Projeto (Ctrl+N) reinicia a área de trabalho limpando nós, barras, vínculos, cargas e resultados ativos após confirmar com segurança quando houver alteração pendente por meio de diálogo não-modal.
-O formato nativo .omniframe utiliza estrutura JSON legível em codificação UTF-8 contendo quatro coleções explícitas (materiais, seções transversais, nós e elementos) com validação numérica rigorosa para rejeitar valores não finitos (NaN ou infinito) na leitura.
+2.1 Novo Projeto, Desfazer/Refazer e Formato Aberto .omniframe
+O comando Arquivo > Novo Projeto (Ctrl+N) reinicia a área de trabalho limpando nós, barras, vínculos, cargas, malhas e resultados ativos após confirmar com segurança quando houver alteração pendente por meio de diálogo não-modal.
+O menu Editar oferece histórico multinível completo com Desfazer (Ctrl+Z) e Refazer (Ctrl+Y), permitindo experimentar modificações em nós, barras, materiais, seções, apoios e cargas com reversão segura e recálculo consistente.
+O formato nativo .omniframe (Schema 2.1.0, retrocompatível com 1.0 e 2.0) utiliza estrutura JSON legível em codificação UTF-8 armazenando materiais (incluindo massa específica ρ e parâmetros J2), seções transversais, nós, elementos, combinações de carga e parâmetros normativos com validação numérica rigorosa para rejeitar valores não finitos (NaN ou infinito) na leitura.
 ATENÇÃO: mantenha cópias de backup antes de editar manualmente arquivos .omniframe em editores de texto externos, preservando identificadores inteiros únicos para nós, materiais e seções.
 
-2.2 Abrir e Salvar Projetos (.omniframe)
-Para carregar um modelo existente, utilize Arquivo > Abrir (.omniframe)... (Ctrl+O) e escolha o arquivo .omniframe desejado no seletor de arquivos não-modal; após a abertura, a câmera é automaticamente enquadrada para exibir toda a geometria carregada.
-Para gravar alterações em disco, utilize Arquivo > Salvar (.omniframe)... (Ctrl+S), escolhendo o diretório de destino e o nome do arquivo; o formato grava integralmente coordenadas, propriedades mecânicas, vínculos de apoio, molas elásticas, deslocamentos prescritos, liberações de extremidade, ângulo Roll e carregamentos nodais e distribuídos.
+2.2 Abrir, Salvar (.omniframe) e Intercâmbio CAD/BIM (DXF e IFC4)
+Para carregar um modelo existente, utilize Arquivo > Abrir (.omniframe)... (Ctrl+O) e escolha o arquivo desejado no seletor não-modal; após a abertura, a câmera é automaticamente enquadrada para exibir toda a geometria carregada.
+Para gravar alterações em disco, utilize Arquivo > Salvar (.omniframe)... (Ctrl+S), escolhendo o diretório de destino e o nome do arquivo; o formato grava integralmente coordenadas, propriedades mecânicas, vínculos de apoio, molas elásticas, deslocamentos prescritos, liberações de extremidade, ângulo Roll, variações térmicas ΔT e carregamentos/combinações.
+Além do formato nativo, o menu Arquivo oferece quatro ferramentas bidirecionais de interoperabilidade CAD e BIM totalmente offline:
+• Importar DXF... e Exportar DXF...: lê linhas 3D e camadas de desenhos CAD (.dxf) fundindo nós coincidentes por tolerância, e exporta barras e faces estruturais de volta para DXF.
+• Importar BIM IFC4... e Exportar BIM IFC4...: importa modelos estruturais em padrão aberto STEP IFC4 (.ifc) reconstruindo nós, barras e superfícies, e exporta a estrutura do OmniFrame 3D como entidades IFC4 compatíveis com softwares BIM.
 
-2.3 Exportação de Memorial de Cálculo (HTML e Markdown)
-O menu Arquivo disponibiliza dois exportadores nativos para documentação técnica de projeto:
+2.3 Exportação de Memorial de Cálculo (HTML, Markdown e PDF A4)
+O menu Arquivo disponibiliza três exportadores nativos para documentação técnica de engenharia sem exigir programas externos:
 • Exportar Relatório Técnico (HTML)...: gera um documento web autônomo estilizado com tabelas formatadas contendo resumo do modelo, inventário de materiais e seções, verificação de equilíbrio estático global, deslocamentos nodais, reações nos apoios e envoltórias de esforços extremos por barra.
 • Exportar Relatório Técnico (Markdown)...: gera um arquivo texto estruturado (.md) compatível com controle de versão Git, editores técnicos e fluxos de documentação corporativa, mantendo os mesmos resultados verificados do solver.
-DICA: execute o solver FEM (F5) antes de exportar relatórios para incluir todas as tabelas de deslocamentos, reações, equilíbrio estático e esforços extremos recalculados.
+• Exportar Memorial Executivo (PDF A4)...: abre diálogo configurável permitindo incluir ou omitir a Auditoria Normativa ABNT NBR completa, resumo executivo, tabelas de deslocamentos/reações/esforços e diagnóstico de estabilidade, gravando diretamente um arquivo PDF diagramado em formato A4 pronto para impressão ou arquivamento.
+DICA: execute o solver FEM (F5) ou a Auditoria Normativa ABNT NBR antes de exportar relatórios para incluir todas as tabelas, verificações e resíduos de equilíbrio estático atualizados.
 
-2.4 Exemplos Estruturais Integrados
-O menu Exemplos oferece três modelos espaciais completos prontos para análise imediata e estudo paramétrico:
+2.4 Exemplos Estruturais Integrados e Reedição Livre como Exercício
+O menu Exemplos oferece três modelos espaciais completos prontos para análise imediata, estudo paramétrico e reedição livre pelo usuário:
 • Exemplo 1: Pórtico Espacial de Edifício (2 Pavimentos, Vento e Sobrecarga): pórtico espacial multiandar com pilares e vigas em concreto submetido a carregamentos verticais e horizontais combinados.
 • Exemplo 2: Balanço Espacial em L Sujeito a Flexo-Torção: viga em balanço dobrada a 90° em planta, demonstrando o acoplamento característico entre momento fletor em um trecho e momento torçor no trecho ortogonal.
 • Exemplo 3: Treliça Espacial / Passarela Metálica 3D: estrutura treliçada tridimensional com rótulas liberadas nas extremidades das barras (Tx, My e Mz liberados), exibindo resposta predominante de esforço axial de tração e compressão.
+Todos os três exemplos são totalmente editáveis após o carregamento: você pode selecionar nós ou barras na viewport, alterar materiais e seções nas listas suspensas do inspetor lateral, ajustar coordenadas, apoios, cargas ou combinações, aplicar Desfazer/Refazer (Ctrl+Z / Ctrl+Y) e recalcular imediatamente (F5) como exercício prático antes de trabalhar em projetos reais.
 
 CAPÍTULO 3 — NAVEGAÇÃO 3D, PLANO ATIVO E VISUALIZAÇÃO
 
@@ -88,7 +95,7 @@ Na representação gráfica do modelo:
 • Apoio Móvel (Rolete): pirâmide âmbar/laranja apoiada no nó.
 • Cargas Nodais e Distribuídas: setas vermelhas representam forças concentradas nodais; conjuntos contínuos de setas verdes ao longo das barras representam cargas distribuídas; setas duplas ciano representam momentos aplicados ou reações de momento.
 
-CAPÍTULO 4 — MODELAGEM GEOMÉTRICA INTERATIVA E NUMÉRICA
+CAPÍTULO 4 — MODELAGEM GEOMÉTRICA, INSPETOR LATERAL E GERADOR DE MALHA
 
 4.1 Adicionar Nós no Plano Ativo e via Entrada Numérica
 Existem duas formas complementares para criar nós na estrutura:
@@ -97,7 +104,7 @@ Existem duas formas complementares para criar nós na estrutura:
 
 4.2 Conectar Barras entre Nós
 Para criar uma barra conectando dois nós já existentes, ative a ferramenta Inserir Barra (B) (ou pressione B).
-Clique primeiro sobre o nó de origem (nó i) e em seguida clique sobre o nó de destino (nó j); a nova barra herda o material padrão (ID 1) e a seção transversal padrão (ID 1) com ângulo Roll inicial igual a 0°.
+Clique primeiro sobre o nó de origem (nó i) e em seguida clique sobre o nó de destino (nó j); a nova barra herda o material padrão e a seção transversal padrão com ângulo Roll inicial igual a 0°.
 NOTA: se você clicar no mesmo nó de origem ou em pontos sem nó válido, o procedimento impede a criação de elementos degenerados de comprimento nulo; pressione Esc a qualquer momento para cancelar a ligação em andamento.
 
 4.3 Ferramenta de Medição Espacial (ΔX, ΔY, ΔZ, L)
@@ -106,14 +113,27 @@ Com o modo Medir (M) ativo, clique no primeiro ponto ou nó de referência e cli
 
 4.4 Exclusão Segura e Limpeza de Seleção
 Para remover entidades indesejadas, selecione um ou mais nós ou barras no viewport e acione Excluir (Del) (tecla Del ou botão correspondente na barra de ferramentas).
-Ao excluir um nó, o modelo estrutural remove automaticamente todas as barras conectadas a esse nó para manter a consistência topológica da malha sem pontas soltas.
+Ao excluir um nó, o modelo estrutural remove automaticamente todas as barras conectadas a esse nó para manter a consistência topológica da malha sem pontas soltas; você pode reverter qualquer exclusão pelo comando Editar > Desfazer (Ctrl+Z).
 A tecla Esc encerra ferramentas de criação encadeada ou limpa a seleção corrente e retorna ao estado seguro de inspeção.
 
-CAPÍTULO 5 — PROPRIEDADES ESTRUTURAIS, VÍNCULOS E CARREGAMENTOS
+4.5 Inspetor Lateral (Elemento / Nó Selecionado) e Seleção em Lote
+Ao clicar em um nó ou em uma barra no Viewport 3D (ou selecionar múltiplos elementos com Ctrl), o quadro Elemento / Nó Selecionado no painel lateral esquerdo exibe e libera a edição direta de todas as propriedades da seleção corrente:
+• Quando um ou mais nós estão selecionados: permite ajustar coordenadas X, Y e Z, aplicar deslocamentos/incrementos em lote (ΔX, ΔY, ΔZ), editar rapidamente Condição de Apoio e Cargas Nodais por botão de atalho e aplicar as mudanças ao modelo com recálculo automático opcional.
+• Quando uma ou mais barras estão selecionadas: exibe as listas suspensas Material: e Seção Transversal: com os nomes limpos do catálogo (sem prefixos numéricos) — basta clicar na seta ou no campo para abrir a lista e trocar instantaneamente o material ou seção de todas as barras selecionadas — além de controles rápidos para Roll (γ), Rótulas, Carga Distribuída e Carga Térmica (ΔT).
+• Seleção Rápida por Critério: os botões Mesmo Material e Mesma Seção selecionam automaticamente todas as barras da estrutura que compartilham o mesmo material ou a mesma seção transversal da barra atual, agilizando alterações globais tanto em modelos novos quanto nos três exemplos pré-definidos.
 
-5.1 Biblioteca e Editor de Materiais Isotrópicos
-Acesse Estrutura > Materiais... (ou o botão Materiais... na barra de ferramentas) para abrir a janela modeless do editor de materiais, onde é possível criar, modificar ou selecionar materiais existentes pelos quatro parâmetros fundamentais: Módulo de Elasticidade Longitudinal E (GPa na interface), Coeficiente de Poisson ν, Coeficiente de Dilatação Térmica α (/°C) e Peso Específico γ (kN/m³).
+4.6 Gerador Paramétrico de Malha 1D/2D/3D (Cascas e Sólidos)
+Acesse Estrutura > Gerador de Malha 1D/2D/3D... (ou Malha 2D/3D... na Barra 2) para gerar e acoplar malhas de elementos superficiais ou volumétricos sobre qualquer região do projeto:
+• Tipos de Elemento Suportados: geração estruturada de elementos de casca 2D (Quad4 MITC4, Tri3 MITC3, Tri6 e Quad8 Serendipity) para lajes, paredes e cascas, além de elementos sólidos 3D (Hex8 B-Bar e Tet4) para blocos e fundações volumétricas.
+• Enquadramento Automático nos Limites: o botão de ajuste automático adapta as dimensões da caixa geradora aos limites físicos da estrutura aberta, permitindo definir subdivisões (nx, ny, nz), espessura de casca e engastamento automático das bordas ou base.
+• Diagnóstico de Qualidade e Limpeza: o diálogo exibe contagem de elementos/nós e métricas de razão de aspecto da malha; utilize Limpar Malha para remover apenas a malha paramétrica 2D/3D sem apagar o pórtico de barras principal.
+
+CAPÍTULO 5 — PROPRIEDADES ESTRUTURAIS, VÍNCULOS, TÉRMICA E COMBINAÇÕES
+
+5.1 Biblioteca e Editor de Materiais Isotrópicos e Plasticidade J2
+Acesse Estrutura > Materiais... (ou o botão Materiais... na barra de ferramentas) para abrir a janela modeless do editor de materiais, onde é possível criar, modificar ou selecionar materiais existentes por seus parâmetros físicos: Módulo de Elasticidade Longitudinal E (GPa), Coeficiente de Poisson ν, Coeficiente de Dilatação Térmica α (/°C), Peso Específico γ (kN/m³) e Massa Específica ρ (t/m³ ou kg/m³ conforme unidade exibida).
 Estão disponíveis quatro predefinições imediatas de engenharia: Aço Estrutural (ASTM A36) (E = 200 GPa, ν = 0,30, γ = 78,5 kN/m³), Concreto Estrutural C30 (E = 30 GPa, ν = 0,20, γ = 25,0 kN/m³), Alumínio 6061-T6 (E = 70 GPa, ν = 0,33, γ = 27,0 kN/m³) e Madeira Estrutural (E = 14,5 GPa, ν = 0,20, γ = 8,0 kN/m³).
+Quando habilitado para análises elastoplásticas não lineares, o material aceita ainda tensão de escoamento σy (MPa) e módulos de encruamento isotrópico (H_iso) e cinemático (H_kin) para o modelo constitutivo de Plasticidade J2 de von Mises.
 Ao confirmar com barras selecionadas no viewport 3D, o material escolhido é aplicado imediatamente a todas as barras selecionadas sem fechar seu fluxo de modelagem.
 
 5.2 Seções Transversais e Cálculo Automático de Inércias
@@ -147,26 +167,49 @@ Para remover cargas nodais de um conjunto de nós, zere todos os componentes no 
 5.7 Cargas Distribuídas em Barras (Globais e Locais)
 Acesse Estrutura > Cargas Uniformemente Distribuídas... (ou Carga Distr.... na barra de ferramentas) com uma ou mais barras selecionadas para definir carregamentos uniformemente distribuídos qx, qy e qz em kN/m ao longo de todo o vão (valor inicial padrão qz = -10,0 kN/m).
 Escolha entre Sistema Global (X, Y, Z) (componentes orientadas pelos eixos X, Y e Z globais do projeto, ideal para peso próprio e cargas gravitacionais verticais) ou Sistema Local (x, y, z da barra) (componentes orientadas pelos eixos x, y e z locais da própria barra, ideal para empuxos ou pressões normais a telhados inclinados).
-O solver converte automaticamente cargas distribuídas (e eventuais variações térmicas ΔT registradas no elemento) nos respectivos vetores exatos de forças de engastamento perfeito (Fixed-End Forces).
+O solver converte automaticamente cargas distribuídas e variações térmicas registradas no elemento nos respectivos vetores exatos de forças de engastamento perfeito (Fixed-End Forces).
 
-CAPÍTULO 6 — ANÁLISE POR ELEMENTOS FINITOS (SOLVER FEM 3D)
+5.8 Cargas Térmicas Uniformes e Gradientes (ΔT)
+Acesse Estrutura > Cargas Térmicas (ΔT)... (ou Térmica (ΔT)... na Barra 2) com uma ou mais barras selecionadas para atribuir variação uniforme de temperatura ΔT (°C) e eventuais gradientes térmicos transversais nos eixos locais da barra.
+Utilizando o coeficiente de dilatação térmica α definido no material da barra, o solver calcula automaticamente os esforços axiais e momentos térmicos equivalentes de engastamento perfeito em estruturas hiperestáticas e a dilatação livre em barras isostáticas.
+
+5.9 Casos de Carga, Combinações ABNT NBR & Assistentes 6120/6123
+Acesse Estrutura > Casos de Carga, Combinações NBR & Vento... (ou Combinações... na Barra 2) para gerenciar múltiplos casos de carregamento (Permanente G, Acidental Q, Vento W, Térmico T, Sísmico E) e suas combinações ponderadas:
+• Combinações Automáticas ABNT NBR: o botão Gerar Combinações NBR captura cargas ativas do viewport (quando aplicável) e gera automaticamente combinações padronizadas (como ELU-1 Normal, ELU-2 P-Delta e ELS Quase-Permanente) ou permite adicionar regras customizadas com + Nova Combinação.
+• Assistentes Normativos de Ações: inclui abas auxiliares para estimar velocidade característica e pressão dinâmica do vento conforme ABNT NBR 6123:2023 (V0, S1, S2, S3) e consultar parâmetros de cargas acidentais de ocupação conforme ABNT NBR 6120:2019.
+
+CAPÍTULO 6 — ANÁLISE POR ELEMENTOS FINITOS, SUÍTE AVANÇADA E AUDITORIA NBR
 
 6.1 Pré-Validação de Modelo e Detecção de Mecanismos
 Antes de montar o sistema linear, o modelo passa pela rotina estrutural validate(), que verifica se há nós e barras suficientes, se os vínculos de apoio impedem o movimento de corpo rígido, se todas as referências de material e seção são válidas e se não existem elementos de comprimento nulo ou propriedades físicas nulas ou negativas.
 Caso o modelo contenha mecanismos cinemáticos, hipoestaticidade global ou matriz de rigidez não positiva-definida, o solver interrompe o cálculo com segurança e exibe mensagem clara de diagnóstico por janela não-modal indicando a causa provável.
 
-6.2 Formulação Matricial e Solver Esparso SimplicialLDLT
-Ao acionar Estrutura > CALCULAR ESTRUTURA (tecla F5 ou botão ▶ CALCULAR ESTRUTURA (F5)), o FemSolver3D executa os seguintes estágios numéricos de precisão dupla (64 bits):
-1. Cálculo da matriz de rigidez local exata 12×12 por barra com termos axiais (EA/L), torcionais (GJ/L) e de flexão biaxial de Euler-Bernoulli (12EI/L³, 6EI/L², 4EI/L, 2EI/L), incluindo condensação estática de rótulas quando aplicável.
-2. Rotação para coordenadas globais por matriz ortogonal em blocos [T] = diag(R, R, R, R) via K_glob = T^T · K_loc · T e transformação dos vetores de engastamento perfeito.
+6.2 Formulação Matricial e Suíte de Solvers Esparsos (LinearSolverSuite)
+Ao acionar Estrutura > CALCULAR ESTRUTURA (tecla F5 ou botão ▶ CALCULAR ESTRUTURA (F5)), o FemSolver3D executa os seguintes estágios numéricos de precisão dupla (64 bits) em thread em segundo plano sem travar a janela gráfica:
+1. Cálculo da matriz de rigidez local exata 12×12 por barra com termos axiais (EA/L), torcionais (GJ/L) e de flexão biaxial de Euler-Bernoulli (12EI/L³, 6EI/L², 4EI/L, 2EI/L), incluindo condensação estática de rótulas quando aplicável e elementos de casca/sólido quando houver malha ativa.
+2. Rotação para coordenadas globais por matriz ortogonal em blocos [T] = diag(R, R, R, R) via K_glob = T^T · K_loc · T e transformação dos vetores de engastamento perfeito (incluindo peso próprio, cargas distribuídas e variações térmicas ΔT).
 3. Montagem da matriz de rigidez global esparsa com incorporação de rigidez de molas elásticas e imposição de apoios e deslocamentos prescritos.
-4. Fatoração direta esparsa de Cholesky usando Eigen::SimplicialLDLT com reordenação AMD para máxima velocidade e estabilidade numérica, registrando o tempo total de execução em milissegundos.
+4. Resolução pela suíte LinearSolverSuite — SimplicialLDLT com reordenação AMD (padrão), SimplicialLLT, SparseLU, ConjugateGradient ou BiCGSTAB — registrando o tempo total de execução em milissegundos.
 
 6.3 Verificação de Equilíbrio Estático Global
 Imediatamente após resolver os deslocamentos nodais {u} e recuperar as forças locais de extremidade e reações nodais globais {R}, o solver totaliza as resultantes vetoriais de todas as forças e momentos aplicados em comparação às reações nos apoios.
-Os resíduos finais de forças (ΔFx, ΔFy, ΔFz) e de momentos em relação à origem (ΔMx, ΔMy, ΔMz) são auditados automaticamente no campo EquilibriumCheck e impressos tanto nos relatórios HTML/Markdown quanto nos resumos de análise.
+Os resíduos finais de forças (ΔFx, ΔFy, ΔFz) e de momentos em relação à origem (ΔMx, ΔMy, ΔMz) são auditados automaticamente no campo EquilibriumCheck e impressos tanto nos relatórios HTML/Markdown/PDF quanto nos resumos de análise.
 
-CAPÍTULO 7 — PÓS-PROCESSAMENTO, DIAGRAMAS E INSPEÇÃO DE RESULTADOS
+6.4 Suíte de Análises Avançadas (Modal, Flambagem, Dinâmica e Não Linear)
+Acesse Estrutura > Suite de Análises Avançadas... (ou Avançadas... na Barra 2) para executar simulações avançadas em segundo plano sobre o mesmo modelo estrutural:
+• Combinações & Envoltória: executa Resolver Casos & Combinações para calcular deslocamentos e esforços de cada caso e combinação NBR configurada, exibindo envoltórias mínimas/máximas e permitindo clicar em Plotar Caso/Combinação no Viewport 3D.
+• Análise Modal: extrai frequências naturais (Hz), períodos (s), fatores de participação modal e massa efetiva para o número de modos solicitado, habilitando animação dos modos na viewport 3D.
+• Flambagem Linear (Estabilidade Elástica): calcula fatores críticos de flambagem (λ_cr) e modos críticos de instabilidade de Euler global para os carregamentos aplicados.
+• Harmônica FRF e Espectro de Resposta: realiza varredura em frequência (Amplitude e Fase sob amortecimento modal/Rayleigh) e combinação modal espectral CQC/SRSS (incluindo parâmetros de espectro sísmico e indicação explícita de escopo normativo).
+• Sísmica Transiente (Newmark-β) e Análise Não Linear (P-Delta / Corrotacional / Plasticidade J2): integra acelerogramas/excitações no tempo pelo método de Newmark-β e resolve equilíbrio não linear geométrico (P-Delta ou Corrotacional 3D via Newton-Raphson ou Arc-Length) e elastoplástico J2 por passos incrementais.
+
+6.5 Auditoria Normativa ABNT NBR e Mapa de Calor DCR 3D
+Acesse Estrutura > Auditoria Normativa ABNT NBR (6118 / 8800 / 6122)... (ou Auditoria NBR... na Barra 2) para avaliar automaticamente o modelo estrutural frente às normas técnicas brasileiras verificadas localmente:
+• Escopo Verificado e Transparência Normativa: realiza checagens para ABNT NBR 6118:2023 (concreto e parâmetros ELS/ELU), NBR 8800:2024 (barras metálicas sob tração, compressão, flexão e cisalhamento além de γz / B2), NBR 6122:2022 (tensão de contato em sapatas frente a σ_adm do solo), NBR 6123:2023 (vento), NBR 6120:2019 e NBR 7480:2022, sinalizando explicitamente o status LocalPdfVerified e marcando eventuais cláusulas de normas ausentes como OutOfLocalPdfScope.
+• Mapa de Calor DCR 3D no Viewport: o botão de projeção colore automaticamente cada barra do Viewport 3D pela sua razão demanda/capacidade (DCR — Demand-to-Capacity Ratio), destacando elementos críticos próximos ou acima de 1,00.
+• Memorial PDF Direto: o botão Exportar Memorial PDF (A4)... na própria janela de auditoria gera o relatório completo incluindo a tabela normativa item a item.
+
+CAPÍTULO 7 — PÓS-PROCESSAMENTO, DIAGRAMAS, PLANOS DE CORTE E ANIMAÇÃO 3D
 
 7.1 Modos de Visualização 3D e Deformada
 Após uma análise bem-sucedida, o seletor Diagrama: na barra de ferramentas permite alternar em tempo real entre oito modos de visualização diretamente sobre o pórtico 3D:
@@ -187,6 +230,12 @@ No Painel Inferior (Tabelas de Resultados e Diagnóstico Estrutural), três abas
 • Aba Reações de Apoio: apresenta exclusivamente nós vinculados com suas forças reativas (Rx, Ry, Rz em kN) e momentos reativos (Mx, My, Mz em kN·m).
 • Aba Esforços nas Barras: apresenta os valores mínimo e máximo de N, Vy, Vz, Tx, My, Mz e deflexão máxima registrada em cada barra.
 
+7.4 Controles Avançados de Pós-Processamento 3D (Contornos, Corte e Animação)
+Acesse Estrutura > Controles 3D (Contornos / Corte / Animação)... (ou Corte/Contornos... na Barra 2) para explorar resultados avançados diretamente no Viewport OpenGL:
+• Mapas de Contorno e Malha Superficial: alterne o gradiente cromático entre Nenhum, Deslocamento |u|, Tensão de von Mises, Esforço Axial e Utilização DCR, além da opção de exibir/ocultar a malha 2D/3D gerada sobre o modelo.
+• Plano de Corte 3D (Clip Plane): escolha o eixo de seccionamento (Desligado, X, Y ou Z), deslize a cota do corte ao longo do modelo e utilize a opção de inversão para inspecionar o interior de sólidos, pórticos densos e armaduras conceituais.
+• Animação Contínua 3D: ative a animação senoidal em tempo real da deformada estática, de modos de vibração naturais, de modos de flambagem ou de passos temporais/harmônicos com controle de velocidade e amplitude.
+
 CAPÍTULO 8 — CONFIGURAÇÕES GRÁFICAS, RESOLUÇÃO DE IMAGEM, TEMA E IDIOMA
 
 8.1 Arquitetura Multi-Estágio de Alta Definição
@@ -202,7 +251,7 @@ Em Configurações > Configurações Avançadas de Resolução e Imagem... (alé
 • Informações de Hardware da GPU e Persistência: o diálogo exibe o nome real do adaptador gráfico, fabricante, versão OpenGL ativa, limite de amostras MSAA/textura e resolução física renderizada em pixels; clicar em Cancelar restaura exatamente o estado anterior na cena, enquanto Aplicar ou OK salva as preferências localmente em graphics.json.
 
 8.3 Temas do Plano Ativo, Tema da Interface (Claro/Escuro) e Contraste
-Em Configurações > Tema é possível alternar dinamicamente em tempo de execução entre os modos Escuro e Claro, adaptando instantaneamente janelas, diálogos não-modais, barras de título, tabelas, documentos HTML (Manual e Sobre), viewport OpenGL, escala cromática da deformada e diagramas de esforços.
+Em Configurações > Tema é possível alternar dinamicamente em tempo de execução entre os modos Escuro e Claro, adaptando instantaneamente janelas, diálogos não-modais, barras de título, tabelas, documentos HTML (Manual e Sobre), overlays da Sessão Guiada, viewport OpenGL, escala cromática da deformada e diagramas de esforços.
 Além disso, em Configurações > Aparência do Plano Ativo ou no diálogo avançado de resolução é possível escolher de forma independente a aparência visual do Plano de Trabalho Ativo:
 • Obsidiana Escuro (Padrão) (#07090e): fundo azul-obsidiana profundo equilibrado para longas sessões de modelagem sem fadiga visual nem ofuscamento da grade.
 • Noite Profunda (Ultra Escuro) (#040608): fundo preto noturno de alto contraste para destaque máximo de diagramas coloridos e linhas finas.
@@ -212,21 +261,30 @@ Além disso, em Configurações > Aparência do Plano Ativo ou no diálogo avan�
 
 8.4 Troca Dinâmica de Idioma e Persistência
 O sub-menu Configurações > Idioma permite alternar instantaneamente em tempo de execução entre Português (Brasil) e English (US).
-A troca dispara propagação dinâmica de QEvent::LanguageChange sem necessidade de reiniciar o aplicativo: barra de menus, barras de ferramentas, painéis acoplados, inspetor, tabelas de resultados, HUD 3D, este Manual, diálogo Sobre e todas as janelas filhas modeless abertas no momento traduzem seus textos automaticamente.
+A troca dispara propagação dinâmica de QEvent::LanguageChange sem necessidade de reiniciar o aplicativo: barra de menus, barras de ferramentas, painéis acoplados, inspetor, tabelas de resultados, HUD 3D, Sessão Guiada, este Manual, diálogo Sobre e todas as janelas filhas modeless abertas no momento traduzem seus textos automaticamente.
 O idioma selecionado é salvo de forma autônoma no arquivo language.json dentro do diretório de dados locais do usuário (%LOCALAPPDATA%\OmniFrame\OmniFrame\).
 
-CAPÍTULO 9 — AJUDA, ATALHOS DE TECLADO, ARMAZENAMENTO LOCAL E FERRAMENTAS
+CAPÍTULO 9 — AJUDA, SESSÃO GUIADA (F2), ATALHOS DE TECLADO E FERRAMENTAS
 
 9.1 Manual Interativo (F1) e Diálogo Sobre o Aplicativo
 • Ajuda > Manual (F1): abre esta janela modeless dedicada contendo índice interativo de capítulos e subcapítulos à esquerda, leitor de texto estruturado em alta legibilidade à direita e barra de pesquisa instantânea com botões Próxima e Anterior para localizar termos técnicos rapidamente.
-• Ajuda > Sobre o OmniFrame 3D: abre a central informativa não-modal com abas dedicadas para Sobre o Aplicativo, Notas de Versão, Histórico do App, Compromisso de Licenciamento de Código (CLC), Aviso de Copyright e Marca Registrada, Política de Privacidade, Contrato de Licença de Usuário Final (EULA), Avisos de Terceiros e Licenças Open Source completas.
+• Ajuda > Sobre o OmniFrame 3D: abre a central informativa não-modal com abas dedicadas para Sobre o Aplicativo, Notas da Versão, Histórico, EULA, CLC / Licenciamento, Privacidade, Copyright, Avisos de Terceiros e Licenças Completas.
 
-9.2 Tabela Completa de Atalhos e Controles Rápidos
+9.2 Sessão Guiada Interativa Passo a Passo (Ajuda > Sessão Guiada..., F2)
+O recurso Ajuda > Sessão Guiada... (atalho F2) executa automaticamente uma demonstração guiada em 30 etapas de todas as funcionalidades e diálogos do OmniFrame 3D, simulando passo a passo um engenheiro operando o aplicativo a partir de um dos três exemplos pré-definidos:
+• Escolha do Exemplo e Perfis Científicos de Ritmo de Leitura (PPM): antes de iniciar, escolha qual dos três exemplos deseja acompanhar e selecione o perfil cognitivo em palavras por minuto (PPM) mais confortável para a sua leitura — Leitor Típico — Fluente (250 PPM, faixa 200–300 PPM), Leitura Técnica / Engenharia (150 PPM, padrão recomendado com margem de +10%), Leitura em Voz Alta (155 PPM) ou Dislexia / Acessível (130 PPM, faixa 100–160 PPM com fator +30% para releitura e regressões sem fadiga).
+• Sinalização Visual Unificada em Duas Fases (Sem Sobreposição): cada etapa é apresentada por um destaque luminoso ao redor do botão, menu ou painel correspondente associado a um único cartão explicativo com seta indicadora. Na primeira fase (amarelo), o aplicativo explica o que aquela ferramenta faz e para que serve em tempo proporcional ao total de palavras do texto; na segunda fase (verde), executa a ação correspondente (posicionando eventuais janelas filhas no canto inferior esquerdo enquanto mantém o cartão explicativo livre de sobreposições) pelo mesmo ritmo proporcional ao texto e ao PPM escolhido.
+• Controles Modeless e Z-Order Durante a Sessão: a janela Sessão Guiada é não-modal (você pode clicar livremente em qualquer janela ativa ou alternar o foco a qualquer momento) e oferece barra de progresso, contagem regressiva e os botões Iniciar Sessão Guiada, Pausar / Continuar, Avançar Agora, Interromper e Fechar.
+• Restauração Automática ao Estado Inicial: ao concluir a etapa 30 (ou quando finalizada a demonstração), o aplicativo limpa automaticamente overlays, contornos, planos de corte, animações e diálogos auxiliares abertos e restaura o exemplo selecionado exatamente ao seu estado inicial pronto para cálculo.
+
+9.3 Tabela Completa de Atalhos e Controles Rápidos
 Utilize os atalhos abaixo sempre que o viewport principal ou a barra de menus estiver em foco:
 • F1 — Abrir este Manual Completo de Operação e Engenharia.
+• F2 — Abrir a Sessão Guiada Interativa (demonstração completa em 30 etapas).
 • Ctrl+N — Iniciar Novo Projeto estrutural.
 • Ctrl+O — Abrir projeto existente (.omniframe).
 • Ctrl+S — Salvar projeto atual (.omniframe).
+• Ctrl+Z / Ctrl+Y — Desfazer / Refazer operações de modelagem e edição.
 • Ctrl+Q — Sair do OmniFrame 3D (fechando todas as janelas filhas abertas).
 • F5 — CALCULAR ESTRUTURA: executar Solver FEM 3D completo.
 • F — Enquadrar Tudo (F): enquadrar toda a estrutura na câmera 3D.
@@ -240,14 +298,14 @@ Utilize os atalhos abaixo sempre que o viewport principal ou a barra de menus es
 • Shift + Botão Direito ou do Meio + Arrastar — Panorâmica (Pan lateral/vertical) da câmera.
 • Roda do Mouse (Scroll) — Zoom de aproximação e afastamento.
 
-9.3 Armazenamento Local, Portabilidade de Diretório e Privacidade Offline
-Todos os ativos textuais bilíngues (sobre, histórico, avisos legais, licenças e este manual) e traduções (.qm) são resolvidos de forma autônoma a partir do pacote de distribuição ou de recursos embutidos no próprio binário Qt, assegurando funcionamento integral independente da pasta ou unidade em que o aplicativo esteja instalado.
-O OmniFrame 3D não coleta telemetria, não abre conexões externas de rede e grava exclusivamente os projetos salvos manualmente pelo usuário e três arquivos de preferências locais (language.json, theme.json e graphics.json) na pasta %LOCALAPPDATA%\OmniFrame\OmniFrame\.
+9.4 Armazenamento Local, Portabilidade de Diretório e Privacidade Offline
+Todos os ativos textuais bilíngues (sobre, histórico, notas de lançamento, avisos legais, licenças e este manual) e traduções (.qm) são resolvidos de forma autônoma a partir do pacote de distribuição ou de recursos embutidos no próprio binário Qt, assegurando funcionamento integral independente da pasta ou unidade em que o aplicativo esteja instalado.
+O OmniFrame 3D não coleta telemetria, não abre conexões externas de rede e grava exclusivamente os projetos/relatórios (.omniframe, .dxf, .ifc, .html, .md, .pdf) salvos manualmente pelo usuário e três arquivos de preferências locais (language.json, theme.json e graphics.json) na pasta %LOCALAPPDATA%\OmniFrame\OmniFrame\.
 Em caso de desinstalação pela Loja da Microsoft ou remoção de distribuição portátil, nenhum driver de kernel ou serviço oculto em segundo plano é mantido no sistema operacional.
 
-9.4 Utilitários Complementares de Distribuição
-O ecossistema OmniFrame 3D inclui também ferramentas auxiliares independentes empacotadas em distribuições separadas para manutenção de versão e localização:
-• VersionEditor (VersionEditor.exe): editor gráfico para atualização sincronizada de número de versão e datas de revisão nos documentos e manifestos configurados em Português (BR) e Inglês (US).
+9.5 Utilitários Complementares de Distribuição e Linha de Comando (CLI)
+O ecossistema OmniFrame 3D inclui também ferramentas de linha de comando e manutenção compiladas e distribuídas com o projeto:
+• OmniFrame CLI (omniframe-cli.exe): executável em linha de comando distribuído junto com OmniFrame.exe para validar modelos (.omniframe, .dxf, .ifc), executar análises estáticas, modais, de flambagem, harmônicas, espectrais ou não lineares em lote (--analyze) e exportar datasets ou memoriais (.pdf, .html, .md, .dxf, .ifc, .json, .csv, .vtk).
+• VersionEditor (VersionEditor.exe): editor gráfico e CLI para atualização sincronizada de número de versão e datas de revisão nos documentos e manifestos configurados em Português (BR) e Inglês (US).
 • CompileTranslationsGUI (CompileTranslationsGUI.exe): utilitário gráfico para validação, compilação (.ts para .qm) e implantação limpa das traduções Qt do aplicativo.
-• Suíte de Testes Automatizados (CTest): conjunto de testes de verificação analítica (vigas engastadas, pórticos, treliças, equilíbrio estático, rotações Roll e serialização JSON) garantindo fidelidade numérica contínua a cada compilação.
-
+• Suíte de Testes Automatizados (CTest): conjunto de 20 suítes independentes de verificação analítica, solvers avançados, malhas, interoperabilidade, conformidade ABNT NBR e fluxos de interface garantindo fidelidade numérica e funcional contínua a cada compilação.

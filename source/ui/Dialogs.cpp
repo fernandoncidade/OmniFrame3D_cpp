@@ -64,7 +64,7 @@ MaterialDialog::MaterialDialog(QWidget* parent, const Material* mat)
     presetLayout->addWidget(m_presetLabel);
 
     m_presetCombo = new QComboBox(this);
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 8; ++i) {
         m_presetCombo->addItem(QString());
     }
     presetLayout->addWidget(m_presetCombo);
@@ -107,7 +107,54 @@ MaterialDialog::MaterialDialog(QWidget* parent, const Material* mat)
     m_gammaSpin->setValue(mat ? mat->gamma : 78.5);
     formLayout->addRow(m_gammaLabel, m_gammaSpin);
 
+    m_rhoLabel = new QLabel(this);
+    m_rhoSpin = new QDoubleSpinBox(this);
+    m_rhoSpin->setRange(0.0, 30000.0);
+    m_rhoSpin->setDecimals(1);
+    m_rhoSpin->setSuffix(QStringLiteral(" kg/m³"));
+    m_rhoSpin->setValue(mat ? mat->rho : 7850.0);
+    formLayout->addRow(m_rhoLabel, m_rhoSpin);
+
     mainLayout->addLayout(formLayout);
+
+    m_plasticGroup = new QGroupBox(this);
+    auto* plastLayout = new QFormLayout(m_plasticGroup);
+    m_isPlasticCheck = new QCheckBox(this);
+    m_isPlasticCheck->setChecked(mat ? mat->isPlastic : false);
+    plastLayout->addRow(m_isPlasticCheck);
+
+    m_sigmaYLabel = new QLabel(this);
+    m_sigmaYSpin = new QDoubleSpinBox(this);
+    m_sigmaYSpin->setRange(0.1, 5000.0);
+    m_sigmaYSpin->setDecimals(1);
+    m_sigmaYSpin->setSuffix(QStringLiteral(" MPa"));
+    m_sigmaYSpin->setValue(mat ? (mat->sigmaY / 1000.0) : 250.0);
+    plastLayout->addRow(m_sigmaYLabel, m_sigmaYSpin);
+
+    m_hIsoLabel = new QLabel(this);
+    m_hIsoSpin = new QDoubleSpinBox(this);
+    m_hIsoSpin->setRange(0.0, 50000.0);
+    m_hIsoSpin->setDecimals(1);
+    m_hIsoSpin->setSuffix(QStringLiteral(" MPa"));
+    m_hIsoSpin->setValue(mat ? (mat->H_iso / 1000.0) : 0.0);
+    plastLayout->addRow(m_hIsoLabel, m_hIsoSpin);
+
+    m_hKinLabel = new QLabel(this);
+    m_hKinSpin = new QDoubleSpinBox(this);
+    m_hKinSpin->setRange(0.0, 50000.0);
+    m_hKinSpin->setDecimals(1);
+    m_hKinSpin->setSuffix(QStringLiteral(" MPa"));
+    m_hKinSpin->setValue(mat ? (mat->H_kin / 1000.0) : 0.0);
+    plastLayout->addRow(m_hKinLabel, m_hKinSpin);
+
+    auto syncPlastEnabled = [this](bool enabled) {
+        m_sigmaYSpin->setEnabled(enabled);
+        m_hIsoSpin->setEnabled(enabled);
+        m_hKinSpin->setEnabled(enabled);
+    };
+    syncPlastEnabled(m_isPlasticCheck->isChecked());
+    connect(m_isPlasticCheck, &QCheckBox::toggled, this, syncPlastEnabled);
+    mainLayout->addWidget(m_plasticGroup);
 
     connect(m_presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MaterialDialog::applyPreset);
 
@@ -131,9 +178,12 @@ void MaterialDialog::retranslateUi() {
     m_presetCombo->blockSignals(true);
     m_presetCombo->setItemText(0, GerenciadorTraducao::trText("Personalizado"));
     m_presetCombo->setItemText(1, GerenciadorTraducao::trText("Aço Estrutural (ASTM A36)"));
-    m_presetCombo->setItemText(2, GerenciadorTraducao::trText("Concreto C30"));
-    m_presetCombo->setItemText(3, GerenciadorTraducao::trText("Alumínio 6061-T6"));
-    m_presetCombo->setItemText(4, GerenciadorTraducao::trText("Madeira Estrutural"));
+    m_presetCombo->setItemText(2, GerenciadorTraducao::trText("Aço Alta Resistência (ASTM A572 Gr. 50)"));
+    m_presetCombo->setItemText(3, GerenciadorTraducao::trText("Concreto C25"));
+    m_presetCombo->setItemText(4, GerenciadorTraducao::trText("Concreto C30"));
+    m_presetCombo->setItemText(5, GerenciadorTraducao::trText("Concreto C40"));
+    m_presetCombo->setItemText(6, GerenciadorTraducao::trText("Alumínio 6061-T6"));
+    m_presetCombo->setItemText(7, GerenciadorTraducao::trText("Madeira Estrutural"));
     m_presetCombo->blockSignals(false);
 
     m_nameLabel->setText(GerenciadorTraducao::trText("Nome:"));
@@ -141,6 +191,12 @@ void MaterialDialog::retranslateUi() {
     m_nuLabel->setText(GerenciadorTraducao::trText("Coeficiente de Poisson (ν):"));
     m_alphaLabel->setText(GerenciadorTraducao::trText("Dilatação Térmica (α):"));
     m_gammaLabel->setText(GerenciadorTraducao::trText("Peso Específico (γ):"));
+    m_rhoLabel->setText(GerenciadorTraducao::trText("Massa Específica Dinâmica (ρ):"));
+    if (m_plasticGroup) m_plasticGroup->setTitle(GerenciadorTraducao::trText("Plasticidade J2 / von Mises (Análise Não Linear)"));
+    if (m_isPlasticCheck) m_isPlasticCheck->setText(GerenciadorTraducao::trText("Habilitar comportamento elastoplástico J2"));
+    if (m_sigmaYLabel) m_sigmaYLabel->setText(GerenciadorTraducao::trText("Tensão de Escoamento (σy):"));
+    if (m_hIsoLabel) m_hIsoLabel->setText(GerenciadorTraducao::trText("Encruamento Isotrópico (H_iso):"));
+    if (m_hKinLabel) m_hKinLabel->setText(GerenciadorTraducao::trText("Encruamento Cinemático (H_kin):"));
     retranslateOkCancelBox(m_btnBox);
 }
 
@@ -148,9 +204,12 @@ void MaterialDialog::applyPreset(int index) {
     Material m;
     switch (index) {
         case 1: m = Material::makeStructuralSteel(); break;
-        case 2: m = Material::makeConcreteC30(); break;
-        case 3: m = Material::makeAluminum6061(); break;
-        case 4: m = Material::makeTimber(); break;
+        case 2: m = Material::makeStructuralSteelA572(); break;
+        case 3: m = Material::makeConcreteC25(); break;
+        case 4: m = Material::makeConcreteC30(); break;
+        case 5: m = Material::makeConcreteC40(); break;
+        case 6: m = Material::makeAluminum6061(); break;
+        case 7: m = Material::makeTimber(); break;
         default: return;
     }
 
@@ -159,6 +218,10 @@ void MaterialDialog::applyPreset(int index) {
     m_nuSpin->setValue(m.nu);
     m_alphaSpin->setValue(m.alpha * 1.0e5);
     m_gammaSpin->setValue(m.gamma);
+    m_rhoSpin->setValue(m.rho);
+    m_sigmaYSpin->setValue(m.sigmaY / 1000.0);
+    m_hIsoSpin->setValue(m.H_iso / 1000.0);
+    m_hKinSpin->setValue(m.H_kin / 1000.0);
 }
 
 Material MaterialDialog::getMaterial(MaterialId id) const {
@@ -169,6 +232,11 @@ Material MaterialDialog::getMaterial(MaterialId id) const {
     m.nu = m_nuSpin->value();
     m.alpha = m_alphaSpin->value() * 1.0e-5;
     m.gamma = m_gammaSpin->value();
+    m.rho = m_rhoSpin->value();
+    m.isPlastic = m_isPlasticCheck->isChecked();
+    m.sigmaY = m_sigmaYSpin->value() * 1000.0; // MPa -> kPa
+    m.H_iso = m_hIsoSpin->value() * 1000.0;
+    m.H_kin = m_hKinSpin->value() * 1000.0;
     return m;
 }
 
@@ -183,6 +251,13 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     auto* mainLayout = new QVBoxLayout(this);
 
     auto* formLayout = new QFormLayout();
+    m_presetLabel = new QLabel(this);
+    m_presetCombo = new QComboBox(this);
+    for (int i = 0; i <= 13; ++i) {
+        m_presetCombo->addItem(QString());
+    }
+    formLayout->addRow(m_presetLabel, m_presetCombo);
+
     m_nameLabel = new QLabel(this);
     m_nameEdit = new QLineEdit(sec ? QString::fromStdString(sec->name) : GerenciadorTraducao::trText("Nova Seção"), this);
     formLayout->addRow(m_nameLabel, m_nameEdit);
@@ -193,6 +268,11 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::CircularSolid));
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::CircularTube));
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::IShape));
+    m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::BoxRHS));
+    m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::ChannelC));
+    m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::AngleL));
+    m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::TShape));
+    m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::WeldedIShape));
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::Generic));
     if (sec) {
         const int idx = m_shapeCombo->findData(static_cast<int>(sec->shape));
@@ -235,6 +315,22 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dim4Spin->setSingleStep(0.005);
     m_dim4Spin->setValue(sec ? sec->dim4 : 0.01);
     dimLayout->addRow(m_dim4Label, m_dim4Spin);
+
+    m_dim5Label = new QLabel(m_dimGroup);
+    m_dim5Spin = new QDoubleSpinBox(m_dimGroup);
+    m_dim5Spin->setRange(0.001, 20.0);
+    m_dim5Spin->setDecimals(4);
+    m_dim5Spin->setSingleStep(0.05);
+    m_dim5Spin->setValue(sec ? sec->dim5 : 0.165);
+    dimLayout->addRow(m_dim5Label, m_dim5Spin);
+
+    m_dim6Label = new QLabel(m_dimGroup);
+    m_dim6Spin = new QDoubleSpinBox(m_dimGroup);
+    m_dim6Spin->setRange(0.0001, 5.0);
+    m_dim6Spin->setDecimals(4);
+    m_dim6Spin->setSingleStep(0.005);
+    m_dim6Spin->setValue(sec ? sec->dim6 : 0.0102);
+    dimLayout->addRow(m_dim6Label, m_dim6Spin);
 
     mainLayout->addWidget(m_dimGroup);
 
@@ -279,11 +375,14 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
 
     mainLayout->addWidget(m_propGroup);
 
+    connect(m_presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SectionDialog::applyPreset);
     connect(m_shapeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SectionDialog::onShapeChanged);
     connect(m_dim1Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
     connect(m_dim2Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
     connect(m_dim3Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
     connect(m_dim4Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
+    connect(m_dim5Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
+    connect(m_dim6Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
 
     m_btnBox = createOkCancelBox(this);
     mainLayout->addWidget(m_btnBox);
@@ -301,6 +400,25 @@ void SectionDialog::changeEvent(QEvent* event) {
 
 void SectionDialog::retranslateUi() {
     setWindowTitle(GerenciadorTraducao::trText(m_isEditing ? "Editar Seção Transversal" : "Nova Seção Transversal"));
+    m_presetLabel->setText(GerenciadorTraducao::trText("Predefinidos:"));
+
+    m_presetCombo->blockSignals(true);
+    m_presetCombo->setItemText(0, GerenciadorTraducao::trText("Personalizado"));
+    m_presetCombo->setItemText(1, GerenciadorTraducao::trText("Pilar 30x30"));
+    m_presetCombo->setItemText(2, GerenciadorTraducao::trText("Pilar 40x40"));
+    m_presetCombo->setItemText(3, GerenciadorTraducao::trText("Viga 20x50"));
+    m_presetCombo->setItemText(4, GerenciadorTraducao::trText("Viga 25x60"));
+    m_presetCombo->setItemText(5, GerenciadorTraducao::trText("Tubo Circular D200 e10"));
+    m_presetCombo->setItemText(6, GerenciadorTraducao::trText("Tubo Treliça D100 e6"));
+    m_presetCombo->setItemText(7, GerenciadorTraducao::trText("Perfil I W200x35.9"));
+    m_presetCombo->setItemText(8, GerenciadorTraducao::trText("Perfil I W310x79"));
+    m_presetCombo->setItemText(9, GerenciadorTraducao::trText("Caixão RHS 200x100x8"));
+    m_presetCombo->setItemText(10, GerenciadorTraducao::trText("Perfil U C200x20"));
+    m_presetCombo->setItemText(11, GerenciadorTraducao::trText("Cantoneira L 100x100x10"));
+    m_presetCombo->setItemText(12, GerenciadorTraducao::trText("Perfil T 300x150x12x8"));
+    m_presetCombo->setItemText(13, GerenciadorTraducao::trText("Circular Maciça D250"));
+    m_presetCombo->blockSignals(false);
+
     m_nameLabel->setText(GerenciadorTraducao::trText("Nome:"));
     m_shapeLabel->setText(GerenciadorTraducao::trText("Geometria:"));
 
@@ -309,7 +427,12 @@ void SectionDialog::retranslateUi() {
     m_shapeCombo->setItemText(1, GerenciadorTraducao::trText("Circular Sólida"));
     m_shapeCombo->setItemText(2, GerenciadorTraducao::trText("Tubular Circular"));
     m_shapeCombo->setItemText(3, GerenciadorTraducao::trText("Perfil I Simétrico"));
-    m_shapeCombo->setItemText(4, GerenciadorTraducao::trText("Genérica (Manual)"));
+    m_shapeCombo->setItemText(4, GerenciadorTraducao::trText("Tubo Retangular / Caixão (RHS)"));
+    m_shapeCombo->setItemText(5, GerenciadorTraducao::trText("Perfil U / Canal (C)"));
+    m_shapeCombo->setItemText(6, GerenciadorTraducao::trText("Cantoneira (L)"));
+    m_shapeCombo->setItemText(7, GerenciadorTraducao::trText("Perfil T"));
+    m_shapeCombo->setItemText(8, GerenciadorTraducao::trText("Perfil I Soldado (Assimétrico)"));
+    m_shapeCombo->setItemText(9, GerenciadorTraducao::trText("Genérica (Manual)"));
     m_shapeCombo->blockSignals(false);
 
     m_dimGroup->setTitle(GerenciadorTraducao::trText("Dimensões Geométricas"));
@@ -321,6 +444,49 @@ void SectionDialog::retranslateUi() {
 
     updateShapeDimensionUi(static_cast<SectionShape>(m_shapeCombo->currentData().toInt()));
     retranslateOkCancelBox(m_btnBox);
+}
+
+void SectionDialog::applyPreset(int index) {
+    if (index <= 0) return;
+
+    CrossSection preset;
+    switch (index) {
+        case 1:  preset = CrossSection::makeRectangular(0, "Pilar 30x30", 0.30, 0.30); break;
+        case 2:  preset = CrossSection::makeRectangular(0, "Pilar 40x40", 0.40, 0.40); break;
+        case 3:  preset = CrossSection::makeRectangular(0, "Viga 20x50", 0.20, 0.50); break;
+        case 4:  preset = CrossSection::makeRectangular(0, "Viga 25x60", 0.25, 0.60); break;
+        case 5:  preset = CrossSection::makeCircularTube(0, "Tubo Circular D200 e10", 0.20, 0.01); break;
+        case 6:  preset = CrossSection::makeCircularTube(0, "Tubo Treliça D100 e6", 0.10, 0.006); break;
+        case 7:  preset = CrossSection::makeIShape(0, "Perfil I W200x35.9", 0.201, 0.165, 0.0102, 0.0062); break;
+        case 8:  preset = CrossSection::makeIShape(0, "Perfil I W310x79", 0.306, 0.254, 0.0146, 0.0088); break;
+        case 9:  preset = CrossSection::makeBoxRHS(0, "Caixão RHS 200x100x8", 0.20, 0.10, 0.008, 0.008); break;
+        case 10: preset = CrossSection::makeChannelC(0, "Perfil U C200x20", 0.20, 0.075, 0.010, 0.007); break;
+        case 11: preset = CrossSection::makeAngleL(0, "Cantoneira L 100x100x10", 0.10, 0.10, 0.010); break;
+        case 12: preset = CrossSection::makeTShape(0, "Perfil T 300x150x12x8", 0.30, 0.15, 0.012, 0.008); break;
+        case 13: preset = CrossSection::makeCircularSolid(0, "Circular Maciça D250", 0.25); break;
+        default: return;
+    }
+
+    const QSignalBlocker blockShape(m_shapeCombo);
+    const QSignalBlocker blockD1(m_dim1Spin);
+    const QSignalBlocker blockD2(m_dim2Spin);
+    const QSignalBlocker blockD3(m_dim3Spin);
+    const QSignalBlocker blockD4(m_dim4Spin);
+    const QSignalBlocker blockD5(m_dim5Spin);
+    const QSignalBlocker blockD6(m_dim6Spin);
+
+    m_nameEdit->setText(GerenciadorTraducao::trText(preset.name.c_str()));
+    const int shapeIdx = m_shapeCombo->findData(static_cast<int>(preset.shape));
+    if (shapeIdx >= 0) m_shapeCombo->setCurrentIndex(shapeIdx);
+
+    m_dim1Spin->setValue(preset.dim1);
+    m_dim2Spin->setValue(preset.dim2);
+    m_dim3Spin->setValue(preset.dim3);
+    m_dim4Spin->setValue(preset.dim4);
+    m_dim5Spin->setValue(preset.dim5);
+    m_dim6Spin->setValue(preset.dim6);
+
+    onShapeChanged(m_shapeCombo->currentIndex());
 }
 
 void SectionDialog::updateShapeDimensionUi(SectionShape shape) {
@@ -345,30 +511,88 @@ void SectionDialog::updateShapeDimensionUi(SectionShape shape) {
             setVis(m_dim2Label, m_dim2Spin, true, "Altura h (m):");
             setVis(m_dim3Label, m_dim3Spin, false);
             setVis(m_dim4Label, m_dim4Spin, false);
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
             break;
         case SectionShape::CircularSolid:
             setVis(m_dim1Label, m_dim1Spin, true, "Diâmetro D (m):");
             setVis(m_dim2Label, m_dim2Spin, false);
             setVis(m_dim3Label, m_dim3Spin, false);
             setVis(m_dim4Label, m_dim4Spin, false);
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
             break;
         case SectionShape::CircularTube:
             setVis(m_dim1Label, m_dim1Spin, true, "Diâmetro Externo D (m):");
             setVis(m_dim2Label, m_dim2Spin, true, "Espessura t (m):");
             setVis(m_dim3Label, m_dim3Spin, false);
             setVis(m_dim4Label, m_dim4Spin, false);
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
             break;
         case SectionShape::IShape:
             setVis(m_dim1Label, m_dim1Spin, true, "Altura Total h (m):");
             setVis(m_dim2Label, m_dim2Spin, true, "Largura Mesa bf (m):");
             setVis(m_dim3Label, m_dim3Spin, true, "Espessura Mesa tf (m):");
             setVis(m_dim4Label, m_dim4Spin, true, "Espessura Alma tw (m):");
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
+            break;
+        case SectionShape::BoxRHS:
+            setVis(m_dim1Label, m_dim1Spin, true, "Altura Total h (m):");
+            setVis(m_dim2Label, m_dim2Spin, true, "Largura b (m):");
+            setVis(m_dim3Label, m_dim3Spin, true, "Espessura Mesa tf (m):");
+            setVis(m_dim4Label, m_dim4Spin, true, "Espessura Alma tw (m):");
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
+            break;
+        case SectionShape::ChannelC:
+            setVis(m_dim1Label, m_dim1Spin, true, "Altura Total h (m):");
+            setVis(m_dim2Label, m_dim2Spin, true, "Largura Aba bf (m):");
+            setVis(m_dim3Label, m_dim3Spin, true, "Espessura Aba tf (m):");
+            setVis(m_dim4Label, m_dim4Spin, true, "Espessura Alma tw (m):");
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
+            break;
+        case SectionShape::AngleL:
+            setVis(m_dim1Label, m_dim1Spin, true, "Altura Aba h (m):");
+            setVis(m_dim2Label, m_dim2Spin, true, "Largura Aba b (m):");
+            setVis(m_dim3Label, m_dim3Spin, true, "Espessura t (m):");
+            setVis(m_dim4Label, m_dim4Spin, false);
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
+            break;
+        case SectionShape::TShape:
+            setVis(m_dim1Label, m_dim1Spin, true, "Altura Total h (m):");
+            setVis(m_dim2Label, m_dim2Spin, true, "Largura Mesa bf (m):");
+            setVis(m_dim3Label, m_dim3Spin, true, "Espessura Mesa tf (m):");
+            setVis(m_dim4Label, m_dim4Spin, true, "Espessura Alma tw (m):");
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
+            break;
+        case SectionShape::WeldedIShape:
+            setVis(m_dim1Label, m_dim1Spin, true, "Altura Total h (m):");
+            setVis(m_dim2Label, m_dim2Spin, true, "Mesa Sup. bf1 (m):");
+            setVis(m_dim3Label, m_dim3Spin, true, "Esp. Mesa Sup. tf1 (m):");
+            setVis(m_dim4Label, m_dim4Spin, true, "Espessura Alma tw (m):");
+            setVis(m_dim5Label, m_dim5Spin, true, "Mesa Inf. bf2 (m):");
+            setVis(m_dim6Label, m_dim6Spin, true, "Esp. Mesa Inf. tf2 (m):");
             break;
         case SectionShape::Generic:
             setVis(m_dim1Label, m_dim1Spin, false);
             setVis(m_dim2Label, m_dim2Spin, false);
             setVis(m_dim3Label, m_dim3Spin, false);
             setVis(m_dim4Label, m_dim4Spin, false);
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
+            break;
+        default:
+            setVis(m_dim1Label, m_dim1Spin, true, "Dim 1 (m):");
+            setVis(m_dim2Label, m_dim2Spin, true, "Dim 2 (m):");
+            setVis(m_dim3Label, m_dim3Spin, true, "Dim 3 (m):");
+            setVis(m_dim4Label, m_dim4Spin, true, "Dim 4 (m):");
+            setVis(m_dim5Label, m_dim5Spin, false);
+            setVis(m_dim6Label, m_dim6Spin, false);
             break;
     }
 }
@@ -385,7 +609,8 @@ void SectionDialog::updateCalculatedProps() {
 
     CrossSection temp(1, "temp", shape,
                       m_dim1Spin->value(), m_dim2Spin->value(),
-                      m_dim3Spin->value(), m_dim4Spin->value());
+                      m_dim3Spin->value(), m_dim4Spin->value(),
+                      m_dim5Spin->value(), m_dim6Spin->value());
     temp.computeProperties();
 
     m_aSpin->setValue(temp.A);
@@ -403,6 +628,8 @@ CrossSection SectionDialog::getSection(SectionId id) const {
     sec.dim2 = m_dim2Spin->value();
     sec.dim3 = m_dim3Spin->value();
     sec.dim4 = m_dim4Spin->value();
+    sec.dim5 = m_dim5Spin->value();
+    sec.dim6 = m_dim6Spin->value();
 
     if (sec.shape == SectionShape::Generic) {
         sec.A = m_aSpin->value();
@@ -1077,6 +1304,25 @@ void showCatalogWarning(WindowZOrderManager* wm, const QString& title, const QSt
     }
 }
 
+void prepareAndShowSubDialog(QDialog* subDlg, QWidget* ownerCatalog, WindowZOrderManager* wm) {
+    if (!subDlg) return;
+    if (wm) {
+        wm->prepareModelessDialog(subDlg, false, true);
+        if (ownerCatalog) {
+            QPointer<QWidget> ownerPtr(ownerCatalog);
+            QObject::connect(subDlg, &QDialog::finished, ownerCatalog, [wm, ownerPtr](int) {
+                if (ownerPtr && ownerPtr->isVisible()) {
+                    wm->showAndRaise(ownerPtr.data());
+                }
+            }, Qt::QueuedConnection);
+        }
+        wm->showAndRaise(subDlg);
+    } else {
+        subDlg->setAttribute(Qt::WA_DeleteOnClose);
+        subDlg->show();
+    }
+}
+
 } // namespace
 
 // ==========================================
@@ -1176,11 +1422,6 @@ void MaterialCatalogDialog::onNewMaterial() {
     }
     auto* dlg = new MaterialDialog(nullptr, nullptr);
     m_editorDialog = dlg;
-    if (m_windowManager) {
-        m_windowManager->prepareModelessDialog(dlg, false, true);
-    } else {
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-    }
     connect(dlg, &QDialog::accepted, this, [this, ptr = QPointer<MaterialDialog>(dlg)]() {
         if (!ptr || !m_model) return;
         Material mat = ptr->getMaterial();
@@ -1198,8 +1439,7 @@ void MaterialCatalogDialog::onNewMaterial() {
         }
         if (m_onModelEdited) m_onModelEdited();
     });
-    if (m_windowManager) m_windowManager->showAndRaise(dlg);
-    else dlg->show();
+    prepareAndShowSubDialog(dlg, this, m_windowManager);
 }
 
 void MaterialCatalogDialog::onEditMaterial() {
@@ -1213,11 +1453,6 @@ void MaterialCatalogDialog::onEditMaterial() {
     }
     auto* dlg = new MaterialDialog(nullptr, currentMat);
     m_editorDialog = dlg;
-    if (m_windowManager) {
-        m_windowManager->prepareModelessDialog(dlg, false, true);
-    } else {
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-    }
     connect(dlg, &QDialog::accepted, this, [this, mid, ptr = QPointer<MaterialDialog>(dlg)]() {
         if (!ptr || !m_model) return;
         Material* target = m_model->findMaterial(mid);
@@ -1227,8 +1462,7 @@ void MaterialCatalogDialog::onEditMaterial() {
         refreshList();
         if (m_onModelEdited) m_onModelEdited();
     });
-    if (m_windowManager) m_windowManager->showAndRaise(dlg);
-    else dlg->show();
+    prepareAndShowSubDialog(dlg, this, m_windowManager);
 }
 
 void MaterialCatalogDialog::onDeleteMaterial() {
@@ -1364,11 +1598,6 @@ void SectionCatalogDialog::onNewSection() {
     }
     auto* dlg = new SectionDialog(nullptr, nullptr);
     m_editorDialog = dlg;
-    if (m_windowManager) {
-        m_windowManager->prepareModelessDialog(dlg, false, true);
-    } else {
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-    }
     connect(dlg, &QDialog::accepted, this, [this, ptr = QPointer<SectionDialog>(dlg)]() {
         if (!ptr || !m_model) return;
         CrossSection sec = ptr->getSection();
@@ -1386,8 +1615,7 @@ void SectionCatalogDialog::onNewSection() {
         }
         if (m_onModelEdited) m_onModelEdited();
     });
-    if (m_windowManager) m_windowManager->showAndRaise(dlg);
-    else dlg->show();
+    prepareAndShowSubDialog(dlg, this, m_windowManager);
 }
 
 void SectionCatalogDialog::onEditSection() {
@@ -1401,11 +1629,6 @@ void SectionCatalogDialog::onEditSection() {
     }
     auto* dlg = new SectionDialog(nullptr, currentSec);
     m_editorDialog = dlg;
-    if (m_windowManager) {
-        m_windowManager->prepareModelessDialog(dlg, false, true);
-    } else {
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-    }
     connect(dlg, &QDialog::accepted, this, [this, sid, ptr = QPointer<SectionDialog>(dlg)]() {
         if (!ptr || !m_model) return;
         CrossSection* target = m_model->findCrossSection(sid);
@@ -1415,8 +1638,7 @@ void SectionCatalogDialog::onEditSection() {
         refreshList();
         if (m_onModelEdited) m_onModelEdited();
     });
-    if (m_windowManager) m_windowManager->showAndRaise(dlg);
-    else dlg->show();
+    prepareAndShowSubDialog(dlg, this, m_windowManager);
 }
 
 void SectionCatalogDialog::onDeleteSection() {

@@ -1,4 +1,35 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.14.0
+Data: 14 de novembro de 2026
+
+Destaques da Versão 2026.11.14.0:
+
+1. Nova Sessão Guiada Interativa (Ajuda > Sessão Guiada... ou tecla F2)
+- Apresenta uma demonstração automática passo a passo de todas as funcionalidades do aplicativo a partir de qualquer um dos três exemplos prontos de estrutura, com escolha de ritmo de leitura adequado a leitores fluentes, leitura técnica em engenharia, leitura em voz alta ou modo acessível para dislexia.
+- Durante a execução, cada botão, menu ou campo utilizado recebe destaque visual sincronizado com um balão explicativo unificado e adaptado ao tema e ao idioma ativos, posicionado de forma a não cobrir as janelas abertas e com duração ajustada proporcionalmente ao tamanho do texto.
+- Ao terminar ou fechar a Sessão Guiada, o exemplo selecionado é restaurado automaticamente para o seu estado inicial.
+
+2. Experiência de Janelas Mais Ágil e Confortável
+- Todos os diálogos de engenharia agora abrem diretamente com um único clique, eliminando cliques repetidos e flashes de janelas vazias na tela.
+- As janelas filhas passam a funcionar de modo contínuo ao lado da tela 3D principal, mantendo a ordem natural de sobreposição na tela ao alternar cliques sem esconder janelas úteis para trás da interface principal nem travar o restante do programa.
+
+3. Inspetor Lateral Aprimorado e Reedição Livre dos Exemplos
+- As listas suspensas "Material:" e "Seção Transversal:" no quadro "Elemento / Nó Selecionado" passam a abrir e aplicar alterações normalmente, exibindo apenas os nomes limpos dos materiais e perfis, sem códigos numéricos com hashtag.
+- Agora é possível editar livremente, alterar materiais, seções, apoios, cargas, combinações, rotular barras e recalcular qualquer um dos três exemplos integrados como exercício prático antes de aplicar em projetos reais, com suporte completo a Desfazer (Ctrl+Z) e Refazer (Ctrl+Y) e seleção em lote por "Mesmo Material" e "Mesma Seção".
+
+4. Recursos Avançados de Engenharia, Análises e Relatórios
+- Ampliação dos recursos estruturais com cargas térmicas, assistente de combinações de ações e ações normativas (incluindo carga permanente, acidental, vento e recomendações ABNT NBR), gerador paramétrico de malhas para barras, placas/cascas e sólidos 3D, plástico J2 e elementos de cisalhamento/corrotacionais.
+- Nova suíte de análises avançadas cobrindo análise estática, flambagem, análise modal, resposta harmônica, espectro de resposta sísmica, efeitos de segunda ordem P-Delta e não linearidade material e geométrica.
+- Pós-processamento visual em 3D com planos de corte, mapa de calor de aproveitamento (DCR), animação de deformada e modos de vibração, além de painel de auditoria normativa ABNT NBR.
+- Exportação ampliada com criação de memorial executivo em PDF A4 e importação/exportação em formatos abertos de CAD (DXF) e BIM (IFC4), acompanhada da ferramenta de linha de comando omniframe-cli integrada aos pacotes distribuídos.
+
+5. Tradução Dinâmica, Temas e Documentação Atualizada
+- Todas as novas janelas, rótulos, balões explicativos e controles acompanham em tempo real a troca de idioma (Português e Inglês) e a troca de tema visual (Claro, Escuro e Alto Contraste).
+- Manual de Operações (F1) e textos de ajuda atualizados em Português e Inglês com instruções detalhadas para cada novo recurso.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versao: 2026.11.13.0
 Data: 13 de novembro de 2026
 

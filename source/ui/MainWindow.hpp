@@ -17,22 +17,33 @@
 #include <QLineEdit>
 #include <QDockWidget>
 #include <QPointer>
+#include <QThread>
 #include <QVBoxLayout>
+#include <cstdint>
+#include <unordered_map>
 
 class QCloseEvent;
 class QEvent;
 class QGroupBox;
 class QMenu;
+class QProgressBar;
 class QPushButton;
 class QToolBar;
 
 namespace omniframe {
 
 class AboutDialog;
+class AnalysisSuiteDialog;
 class DistributedLoadDialog;
+class GuidedSessionDialog;
+class LoadCombinationsDialog;
 class MaterialCatalogDialog;
 class MaterialDialog;
+class MeshGeneratorDialog;
+class NbrComplianceDialog;
 class NodalLoadDialog;
+class PdfReportOptionsDialog;
+class PostProcessControlDialog;
 class ReleasesDialog;
 class RenderSettingsDialog;
 class RollAngleDialog;
@@ -48,6 +59,7 @@ class ManualDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
+    friend class GuidedSessionDialog;
 
 public:
     explicit MainWindow(QWidget* parent = nullptr);
@@ -58,12 +70,18 @@ public:
     void loadExampleSpaceTruss();
 
     WindowZOrderManager* windowZOrderManager() const { return m_windowManager; }
+    GuidedSessionDialog* guidedSessionDialog() const;
 
 private slots:
     // Ações de Arquivo
     void onNewProject();
     void onOpenProject();
     void onSaveProject();
+    void onImportDxf();
+    void onExportDxf();
+    void onImportIfc();
+    void onExportIfc();
+    void onExportPdfReport();
     void onExportHtmlReport();
     void onExportMarkdownReport();
 
@@ -72,6 +90,13 @@ private slots:
     void onRedo();
     void onAutoRecalculateToggled(bool checked);
     void onSolveStructure();
+
+    // Ferramentas Avançadas de Engenharia e Pós-Processamento
+    void onOpenLoadCombinations();
+    void onOpenMeshGenerator();
+    void onOpenAnalysisSuite();
+    void onOpenPostControls();
+    void onOpenNbrCompliance();
 
     // Ferramentas e Modos
     void onInteractionModeChanged(QAction* action);
@@ -105,6 +130,7 @@ private slots:
     void updateCursorCoordinates(double x, double y, double z);
     void showStatusMessage(const QString& msg);
     void onManual();
+    void onGuidedSession();
     void onAbout();
     void onApplyRenderPreset(QualityPreset preset);
     void onOpenRenderSettingsDialog();
@@ -122,6 +148,8 @@ private:
     void syncThemeMenuState();
     void refreshReactionSummaryRowTheme();
     bool runSolver(bool interactive);
+    bool ensureStaticSolvedSync();
+    std::unordered_map<ElementId, double> computeModelDcrMap() const;
     void updateUndoRedoActions();
     void setupMenus();
     void applyAndSaveRenderSettings(const RenderQualitySettings& settings);
@@ -188,6 +216,11 @@ private:
     QAction* m_actNewProject = nullptr;
     QAction* m_actOpenProject = nullptr;
     QAction* m_actSaveProject = nullptr;
+    QAction* m_actImportDxf = nullptr;
+    QAction* m_actExportDxf = nullptr;
+    QAction* m_actImportIfc = nullptr;
+    QAction* m_actExportIfc = nullptr;
+    QAction* m_actExportPdf = nullptr;
     QAction* m_actExportHtml = nullptr;
     QAction* m_actExportMd = nullptr;
     QAction* m_actQuit = nullptr;
@@ -204,6 +237,11 @@ private:
     QAction* m_actDistLoads = nullptr;
     QAction* m_actThermalLoads = nullptr;
     QAction* m_actRollAngle = nullptr;
+    QAction* m_actLoadCombos = nullptr;
+    QAction* m_actMeshGen = nullptr;
+    QAction* m_actAnalysisSuite = nullptr;
+    QAction* m_actPostControls = nullptr;
+    QAction* m_actNbrAudit = nullptr;
     QAction* m_actAutoRecalc = nullptr;
     QAction* m_actSolveMenu = nullptr;
     QAction* m_actViewIsoMenu = nullptr;
@@ -212,11 +250,13 @@ private:
     QAction* m_actViewSideMenu = nullptr;
     QAction* m_actViewFitMenu = nullptr;
     QAction* m_actManual = nullptr;
+    QAction* m_actGuidedSession = nullptr;
     QAction* m_actAbout = nullptr;
 
     WindowZOrderManager* m_windowManager = nullptr;
     RenderQualitySettings m_renderSettingsSnapshot;
     QPointer<ui::ManualDialog> m_manualDialog;
+    QPointer<GuidedSessionDialog> m_guidedSessionDialog;
     QPointer<AboutDialog> m_aboutDialog;
     QPointer<RenderSettingsDialog> m_renderSettingsDialog;
     QPointer<MaterialCatalogDialog> m_materialCatalogDialog;
@@ -227,6 +267,12 @@ private:
     QPointer<DistributedLoadDialog> m_distLoadDialog;
     QPointer<ThermalLoadDialog> m_thermalLoadDialog;
     QPointer<RollAngleDialog> m_rollAngleDialog;
+    QPointer<AnalysisSuiteDialog> m_analysisSuiteDialog;
+    QPointer<LoadCombinationsDialog> m_loadCombinationsDialog;
+    QPointer<MeshGeneratorDialog> m_meshGeneratorDialog;
+    QPointer<PostProcessControlDialog> m_postProcessControlDialog;
+    QPointer<NbrComplianceDialog> m_nbrComplianceDialog;
+    QPointer<PdfReportOptionsDialog> m_pdfOptionsDialog;
 
     // Ações do menu Configurações (Resolução, Qualidade, Plano Ativo e Idioma)
     QActionGroup* m_presetActionGroup = nullptr;
@@ -292,6 +338,11 @@ private:
     QAction* m_actTbDistLoads = nullptr;
     QAction* m_actTbThermalLoads = nullptr;
     QAction* m_actTbRollAngle = nullptr;
+    QAction* m_actTbCombos = nullptr;
+    QAction* m_actTbMesh = nullptr;
+    QAction* m_actTbAdvAnalysis = nullptr;
+    QAction* m_actTbPostCtrl = nullptr;
+    QAction* m_actTbNbrAudit = nullptr;
     QAction* m_actViewIsoTb = nullptr;
     QAction* m_actViewFrontTb = nullptr;
     QAction* m_actViewTopTb = nullptr;
@@ -314,6 +365,12 @@ private:
     QLabel* m_cursorCoordLabel = nullptr;
     QLabel* m_modelStatsLabel = nullptr;
     QLabel* m_solverStatusLabel = nullptr;
+    QProgressBar* m_statusProgress = nullptr;
+    bool m_solveInProgress = false;
+    std::uint64_t m_modelRevision = 0;
+    bool m_pendingResolve = false;
+    bool m_pendingResolveInteractive = false;
+    QPointer<QThread> m_activeSolverThread;
 };
 
 } // namespace omniframe
