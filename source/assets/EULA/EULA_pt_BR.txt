@@ -1,5 +1,5 @@
 LICENÇA DE USO DE USUÁRIO FINAL (EULA) — OmniFrame 3D
-Versao 2026.11.20.0, 20 de novembro de 2026
+Versão 2026.11.21.0, 21 de novembro de 2026
 
 Copyright (c) 2025-2026 Fernando Nillsson Cidade. Todos os direitos reservados.
 
@@ -18,7 +18,7 @@ TERMOS E CONDIÇÕES:
    "Licenciado" ou "você": Pessoa física ou jurídica que obteve o pacote oficial na Microsoft Store ou canal autorizado.
 
 2. CONCESSÃO DE LICENÇA E DESINSTALAÇÃO LIMPA
-   O Licenciador concede licença gratuita, pessoal, não exclusiva, intransferível e revogável para instalar e executar o Software em dispositivos Windows compatíveis para modelagem geométrica, análise por elementos finitos (FEA), verificação estrutural e visualização científica 3D.
+   O Licenciador concede licença gratuita, pessoal, não exclusiva, intransferível e revogável para instalar e executar o Software em dispositivos Windows compatíveis conforme lhe convir, na qualidade de aplicativo gratuito destinado a servir como ferramenta auxiliar — para fins educacionais, acadêmicos, de estudo, pesquisa, visualização científica 3D e comparação de resultados em análise estrutural por elementos finitos (FEA) — e não como ferramenta definitiva ou final de produção.
    O Usuário tem o direito garantido de desinstalar e remover o Software de maneira limpa a qualquer momento pelas Configurações do Windows ou Menu Iniciar, sem deixar serviços ou processos ocultos em execução.
 
 3. RESTRIÇÕES SOBRE O PACOTE OFICIAL
@@ -28,12 +28,15 @@ TERMOS E CONDIÇÕES:
    c) Utilizar o Software para finalidades ilícitas.
 
 4. PROPRIEDADE INTELECTUAL
-   O pacote oficial é licenciado, não vendido, protegido pela Lei nº 9.609/1998, Lei nº 9.610/1998 e tratados internacionais. Componentes de terceiros (Qt 6 sob LGPLv3, Eigen 3.4.0 sob MPL 2.0, Khronos OpenGL) mantêm suas respectivas licenças em NOTICES/ e LICENSES/.
+   O pacote oficial é licenciado, não vendido, protegido pela Lei nº 9.609/1998, pela Lei nº 9.610/1998 e por tratados internacionais. Componentes de terceiros (Qt 6 sob LGPLv3, Eigen 3.4.0 sob MPL 2.0, Khronos OpenGL) mantêm suas respectivas licenças em NOTICES/ e LICENSES/.
 
-5. RESPONSABILIDADE TÉCNICA EM ENGENHARIA ESTRUTURAL
-   a) O Software é ferramenta auxiliar de cálculo elástico linear destinada a engenheiros, arquitetos, pesquisadores e estudantes qualificados.
-   b) A verificação de modelos, combinação normativa (ABNT NBR, AISC, Eurocode), interpretação de esforços e responsabilidade técnica pelo projeto executivo incumbem exclusivamente ao profissional habilitado responsável.
-   c) O Licenciador não assume responsabilidade civil, criminal ou técnica por colapsos, patologias ou danos decorrentes de estruturas calculadas ou executadas com auxílio dos resultados gerados.
+5. ESCOPO TÉCNICO, USO LIVRE COMO FERRAMENTA AUXILIAR, LIMITAÇÕES DE MATURIDADE E RESPONSABILIDADE PROFISSIONAL
+   a) Liberdade de uso gratuito como ferramenta auxiliar: Por se tratar de um aplicativo gratuito, o usuário pode utilizar o OmniFrame 3D conforme lhe convir como ferramenta computacional auxiliar de análise estrutural matricial por Elementos Finitos (estática linear, modal, flambagem, harmônica, espectro de resposta, segunda ordem P-Delta/corrotacional e plasticidade J2), especialmente para auxílio educacional, ensino, pesquisa acadêmica e comparação de resultados, mas NÃO como ferramenta definitiva ou final.
+   b) Imaturidade para uso definitivo e conferência obrigatória: Este aplicativo ainda não está maduro o suficiente para ser uma ferramenta definitiva levada para produção ou uso profissional, razão pela qual NUNCA, JAMAIS deve ser utilizado única e exclusivamente como base de dimensionamento definitivo, projeto executivo ou obra real. O usuário deve sempre utilizar outras ferramentas mais consolidadas no mercado ou conferir manualmente os resultados obtidos pelo aplicativo.
+   c) Limitações, falhas humanas e risco de erros graves na programação: Devido às limitações do projeto, a falhas humanas e a eventuais erros no desenvolvimento do código-fonte, o Software pode conter erros graves no código, na lógica dos algoritmos, na formulação matemática e na física estrutural aplicadas na programação, além de aproximações numéricas e limitações frente a comportamentos não lineares, instabilidades e prescrições normativas.
+   d) Não substituição de verificações completas e de profissional habilitado: Os resultados gerados (deslocamentos, reações de apoio, diagramas de esforços, tensões, fatores de flambagem e auxiliares normativos) NÃO substituem verificações completas em estados limites últimos e de serviço (ELU/ELS), efeitos de segunda ordem (P-Delta e P-delta), instabilidades globais ou locais, combinações normativas específicas (ABNT NBR 8800, NBR 6118, NBR 6120, NBR 6122, NBR 6123, NBR 7480, NBR 8681, NBR 15421, AISC 360-22, Eurocode 3), conferência independente e supervisão formal de profissional legalmente habilitado.
+   e) Embasamento legal da responsabilidade técnica: No Brasil, a elaboração, conferência e responsabilização por projetos e obras estruturais são atribuições privativas de profissionais legalmente habilitados, com emissão obrigatória de ART perante o CREA (Lei nº 5.194/1966 e Lei nº 6.496/1977) ou RRT perante o CAU (Lei nº 12.378/2010), observadas as normas técnicas da ABNT (art. 39, VIII, do Código de Defesa do Consumidor — Lei nº 8.078/1990), recaindo exclusivamente sobre o usuário e o responsável técnico eventual responsabilidade civil por danos e pela solidez e segurança da obra (arts. 186, 618 e 927 do Código Civil — Lei nº 10.406/2002) e eventual responsabilidade penal em caso de perigo ou sinistro estrutural (art. 256 do Código Penal — Decreto-Lei nº 2.848/1940), aplicando-se normas profissionais equivalentes em outras jurisdições.
+   f) Responsabilidade exclusiva do usuário pelas consequências e isenção integral do Licenciador: Caso o usuário decida utilizar exclusivamente este aplicativo como ferramenta definitiva de produção ou para uso profissional, na análise estrutural e no dimensionamento de estruturas, todas as consequências técnicas, civis, administrativas e penais decorrentes dessa escolha serão de sua inteira e exclusiva responsabilidade, tendo em vista os avisos e alertas expressos acerca de possíveis falhas no código-fonte — abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar erros —, permanecendo o Licenciador integralmente isento, na extensão máxima permitida em lei, por erros de cálculo, falhas, colapsos, patologias, prejuízos financeiros, danos materiais ou danos pessoais.
 
 6. PRIVACIDADE E SOBERANIA LOCAL DOS DADOS
    O OmniFrame 3D opera 100% offline, sem telemetria e sem nuvem. Projetos são salvos localmente no formato aberto .omniframe (JSON) e relatórios exportáveis em HTML e Markdown, regidos pela Política de Privacidade própria do Software (PRIVACY_POLICY).
@@ -45,10 +48,10 @@ TERMOS E CONDIÇÕES:
    Esta licença vigora até rescisão pelo usuário (mediante desinstalação) ou automática por violação de suas cláusulas.
 
 9. ISENÇÃO DE GARANTIAS ("AS IS")
-   Na extensão máxima permitida em lei, o Software é fornecido "NO ESTADO EM QUE SE ENCONTRA" ("AS IS"), "COM TODAS AS SUAS FALHAS", sem garantias implícitas de comercialização, operação ininterrupta ou adequação a um propósito específico.
+   Na extensão máxima permitida em lei (e em harmonia com as Seções 15 e 16 da GNU AGPLv3 e a Lei nº 9.609/1998), o Software é fornecido "NO ESTADO EM QUE SE ENCONTRA" ("AS IS"), "COM TODAS AS SUAS FALHAS", sem garantias explícitas ou implícitas de exatidão matemática ou física, maturidade para produção, ausência de falhas humanas ou erros graves no código-fonte ou nos algoritmos, comercialização, operação ininterrupta ou adequação a uso profissional ou em produção.
 
 10. LIMITAÇÃO DE RESPONSABILIDADE
-    Na extensão máxima permitida pela legislação imperativa, o Licenciador não responde por lucros cessantes, perdas indiretas, danos incidentais ou consequenciais decorrentes do uso ou impossibilidade de uso do Software.
+    Na extensão máxima permitida pela legislação imperativa, o Licenciador não responde por lucros cessantes, colapsos estruturais, perdas indiretas, danos materiais, pessoais, incidentais ou consequenciais decorrentes do uso, uso como ferramenta definitiva em produção, confiança nos resultados ou impossibilidade de uso do Software.
 
 11. LEGISLAÇÃO APLICÁVEL
     Este contrato observa as leis da República Federativa do Brasil e normas imperativas de proteção ao consumidor vigentes na jurisdição do usuário.

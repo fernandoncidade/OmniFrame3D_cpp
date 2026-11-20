@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Licenciamento, Termos de Código Aberto e Esclarecimento Comercial
 
-**Versão:** `2026.11.20.0`  
-**Data:** `20 de novembro de 2026`  
+**Versão:** `2026.11.21.0`  
+**Data:** `21 de novembro de 2026`  
 **Licença do Código-Fonte:** GNU Affero General Public License v3 (AGPLv3)  
 **Autor e Detentor dos Direitos Autorais:** Fernando Nillsson Cidade  
 
@@ -23,7 +23,7 @@
 
 ## 1. Visão Geral do Modelo de Duplo Licenciamento
 
-O **OmniFrame 3D** adota um modelo aberto transparente que concilia a liberdade do ecossistema de software livre copyleft forte com a distribuição corporativa oficial e homologada:
+O **OmniFrame 3D** adota um modelo aberto transparente que concilia a liberdade do ecossistema de software livre copyleft forte com a distribuição oficial assinada na Microsoft Store:
 
 | Componente | Licença | Usos Permitidos |
 |---|---|---|
@@ -96,7 +96,15 @@ Este checklist resume o mapeamento documental exigido pelas diretrizes oficiais 
   > `© 2025-2026 Fernando Nillsson Cidade. Código-fonte aberto sob GNU AGPLv3; pacote oficial Microsoft Store sob EULA do autor. Qt (LGPLv3) e Eigen (MPL 2.0).` *(151 caracteres)*
 
 - **Sugestão de Palavras-chave (`pt-BR`, até 7 termos — Política 10.1.3):**
-  `Analise Estrutural`, `Elementos Finitos`, `FEA 3D`, `Porticos Espaciais`, `Trelicas 3D`, `Engenharia Civil`, `OpenGL`
+  `Análise Estrutural`, `Elementos Finitos`, `FEA 3D`, `Pórticos Espaciais`, `Treliças 3D`, `Engenharia Civil`, `OpenGL`
+
+---
+
+## 6. Escopo Auxiliar Gratuito, Limitações de Maturidade e Isenção Legal ("AS IS")
+
+1. **Uso Livre como Ferramenta Auxiliar:** Por se tratar de um aplicativo gratuito, o usuário pode utilizar o **OmniFrame 3D** conforme lhe convir como **ferramenta computacional auxiliar** (para auxílio educacional, acadêmico, pesquisa e comparação de resultados), e **não como ferramenta definitiva ou final**.
+2. **Imaturidade para Produção e Conferência Obrigatória:** Este aplicativo **ainda não está maduro o suficiente para ser levado para produção ou uso profissional definitivo**, pois, devido às suas limitações, falhas humanas e eventuais erros no desenvolvimento do código-fonte, pode conter erros graves no código, abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas. **O usuário deve sempre utilizar outras ferramentas mais consolidadas no mercado ou conferir manualmente todos os resultados obtidos.**
+3. **Responsabilidade Exclusiva, Não Substituição e Embasamento Legal ("AS IS"):** O software é fornecido **"NO ESTADO EM QUE SE ENCONTRA" ("AS IS")**, com todas as suas falhas e sem garantias explícitas ou implícitas ([EULA Oficial](../source/assets/EULA/EULA_pt_BR.txt), Lei nº 9.609/1998 e Seções 15–16 da [GNU AGPLv3](../LICENSE), preservados os direitos irrenunciáveis da legislação consumerista aplicável). Caso o usuário decida utilizar exclusivamente este aplicativo como ferramenta definitiva de produção ou para uso profissional, na análise estrutural e no dimensionamento de estruturas, **todas as consequências serão de sua inteira e exclusiva responsabilidade**, não substituindo verificações completas em ELU/ELS (`ABNT NBR`, `AISC 360-22`, `Eurocode 3`) nem profissional legalmente habilitado com **ART/RRT** perante o **CREA/CAU** (**Leis nº 5.194/1966, nº 6.496/1977 e nº 12.378/2010**; **CDC, Lei nº 8.078/1990, art. 39, VIII**; **Código Civil, Lei nº 10.406/2002, arts. 186, 618 e 927**; **Código Penal, Decreto-Lei nº 2.848/1940, art. 256**), com integral isenção civil, criminal, administrativa e técnica do autor na extensão máxima permitida em lei.
 
 </details>
 
@@ -109,8 +117,8 @@ Este checklist resume o mapeamento documental exigido pelas diretrizes oficiais 
 
 # OmniFrame 3D — Licensing, Open Source Terms & Commercial Clarification
 
-**Version:** `2026.11.20.0`  
-**Date:** `November 20, 2026`  
+**Version:** `2026.11.21.0`  
+**Date:** `November 21, 2026`  
 **Source Code License:** GNU Affero General Public License v3 (AGPLv3)  
 **Author and Copyright Holder:** Fernando Nillsson Cidade  
 
@@ -162,7 +170,7 @@ Institutional and regulatory documentation maintained in `source/assets/` (`ABOU
 Dual licensing draws a clear legal boundary between two distribution paths:
 
 1. **Independent Builds from Source:** Any individual or organization holds the irrevocable right to clone the repository, inspect every calculation routine, compile with MSVC or MinGW, and run locally. Redistributing modified versions or offering the software as a network service requires supplying the corresponding source code under GNU AGPLv3.
-2. **Official Microsoft Store Binary Package:** The MSIX package compiled, digitally signed, and published by the author on the official store is distributed free of charge under the author's [Official EULA](../source/assets/EULA/EULA_en_US.txt) for engineers and students seeking 1-click installation, clean uninstallation (Policy 10.2.7), and Microsoft Store-managed updates. The EULA operates in compliance with Microsoft Store Standard Application License Terms; third parties are not authorized to republish that official signed binary as their own paid commercial product.
+2. **Official Microsoft Store Binary Package:** The MSIX package compiled, digitally signed, and published by the author on the official store is distributed free of charge under the author's [Official EULA](../source/assets/EULA/EULA_en_US.txt) for engineers and students seeking 1-click installation, clean uninstallation (Policy 10.2.7), and Microsoft Store-managed updates. The EULA operates in compliance with the Microsoft Store Standard Application License Terms; third parties are not authorized to republish that official signed binary as their own paid commercial product.
 
 ---
 
@@ -191,6 +199,14 @@ This checklist summarizes the documentation mapping required by official Microso
   > `© 2025-2026 Fernando Nillsson Cidade. Open source under GNU AGPLv3; official Microsoft Store binary under author EULA. Qt (LGPLv3), Eigen (MPL 2.0).` *(148 chars)*
 
 - **Suggested Keywords (`en-US`, up to 7 terms — Policy 10.1.3):**
-  `Structural Analysis`, `Finite Element Analysis`, `3D FEA`, `Space Frame`, `3D Truss`, `Civil Engineering`, `Euler Bernoulli`
+  `Structural Analysis`, `Finite Element Analysis`, `3D FEA`, `Space Frame`, `3D Truss`, `Civil Engineering`, `Euler-Bernoulli`
+
+---
+
+## 6. Free Auxiliary Scope, Maturity Limitations & Legal Disclaimer ("AS IS")
+
+1. **Free Use as an Auxiliary Tool:** Because **OmniFrame 3D** is a free application, the user may use it as they see fit as an **auxiliary computational tool** (for educational assistance, academic study, research, and result comparison), and **not as a definitive or final tool**.
+2. **Production Immaturity and Mandatory Verification:** This application **is not yet mature enough to be taken to production or definitive professional use** because, due to its limitations, human flaws, and possible defects during source-code development, it may contain serious errors in its source code — encompassing both the applied mathematics and the underlying physics, as a result of which its algorithms may produce errors. **The user must always use other, more established tools in the market or manually verify all obtained results.**
+3. **Sole Responsibility, Non-Replacement, and Legal Grounding ("AS IS"):** The software is supplied **"AS IS"**, with all faults and without express or implied warranties ([Official EULA](../source/assets/EULA/EULA_en_US.txt), Brazilian Law No. 9.609/1998, and [GNU AGPLv3](../LICENSE) Sections 15–16, preserving non-waivable statutory consumer rights where applicable). Should the user decide to rely exclusively on this application as a definitive tool for production or professional use in structural analysis and design, **all resulting consequences shall be the user's sole and entire responsibility**, and outputs do not replace complete ULS/SLS verifications (`ABNT NBR`, `AISC 360-22`, `Eurocode 3`) or oversight by a legally licensed engineer issuing **ART/RRT** before **CREA/CAU** (**Brazilian Laws No. 5.194/1966, No. 6.496/1977, and No. 12.378/2010**; **Consumer Defense Code, Law No. 8.078/1990, Art. 39, VIII**; **Civil Code, Law No. 10.406/2002, Arts. 186, 618, and 927**; **Penal Code, Decree-Law No. 2.848/1940, Art. 256**; or equivalent PE/CEng licensure in other jurisdictions), with complete civil, criminal, administrative, and technical exemption of the author to the maximum extent permitted by applicable law.
 
 </details>

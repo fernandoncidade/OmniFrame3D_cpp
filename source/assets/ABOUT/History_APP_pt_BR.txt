@@ -1,33 +1,36 @@
 HISTÓRICO DO DESENVOLVIMENTO DO OMNIFRAME 3D
 ===============================================
 
-1. Origem e Motivacao do Projeto:
-O OmniFrame 3D nasceu da necessidade de disponibilizar uma plataforma educacional e profissional de analise estrutural tridimensional por elementos finitos que fosse verdadeiramente aberta, transparente e desprovida de licencas proprietarias onerosas, dependencias de nuvem ou restricoes artificiais de nos e elementos. Enquanto muitas suites comerciais fecham seus calculos em caixas-pretas inacessiveis ou forcam assinaturas recorrentes com telemetria invasiva, o OmniFrame 3D foi concebido sob a premissa de clareza matematica e soberania total do usuario (Local-First).
+1. Origem e Motivação do Projeto:
+O OmniFrame 3D nasceu da necessidade de disponibilizar uma plataforma educacional, acadêmica e auxiliar para comparação de resultados em análise estrutural tridimensional por elementos finitos que fosse verdadeiramente aberta, transparente e desprovida de licenças proprietárias onerosas, dependências de nuvem ou restrições artificiais de nós e elementos. Enquanto muitas suítes comerciais fecham seus cálculos em caixas-pretas inacessíveis ou forçam assinaturas recorrentes com telemetria invasiva, o OmniFrame 3D foi concebido sob a premissa de clareza matemática e soberania total do usuário (Local-First).
 
-2. Marcos Arquiteturais e Evolucao Tecnologica:
+2. Marcos Arquiteturais e Evolução Tecnológica:
 
-Fase 1 - Fundamentos e Mecanica Estrutural:
-- Formulacao analitica do elemento espacial de Euler-Bernoulli com 12 graus de liberdade.
-- Deducoes rigorosas da matriz de rigidez local 12x12 e das matrizes ortonormais de rotacao espacial 3D com angulo de roll (psi).
-- Integracao da biblioteca Eigen 3.4.0 para operacoes matriciais e resolucao de sistemas lineares simetricos e definidos positivos.
+Fase 1 - Fundamentos e Mecânica Estrutural:
+- Formulação analítica do elemento espacial de Euler-Bernoulli com 12 graus de liberdade.
+- Deduções rigorosas da matriz de rigidez local 12x12 e das matrizes ortonormais de rotação espacial 3D com ângulo de roll (psi).
+- Integração da biblioteca Eigen 3.4.0 para operações matriciais e resolução de sistemas lineares simétricos e definidos positivos.
 
-Fase 2 - Solver Esparso e Condicoes de Contorno:
-- Implementacao da montagem da matriz de rigidez global K no formato esparso Compressed Column Storage (CCS / Eigen SparseMatrix).
-- Aplicacao estrita de condicoes de contorno com suporte a engastes perfeitos, apoios fixos e moveis, molas elasticas e liberacoes parciais nas extremidades.
-- Incorporacao do solver direto esparso SimplicialLDLT de Cholesky, proporcionando alta velocidade e eficiencia de memoria para modelos estruturais de grande porte.
+Fase 2 - Solver Esparso e Condições de Contorno:
+- Implementação da montagem da matriz de rigidez global K no formato esparso Compressed Column Storage (CCS / Eigen SparseMatrix).
+- Aplicação estrita de condições de contorno com suporte a engastes perfeitos, apoios fixos e móveis, molas elásticas e liberações parciais nas extremidades.
+- Incorporação do solver direto esparso SimplicialLDLT de Cholesky, proporcionando alta velocidade e eficiência de memória para modelos estruturais de grande porte.
 
-Fase 3 - Renderizacao Grafica Moderna em OpenGL 3.3 Core Profile:
-- Substituicao de pipelines graficos legados por arquitetura moderna baseada em shaders GLSL 330.
+Fase 3 - Renderização Gráfica Moderna em OpenGL 3.3 Core Profile:
+- Substituição de pipelines gráficos legados por arquitetura moderna baseada em shaders GLSL 330.
 - Pipeline integral acelerado por GPU utilizando Vertex Array Objects (VAO), Vertex Buffer Objects (VBO) e Element Buffer Objects (EBO).
-- Desenvolvimento de camera orbital 3D de alta precisao com controles por mouse (orbita, pan lateral e zoom) combinada a algoritmo exato de selecao por Raycasting espacial.
-- Mapeamento espectral de cores em gradiente continuo para esforcos axiais, momentos fletores e deslocamentos nodais resultantes.
+- Desenvolvimento de câmera orbital 3D de alta precisão com controles por mouse (órbita, pan lateral e zoom) combinada a algoritmo exato de seleção por Raycasting espacial.
+- Mapeamento espectral de cores em gradiente contínuo para esforços axiais, momentos fletores e deslocamentos nodais resultantes.
 
 Fase 4 - Interface Desktop Moderna com Qt 6.11.1:
-- Sistema modular com paineis acoplaveis (docking), inspetor de propriedades e tabelas sincronizadas de nos e barras.
-- Gerenciamento parametrico de secoes transversais suportando perfis metalicos I/W, secoes retangulares/circulares macicas, tubos ocos e propriedades customizadas, com validacao de materiais em tempo real.
-- Motor resiliente de serializacao e desserializacao em JSON no formato aberto .omniframe, alem de exportacao de relatorios tecnicos em HTML e Markdown.
+- Sistema modular com painéis acopláveis (docking), inspetor de propriedades e tabelas sincronizadas de nós e barras.
+- Gerenciamento paramétrico de seções transversais suportando perfis metálicos I/W, seções retangulares/circulares maciças, tubos ocos e propriedades customizadas, com validação de materiais em tempo real.
+- Motor resiliente de serialização e desserialização em JSON no formato aberto .omniframe, além de exportação de relatórios técnicos em HTML e Markdown.
 
 Fase 5 - Maturidade de Empacotamento e Duplo Licenciamento:
-- Implementacao rigorosa de duplo licenciamento: GNU AGPLv3 para a comunidade de codigo aberto no GitHub e EULA para distribuicao gratuita oficial na Microsoft Store.
-- Automacao de empacotamento com Inno Setup e manifestos MSIX.
-- Documentacao tecnica bilíngue exaustiva cobrindo manuais operacionais, modelos de conformidade normativa e verificacao numerica.
+- Implementação rigorosa de duplo licenciamento: GNU AGPLv3 para a comunidade de código aberto no GitHub e EULA para distribuição gratuita oficial na Microsoft Store.
+- Automação de empacotamento com Inno Setup e manifestos MSIX.
+- Documentação técnica bilíngue exaustiva cobrindo manuais operacionais, modelos de conformidade normativa e verificação numérica.
+
+3. Caráter Auxiliar Gratuito, Limitações de Maturidade e Isenção Legal ("AS IS"):
+Em todas as fases de sua evolução, o OmniFrame 3D manteve-se como um aplicativo gratuito que o usuário pode utilizar conforme lhe convir como ferramenta auxiliar (educacional, acadêmica e de comparação de resultados), mas não como ferramenta definitiva ou final. Por ainda não estar maduro o suficiente para produção ou uso profissional definitivo — estando sujeito a limitações, falhas humanas e eventuais erros graves no código-fonte, abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas —, o usuário deve sempre utilizar outras ferramentas mais consolidadas no mercado ou conferir manualmente os resultados obtidos. Caso decida utilizar exclusivamente este aplicativo como ferramenta definitiva de produção ou para uso profissional, na análise estrutural e no dimensionamento de estruturas, todas as consequências serão de sua inteira e exclusiva responsabilidade, haja vista os avisos e alertas expressos. O software é fornecido "NO ESTADO EM QUE SE ENCONTRA" ("AS IS"), sob o EULA Oficial e a GNU AGPLv3 (Seções 15 e 16), cabendo a responsabilidade legal e técnica de qualquer obra real exclusivamente a profissional habilitado com ART/RRT (Leis nº 5.194/1966, nº 6.496/1977 e nº 12.378/2010; Código Civil arts. 186, 618 e 927; Código Penal art. 256; CDC art. 39, VIII).

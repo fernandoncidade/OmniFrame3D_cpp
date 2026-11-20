@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Arquitetura de Sistema e Especificações Técnicas
 
-**Versão:** `2026.11.20.0`  
-**Data:** `20 de novembro de 2026`  
+**Versão:** `2026.11.21.0`  
+**Data:** `21 de novembro de 2026`  
 **Padrão:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Plataforma Alvo:** Windows 11 / Windows 10 x64  
 **Autor:** Fernando Nillsson Cidade  
@@ -145,11 +145,11 @@ $$M_z(x') = E I_z \frac{d^2 v}{dx'^2}, \quad V_y(x') = -\frac{d M_z}{dx'}, \quad
 
 ## 5. Pipeline Gráfico 3D (OpenGL 3.3 Core) e Shaders GLSL
 
-A Viewport 3D é implementada através do componente `QOpenGLWidget`:
+A Viewport 3D é implementada por meio do componente `QOpenGLWidget`:
 - **Shaders Compilados In-Process e Fallback Limpo:** Shaders modernos GLSL 330 com iluminação difusa Lambertiana e realce especular de Phong; quando OpenGL 3.3 Core não está disponível na sessão, exibe aviso amigável sem falha de inicialização.
 - **Buffers Otimizados & Teardown Seguro:** Cache persistente de VBOs por camada, renderização instanciada de nós e barras, além de liberação determinística conectada a `QOpenGLContext::aboutToBeDestroyed`.
 - **Picking Espacial por Raycasting:** Ao clicar na tela nas coordenadas $(x_s, y_s)$, as matrizes de projeção inversa e visualização inversa mapeiam o raio do olho para o espaço de mundo ($Ray_{origem}, Ray_{direcao}$), com picking de segmentos oblíquos e plano distante (*far-plane*) calibrados.
-- **Janelas Filhas Modeless, Estilo Dual/Vetorial, Docks Recolhíveis e Modelo MVC Compartilhado:** O `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes da primeira exibição para impedir contornos fantasmas na abertura por clique único; o `ThemeManager` (`OmniFrameFusionStyle`) suporta alternância **`Customizado` / `Nativo`** (`UiStyleMode::Custom` / `Native`) e setas vetoriais sem PNGs temporários; `MainWindow` equipa os painéis com `DockTitleBar`, `RotatableTitleLabel` e `SpinArrowButton`; `ResultTableModel` / `ResultTableProxyModel` / `ResultTableConfigurator` compartilham um único modelo MVC (`QTableView`) entre `1`–`4` layouts com zero duplicação de células, seleção estrita, ordenação (`Σ Reações` fixa), coloração sRGB, duplo clique para picking 3D e exportação segura (`.xlsx`/`.csv`/`.txt`/`.json`/`.xml` anti-fórmula e filtro XML 1.0); `GuidedSessionDialog` utiliza sinais orientados a eventos com expansão de docks quando necessário; `Viewport3D` suporta animações em malhas 2D/3D puras, paradas DCR (`0,50/0,85/1,00`) e suprime *Clip Plane* em grades/cursor; `ManualDialog` atalha ao Capítulo 10; e `MainWindow::applyDefaultExampleWorkPlane()` padroniza os 3 exemplos em `XY (Planta)`.
+- **Janelas Filhas Modeless, Estilo Dual/Vetorial, Docks Recolhíveis e Modelo MVC Compartilhado:** O `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes da primeira exibição para impedir contornos fantasmas na abertura por clique único; o `ThemeManager` (`OmniFrameFusionStyle`) suporta alternância **`Customizado` / `Nativo`** (`UiStyleMode::Custom` / `Native`) e setas vetoriais sem PNGs temporários; `MainWindow` equipa os painéis com `DockTitleBar`, `RotatableTitleLabel` e `SpinArrowButton`; `ResultTableModel` / `ResultTableProxyModel` / `ResultTableConfigurator` compartilham um único modelo MVC (`QTableView`) entre `1`–`4` layouts com zero duplicação de células, seleção estrita, ordenação (`Σ Reações` fixa), coloração sRGB, duplo clique para picking 3D e exportação segura (`.xlsx`/`.csv`/`.txt`/`.json`/`.xml` antifórmula e filtro XML 1.0); `GuidedSessionDialog` utiliza sinais orientados a eventos com expansão de docks quando necessário; `Viewport3D` suporta animações em malhas 2D/3D puras, paradas DCR (`0,50/0,85/1,00`) e suprime *Clip Plane* em grades/cursor; `ManualDialog` atalha ao Capítulo 10; e `MainWindow::applyDefaultExampleWorkPlane()` padroniza os 3 exemplos em `XY (Planta)`.
 
 ---
 
@@ -159,6 +159,9 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 - **Persistência Debounced, Recuperação Multi-Instância & Tail Logs:** `UserPreferencesStore` concentra em `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (Schema v2, escrita atômica `QSaveFile` com *debounce* e backup `.corrupt.bak`) todas as preferências; `ProjectRecoveryStore` grava pacote único atômico por sessão (Schema v3 via `QSaveFile` + `QLockFile`) em `%LOCALAPPDATA%\OmniFrame\recovery\`; e `AppLogger` grava logs diários (`omniframe_aaaa-mm-dd.log`, máx. 10 arquivos) com leitura rápida em *tail*.
 - **Interoperabilidade & Exportação:** Troca bidirecional **DXF** (`DxfInterop`) e **IFC4** (`IfcInterop`) com teto anti-DoS de `128 MB`, preservação de `surfaceMesh`, apoios e espessuras reais de casca sem abortar em nós ausentes; exportação **CSV** e **VTK `UNSTRUCTURED_GRID`**; auditoria normativa **ABNT NBR** (`NbrCodeChecks`: `LocalPdfVerified` com envoltórias `elementExtremes` sincronizadas, teto plástico `NBR 8800` em $C_b > 1$ e $N_k$ consistente `NBR 6122`; `OutOfLocalPdfScope` para normas ausentes); e relatórios **HTML**, **Markdown** e **PDF executivo A4** (`PdfReportGenerator`). Veja a auditoria técnica, ADRs e matriz V&V completa em [`docs/technical-audit-and-roadmap.md`](technical-audit-and-roadmap.md).
 - **Validação estrita & CLI/OS (`source/cli/`, `source/os/`, `Utf8Path.hpp`):** Finitude (`std::isfinite`), BFS e topologia 1D/2D/3D em `ModelValidation::issues`; `OmniFrame.exe` delega flags *headless* a `omniframe-cli.exe` (validação numérica estrita via `std::from_chars` emitindo erro JSON válido); `WindowsCliIntegration` carrega APIs Win32 via `LOAD_LIBRARY_SEARCH_SYSTEM32` / caminhos explícitos em `System32` e gerencia `HKCU` (`PATH`, `App Paths`, `.omniframe`), console UTF-8 (`CommandLineToArgvW`) e `pathFromUtf8`.
+
+> [!NOTE]
+> **Transparência Matemática vs. Maturidade para Produção ("AS IS"):** A exposição aberta das equações e formulações matriciais nesta arquitetura visa transparência didática e auditabilidade acadêmica. Contudo, o **OmniFrame 3D** é um aplicativo gratuito para uso auxiliar — **e não definitivo ou final** —, ainda não maduro o suficiente para produção ou uso profissional devido a limitações, falhas humanas e possíveis erros no código-fonte (abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas). Todos os resultados devem ser conferidos manualmente ou com ferramentas mais consolidadas no mercado; caso o usuário decida utilizá-lo exclusivamente em produção ou para uso profissional na análise e dimensionamento de estruturas, todas as consequências serão de sua inteira e exclusiva responsabilidade ([`README.md`](../README.md#ptbr) / [EULA](../source/assets/EULA/EULA_pt_BR.txt)).
 
 </details>
 
@@ -171,8 +174,8 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 
 # OmniFrame 3D — System Architecture & Technical Specifications
 
-**Version:** `2026.11.20.0`  
-**Date:** `November 20, 2026`  
+**Version:** `2026.11.21.0`  
+**Date:** `November 21, 2026`  
 **Standards:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Target Platform:** Windows 11 / Windows 10 x64  
 **Author:** Fernando Nillsson Cidade  
@@ -316,5 +319,8 @@ The 3D Viewport is implemented using the `QOpenGLWidget` component:
 - **Debounced Preferences, Multi-Instance Recovery & Tail Logs:** `UserPreferencesStore` persists `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (Schema v2, debounced atomic `QSaveFile` + `.corrupt.bak`); `ProjectRecoveryStore` maintains one atomic per-session recovery bundle (Schema v3 via `QSaveFile` + `QLockFile`) inside `%LOCALAPPDATA%\OmniFrame\recovery\`; and `AppLogger` writes thread-safe daily logs (`omniframe_yyyy-mm-dd.log`, max 10 files) using fast tail seeking.
 - **Interoperability & Export:** Bidirectional **DXF** (`DxfInterop`) and **IFC4** (`IfcInterop`) bounded by a `128 MB` anti-DoS ceiling while preserving `surfaceMesh`, supports, and real shell thickness cleanly even if referenced nodes are missing; **CSV** and **VTK `UNSTRUCTURED_GRID`** exports; **ABNT NBR** code checks (`NbrCodeChecks`: `LocalPdfVerified` fed by synced `elementExtremes`, NBR 8800 plastic cap for $C_b > 1$, and consistent $N_k$ in NBR 6122; `OutOfLocalPdfScope` explicitly flagged for absent standards); and native **HTML**, **Markdown**, and **executive A4 PDF** (`PdfReportGenerator`) reports. See [`docs/technical-audit-and-roadmap.md`](technical-audit-and-roadmap.md) for the full audit, ADRs, and V&V matrix.
 - **Strict Validation & CLI/OS (`source/cli/`, `source/os/`, `Utf8Path.hpp`):** Finiteness (`std::isfinite`), BFS, and 1D/2D/3D topology checks (`ModelValidation::issues`); `OmniFrame.exe` forwards headless flags to `omniframe-cli.exe` (strict `std::from_chars` numeric parsing emitting valid JSON errors); `WindowsCliIntegration` enforces `LOAD_LIBRARY_SEARCH_SYSTEM32` / explicit `System32` system DLL loading alongside `HKCU` registry integration, UTF-8 consoles (`CommandLineToArgvW`), and `pathFromUtf8`.
+
+> [!NOTE]
+> **Mathematical Transparency vs. Production Maturity ("AS IS"):** Open presentation of equations and matrix formulations in this architecture serves didactic transparency and academic auditability. Nevertheless, **OmniFrame 3D** is a free application for auxiliary use — **not a definitive or final tool** — and is not yet mature enough for production or professional use due to limitations, human flaws, and possible defects in the source code (encompassing both the applied mathematics and the underlying physics, due to which its algorithms may produce errors). All outputs must be verified manually or against more established tools in the market; should the user decide to rely exclusively on it for production or professional structural analysis and design, all resulting consequences shall be the user's sole and entire responsibility ([`README.md`](../README.md#enus) / [EULA](../source/assets/EULA/EULA_en_US.txt)).
 
 </details>

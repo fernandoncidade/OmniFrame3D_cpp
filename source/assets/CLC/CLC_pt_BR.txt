@@ -1,5 +1,5 @@
 ESCLARECIMENTO DE LICENCIAMENTO COMERCIAL E SUPORTE CORPORATIVO — OmniFrame 3D
-Versao 2026.11.20.0, 20 de novembro de 2026
+Versão 2026.11.21.0, 21 de novembro de 2026
 
 Autor e Desenvolvedor: Fernando Nillsson Cidade (Desenvolvedor Individual / Pessoa Física)
 E-mail de Suporte e Contato: linceu_lighthouse@outlook.com
@@ -11,21 +11,27 @@ Site Oficial / Repositório: https://github.com/fernandoncidade/OmniFrame_cpp
 O código-fonte integral deste projeto é disponibilizado publicamente no GitHub sob a Licença GNU Affero General Public License v3 (AGPLv3). Qualquer pessoa ou organização possui total liberdade para inspecionar, auditar, compilar, modificar e criar trabalhos derivados a partir do código-fonte, nos termos e condições da GNU AGPLv3.
 
 2. EDIÇÃO OFICIAL DA MICROSOFT STORE E DESINSTALAÇÃO:
-Para conveniência de implantação em ambientes acadêmicos, escritórios de cálculo e estações de trabalho Windows, o autor disponibiliza oficialmente o OmniFrame 3D como aplicação gratuita na Microsoft Store:
+Para conveniência de implantação em ambientes acadêmicos, educacionais, de pesquisa e de estudo comparativo em estações de trabalho Windows, o autor disponibiliza oficialmente o OmniFrame 3D como aplicação gratuita na Microsoft Store:
 https://apps.microsoft.com/detail/OmniFrame3D
 O pacote permite desinstalação limpa a qualquer momento pelas Configurações do Windows ou Menu Iniciar, sem deixar processos ou serviços em segundo plano.
 
 3. POLÍTICA DE SUPORTE TÉCNICO E ISENÇÃO DA MICROSOFT:
 O desenvolvimento e a manutenção deste projeto são realizados pelo autor como iniciativa pessoal e educacional em C++23, Qt 6.11.1 e métodos computacionais. Por essa razão:
-a) A Microsoft NÃO presta suporte técnico nem atendimento ao cliente pelo OmniFrame 3D, e sua Política de Privacidade não cobre este aplicativo (aplique-se exclusivamente a Política de Privacidade do OmniFrame 3D disponível em PRIVACY_POLICY);
+a) A Microsoft NÃO presta suporte técnico nem atendimento ao cliente pelo OmniFrame 3D, e sua Política de Privacidade não cobre este aplicativo (aplica-se exclusivamente a Política de Privacidade do OmniFrame 3D disponível em PRIVACY_POLICY);
 b) O suporte técnico fornecido pelo autor (desenvolvedor individual) ocorre por correio eletrônico (linceu_lighthouse@outlook.com) e publicamente pelas abas Issues e Discussions do repositório oficial no GitHub;
 c) O atendimento ocorre sob o regime voluntário de melhores esforços (best-effort), conforme a disponibilidade do autor, sem suporte telefônico, SLA comercial ou acesso remoto 24/7.
 
-4. HOMOLOGAÇÕES CORPORATIVAS E LICENCIAMENTO COMERCIAL SOB MEDIDA:
-Para instituições acadêmicas ou organizações de engenharia que necessitem de:
-- Avaliação de conformidade em projetos específicos sob referências normativas (ABNT NBR 8800, NBR 6118, AISC 360, Eurocodes);
-- Integração personalizada com fluxos proprietários;
-- Isenção de obrigações copyleft da licença AGPLv3 para distribuições comerciais proprietárias fechadas;
+4. ESCOPO TÉCNICO, USO LIVRE COMO FERRAMENTA AUXILIAR, LIMITAÇÕES DE MATURIDADE E ISENÇÃO ("AS IS"):
+Por ser um aplicativo gratuito, o usuário pode utilizar o OmniFrame 3D conforme lhe convir como ferramenta computacional auxiliar de análise estrutural matricial por Elementos Finitos (estática linear, modal, flambagem, harmônica, espectro de resposta, segunda ordem P-Delta/corrotacional e plasticidade J2), voltada ao auxílio educacional, ensino, pesquisa acadêmica e comparação de resultados — mas NÃO como ferramenta definitiva ou final:
+a) Este aplicativo ainda não está maduro o suficiente para ser levado para produção ou uso profissional definitivo e NUNCA, JAMAIS deve ser utilizado única e exclusivamente para esse fim, pois, devido às suas limitações, falhas humanas e eventuais erros no desenvolvimento do código-fonte, pode conter erros graves no código, nos algoritmos, na matemática e na física aplicadas na programação; o usuário deve sempre utilizar outras ferramentas mais consolidadas no mercado ou conferir manualmente todos os resultados obtidos;
+b) Seus resultados NÃO substituem verificações completas em ELU/ELS, efeitos de segunda ordem (P-Delta e P-delta), instabilidades globais ou locais, combinações normativas específicas (ABNT NBR 8800, NBR 6118, AISC 360-22, Eurocode 3), validação cruzada independente nem a autoria e supervisão de profissional legalmente habilitado com emissão de ART/RRT perante o CREA/CAU (Leis nº 5.194/1966, nº 6.496/1977 e nº 12.378/2010; art. 39, VIII, do CDC — Lei nº 8.078/1990);
+c) O Software é fornecido "NO ESTADO EM QUE SE ENCONTRA" ("AS IS"), com todas as suas falhas e sem garantias (EULA Oficial, Lei nº 9.609/1998 e GNU AGPLv3 Seções 15 e 16). Caso o usuário decida utilizar exclusivamente este aplicativo como ferramenta definitiva de produção ou para uso profissional, na análise estrutural e no dimensionamento de estruturas, todas as consequências decorrentes dessa escolha serão de sua inteira e exclusiva responsabilidade — inclusive sob os arts. 186, 618 e 927 do Código Civil (Lei nº 10.406/2002) e o art. 256 do Código Penal (Decreto-Lei nº 2.848/1940) —, tendo em vista os avisos e alertas expressos acerca de possíveis erros no código-fonte, abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas, com integral isenção civil, criminal e técnica do autor na extensão máxima permitida em lei.
 
-Favor entrar em contato diretamente através do e-mail:
+5. CONTATO PARA INSTITUIÇÕES E LICENCIAMENTO SOB MEDIDA:
+Para instituições acadêmicas ou organizações que necessitem de:
+- Estudos comparativos sob referências normativas (ABNT NBR 8800, NBR 6118, AISC 360, Eurocodes), sempre sujeitos à validação independente de engenheiro habilitado;
+- Integração personalizada com fluxos de pesquisa ou sistemas internos;
+- Isenção de obrigações copyleft da licença AGPLv3 para distribuições proprietárias fechadas (sem implicar certificação de cálculo para produção);
+
+Por favor, entre em contato diretamente pelo e-mail:
 linceu_lighthouse@outlook.com

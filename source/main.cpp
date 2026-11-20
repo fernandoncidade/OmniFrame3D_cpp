@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
     ::SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 #endif
     QCoreApplication::setApplicationName("OmniFrame");
-    QCoreApplication::setApplicationVersion("2026.11.20.0");
+    QCoreApplication::setApplicationVersion("2026.11.21.0");
     QCoreApplication::setOrganizationName("OmniFrame");
 
     QStringList startupFiles;

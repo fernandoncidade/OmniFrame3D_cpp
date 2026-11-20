@@ -2,7 +2,7 @@ DEVELOPMENT HISTORY OF OMNIFRAME 3D
 ====================================
 
 1. Genesis and Project Motivation:
-OmniFrame 3D emerged from the need to provide a truly open, transparent educational and professional 3D finite element structural analysis platform free from costly proprietary licenses, cloud dependencies, invasive telemetry, or artificial node/element limits. While many commercial suites lock calculations inside inaccessible black boxes or enforce recurring subscriptions, OmniFrame 3D was built from the ground up on mathematical clarity and full user sovereignty (Local-First).
+OmniFrame 3D emerged from the need to provide a truly open and transparent educational, academic, and auxiliary 3D finite element structural analysis platform for result comparison free from costly proprietary licenses, cloud dependencies, invasive telemetry, or artificial node/element limits. While many commercial suites lock calculations inside inaccessible black boxes or enforce recurring subscriptions, OmniFrame 3D was built from the ground up on mathematical clarity and full user sovereignty (Local-First).
 
 2. Architectural Milestones and Technological Evolution:
 
@@ -31,3 +31,6 @@ Phase 5 - Packaging Maturity and Dual Licensing:
 - Strict implementation of dual licensing: GNU AGPLv3 for the open-source developer community on GitHub and EULA for official free distribution on the Microsoft Store.
 - Automated packaging with Inno Setup and MSIX application manifests.
 - Exhaustive bilingual documentation encompassing operational manuals, normative compliance comparisons, and structural validation benchmarks.
+
+3. Free Auxiliary Character, Maturity Limitations, and Legal Disclaimer ("AS IS"):
+Across every phase of its development, OmniFrame 3D has remained a free application that the user may use as they see fit as an auxiliary tool (educational, academic, and result comparison), and not as a definitive or final tool. Because it is not mature enough for definitive production or professional use — remaining subject to limitations, human flaws, and possible serious defects in the source code encompassing both the applied mathematics and the underlying physics, due to which its algorithms may produce errors — the user must always rely on more established tools in the market or manually verify all obtained results. Should the user decide to rely exclusively on this application as a definitive tool for production or professional use in structural analysis and structural design, all resulting consequences shall be the user's sole and entire responsibility, in view of these express prior notices and warnings. The software is provided "AS IS" under the Official EULA and GNU AGPLv3 (Sections 15–16), with technical and legal responsibility for any real-world structure resting exclusively on a legally licensed engineer with ART/RRT or equivalent credentials (Brazilian Laws No. 5.194/1966, No. 6.496/1977, and No. 12.378/2010; Civil Code Arts. 186, 618, and 927; Penal Code Art. 256; Consumer Defense Code Art. 39, VIII).

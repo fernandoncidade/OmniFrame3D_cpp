@@ -16,7 +16,7 @@
 
 ## 1. Versões com Suporte Oficial
 
-Atualizações e correções de segurança são fornecidas para os releases mais recentes:
+Atualizações e correções de segurança são fornecidas para as versões mais recentes:
 
 | Versão | Suportada |
 |:---:|:---:|
@@ -25,14 +25,14 @@ Atualizações e correções de segurança são fornecidas para os releases mais
 
 ---
 
-## 2. Reportando uma Vulnerabilidade
+## 2. Como Relatar uma Vulnerabilidade
 
 Levamos a integridade, a estabilidade computacional e a segurança do **OmniFrame 3D** com o mais alto rigor técnico.
 
 Se você identificou uma potencial vulnerabilidade de segurança (como estouro de buffer em parsing de modelos estruturais, instabilidade numérica explorável, falhas em shaders OpenGL ou consumo descontrolado de memória ao desserializar arquivos `.omniframe`):
 
-1. **NÃO divulgue publicamente a vulnerabilidade através de issues ou discussões abertas.**
-2. Submeta o reporte de forma privada através do recurso **GitHub Security Advisories** na aba [Security](https://github.com/fernandoncidade/OmniFrame_cpp/security/advisories/new) do repositório ou contate o mantenedor diretamente via e-mail (`linceu_lighthouse@outlook.com`).
+1. **NÃO divulgue publicamente a vulnerabilidade por meio de issues ou discussões abertas.**
+2. Envie o relato de forma privada por meio do recurso **GitHub Security Advisories** na aba [Security](https://github.com/fernandoncidade/OmniFrame_cpp/security/advisories/new) do repositório ou contate o mantenedor diretamente via e-mail (`linceu_lighthouse@outlook.com`).
 3. Por favor, inclua em seu relato:
    - Descrição detalhada da vulnerabilidade encontrada;
    - Passo a passo reprodutível, incluindo arquivo de projeto `.omniframe` de demonstração;
@@ -40,7 +40,7 @@ Se você identificou uma potencial vulnerabilidade de segurança (como estouro d
    - Sugestões técnicas de correção ou mitigação, caso possua.
 
 ### Prazos e Processo de Resposta
-- O mantenedor envidará os melhores esforços para analisar e confirmar o recebimento de reportes de vulnerabilidade em tempo hábil, considerando a natureza estritamente voluntária e educacional da manutenção do projeto.
+- O mantenedor envidará os melhores esforços para analisar e confirmar o recebimento de relatos de vulnerabilidade em tempo hábil, considerando a natureza estritamente voluntária e educacional da manutenção do projeto.
 - Realizaremos uma avaliação técnica inicial e estimaremos o prazo de correção.
 - Após a correção, um lançamento de segurança será publicado e a divulgação pública e os devidos créditos serão coordenados com o pesquisador.
 
@@ -54,6 +54,9 @@ Se você identificou uma potencial vulnerabilidade de segurança (como estouro d
 - **Isolamento de Renderização Gráfica e Fallback Limpo:** A viewport 3D utiliza shaders OpenGL 3.3 Core Profile validados e compilados internamente no processo, sem carregamento dinâmico de código binário arbitrário ou injeção de shaders não confiáveis na GPU, degradando com aviso amigável em sessões sem aceleração OpenGL 3.3 Core.
 - **Hardening de Binários e Bibliotecas no Windows:** Compilação MSVC com `/GS`, `/sdl`, `/guard:cf` (Control Flow Guard) e `/CETCOMPAT` (Shadow Stack), pesquisa segura de DLLs com `LOAD_LIBRARY_SEARCH_SYSTEM32` / caminhos explícitos em `System32` e registro opcional não administrativo da CLI em `HKCU` (`CommandLineToArgvW` + `std::filesystem::path`) integralmente reversível (`--uninstall-windows-integration`).
 - **Persistência Atômica, Recuperação Multi-Instância e Logs Limitados:** As preferências locais (`%LOCALAPPDATA%\OmniFrame\user_preferences.json`) e o pacote atômico único de recuperação por sessão (`%LOCALAPPDATA%\OmniFrame\recovery\`) utilizam gravação atômica (`QSaveFile` + travamento `QLockFile` contra colisão entre instâncias simultâneas e backup `.corrupt.bak`); os registros diagnósticos diários (`%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log`) são estritamente locais e limitados a no máximo **10 arquivos** com exclusão automática dos mais antigos.
+
+> [!NOTE]
+> **Escopo desta Política vs. Maturidade de Cálculo Estrutural ("AS IS"):** Esta Política de Segurança trata exclusivamente de vulnerabilidades de segurança da aplicação (memória, parsing, entrada/saída e renderização) e **não certifica maturidade para produção ou uso profissional definitivo em engenharia estrutural**. O **OmniFrame 3D** é um aplicativo gratuito auxiliar que pode conter limitações, falhas humanas e erros no código-fonte (matemática aplicada, física envolvida e algoritmos), devendo o usuário sempre conferir resultados manualmente ou em ferramentas consolidadas — assumindo inteira e exclusiva responsabilidade por todas as consequências caso decida utilizá-lo exclusivamente em produção ou uso profissional ([`README.md`](README.md#ptbr), [EULA](source/assets/EULA/EULA_pt_BR.txt) e GNU AGPLv3 Seções 15–16).
 
 </details>
 
@@ -94,7 +97,7 @@ If you believe you have discovered a security vulnerability in OmniFrame 3D (suc
 ### Response Time & Process
 - The maintainer will make best efforts to review and acknowledge receipt of vulnerability reports in a timely manner, given the strictly voluntary and educational nature of project maintenance.
 - We will perform an initial technical assessment and estimate a remediation timeline.
-- Once fixed, a security release will be published and public disclosure and proper credits will be coordinated with the reporter.
+- Once fixed, a security release will be published, and public disclosure and proper credits will be coordinated with the reporter.
 
 ---
 
@@ -106,5 +109,8 @@ If you believe you have discovered a security vulnerability in OmniFrame 3D (suc
 - **Isolated GPU Rendering & Graceful Fallback:** The 3D viewport utilizes strictly validated OpenGL 3.3 Core Profile shaders compiled in-process, preventing dynamic loading of arbitrary binary code or untrusted GPU shader injection, and degrades gracefully with a user notice when OpenGL 3.3 Core is unavailable in the session.
 - **Binary & DLL Hardening on Windows:** Built on MSVC with `/GS`, `/sdl`, `/guard:cf` (Control Flow Guard), and `/CETCOMPAT` (Shadow Stack), enforcing `LOAD_LIBRARY_SEARCH_SYSTEM32` / explicit `System32` system DLL paths; optional Windows 10/11 CLI integration writes strictly to `HKCU` (no admin elevation), sanitizes UTF-16 `CommandLineToArgvW` args and Unicode paths, and reverses cleanly (`--uninstall-windows-integration`).
 - **Atomic Local Persistence, Multi-Instance Recovery & Bounded Logs:** Local preferences (`%LOCALAPPDATA%\OmniFrame\user_preferences.json`) and the single atomic per-session recovery bundle (`%LOCALAPPDATA%\OmniFrame\recovery\`) use atomic writes (`QSaveFile` + `QLockFile` collision protection across concurrent windows, with `.corrupt.bak` fallback on malformed preferences); daily diagnostic logs (`%LOCALAPPDATA%\OmniFrame\log\omniframe_yyyy-mm-dd.log`) remain strictly local and are capped at **10 files** via automatic oldest-file retention pruning.
+
+> [!NOTE]
+> **Security Scope vs. Structural Engineering Production Maturity ("AS IS"):** This Security Policy covers application security vulnerabilities (memory safety, parsing, I/O, and rendering) and **does not certify maturity for production or definitive professional structural engineering use**. **OmniFrame 3D** is a free auxiliary tool subject to limitations, human flaws, and possible defects in its source code (applied mathematics, underlying physics, and algorithms), requiring manual verification or established market software — with all consequences resting solely on the user should they decide to rely on it exclusively in production or professional work ([`README.md`](README.md#enus), [EULA](source/assets/EULA/EULA_en_US.txt), and GNU AGPLv3 Sections 15–16).
 
 </details>

@@ -1,4 +1,31 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.21.0
+Data: 21 de novembro de 2026
+
+Destaques da Versão 2026.11.21.0:
+
+1. Orientações Claras de Finalidade, Uso Auxiliar e Limites de Maturidade no Aplicativo
+- O Manual de Operação (F1) ganhou uma seção dedicada logo no início, com quadros de destaque de atenção e nota legal, explicando de forma simples que o OmniFrame 3D é um aplicativo gratuito que o usuário pode utilizar conforme lhe convir como ferramenta auxiliar para aprendizado, estudo acadêmico, pesquisa e comparação de resultados, e não como ferramenta definitiva ou final.
+- A apresentação inicial do Manual de Operação (F1) e as orientações dos três exemplos prontos integrados foram ajustadas para reforçar o uso prático voltado ao estudo, ao aprendizado e à comparação de resultados.
+- As abas Sobre, Histórico, Termos de Uso (EULA), Licenciamento, Direitos Autorais e Avisos da janela "Sobre o OmniFrame 3D" foram atualizadas para manter uma comunicação uniforme, clara e sem contradições sobre o caráter auxiliar do programa.
+
+2. Avisos Transparentes Sobre Possíveis Erros e Recomendação de Conferência Independente
+- Toda a documentação exibida dentro do aplicativo passou a informar de maneira direta que o programa ainda não está maduro o suficiente para ser levado para produção ou uso profissional definitivo.
+- Os avisos deixam claro que, devido a limitações, falhas humanas e eventuais problemas no desenvolvimento, os cálculos internos, a matemática aplicada e a física envolvida podem apresentar erros graves e produzir resultados incorretos.
+- O usuário passa a receber orientação explícita para sempre utilizar outras ferramentas mais consolidadas no mercado ou conferir manualmente todos os resultados obtidos antes de qualquer aplicação prática.
+- A seção de Auditoria Normativa ABNT NBR no Manual de Operação (F1) também recebeu um aviso destacado lembrando que seus relatórios e verificações têm caráter auxiliar e comparativo e exigem conferência independente.
+
+3. Responsabilidade Profissional, Consequências do Uso Exclusivo e Embasamento Legal
+- Os Termos de Uso (EULA), o Manual de Operação (F1) e demais documentos da janela "Sobre o OmniFrame 3D" passaram a esclarecer expressamente que, caso o usuário decida utilizar o aplicativo exclusivamente como ferramenta definitiva de produção ou para uso profissional na análise e no dimensionamento de estruturas, todas as consequências dessa escolha serão de sua inteira e exclusiva responsabilidade.
+- Os textos explicam em linguagem acessível e com embasamento legal que os resultados gerados pelo aplicativo não substituem verificações completas conforme as normas técnicas de engenharia nem a atuação e a assinatura de um profissional legalmente habilitado (com emissão dos registros oficiais exigidos, como ART no CREA, RRT no CAU ou habilitação equivalente em outros países), mantendo o fornecimento gratuito do aplicativo no estado em que se encontra ("AS IS") e a isenção de responsabilidade do autor na extensão permitida em lei.
+
+4. Atualização da Versão e Fidelidade Completa Entre Português e Inglês
+- Toda a identificação de versão e data exibida na janela "Sobre o OmniFrame 3D", no Manual de Operação (F1) e nos documentos informativos internos foi sincronizada para a versão 2026.11.21.0 (21 de novembro de 2026).
+- Todos os novos avisos, orientações e esclarecimentos legais foram escritos de forma fiel e equivalente em Português (Brasil) e em Inglês (Estados Unidos), acompanhando automaticamente a troca de idioma em tempo real no aplicativo.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versão: 2026.11.20.0
 Data: 20 de novembro de 2026
 
@@ -6,7 +33,7 @@ Destaques da Versão 2026.11.20.0:
 
 1. Maior Precisão nos Esforços Internos, Análises Dinâmicas, Não Lineares e Auditoria ABNT NBR
 - Os resultados de esforços mínimos e máximos nas barras, flechas e verificações das normas ABNT NBR (incluindo aço, concreto armado e fundações) passaram a refletir integralmente os valores reais calculados na estrutura, eliminando leituras zeradas ou divergentes em vigas, pilares e sapatas e aplicando corretamente o teto de resistência plástica à flexão e o esforço normal característico no dimensionamento de fundações.
-- A análise de segunda ordem (P-Delta) passou a ser executada de modo iterativo real tanto nas análises não lineares quanto nas combinações normativas que habilitam esse efeito (como ELU-2 P-Delta), enquanto as combinações quase-permanentes de serviço passaram a adotar fator nulo para ações sísmicas.
+- A análise de segunda ordem (P-Delta) passou a ser executada de modo iterativo real tanto nas análises não lineares quanto nas combinações normativas que habilitam esse efeito (como ELU-2 P-Delta), enquanto as combinações quase permanentes de serviço passaram a adotar fator nulo para ações sísmicas.
 - Vínculos rígidos, diafragmas, barras com extremidades rotuladas, elementos lineares refinados, placas e cascas empenadas, perfis assimétricos, recalques prescritos e o peso próprio em casos de carga passaram a se comportar com maior fidelidade física, separando corretamente as reações nos apoios externos e evitando distorções em análises de vibração e sismo mesmo com massas excêntricas.
 - As análises dinâmicas harmônicas, transientes e sísmicas tiveram o cálculo do amortecimento corrigido para eliminar duplicidade, e o espectro de resposta sísmico passou a seguir fielmente o patamar da norma e a combinação direcional independente da inversão de sinal dos modos de vibração.
 - Na análise não linear, a busca automática do passo passou a restaurar exatamente o estado anterior sempre que uma tentativa falha e a exigir o equilíbrio real de forças antes de concluir cada etapa, exibindo também o resumo de equilíbrio ao final do cálculo.
@@ -194,33 +221,33 @@ Destaques da Versão 2026.11.14.0:
 ================================================================================
 
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
-Versao: 2026.11.13.0
+Versão: 2026.11.13.0
 Data: 13 de novembro de 2026
 
-Destaques da Versao 2026.11.13.0 (Release Inicial de Producao):
+Destaques da Versão 2026.11.13.0 (Release Inicial de Produção):
 
-1. Mecanica Computacional e Elementos Finitos 3D:
-- Formulacao exata de elementos de viga-coluna espacial de Euler-Bernoulli com 6 graus de liberdade por no (12 DOFs por elemento).
-- Matriz de rigidez local 12x12 considerando efeitos axiais, torcao pura de Saint-Venant e flexao nos eixos principais locais y e z.
-- Matriz de rotacao espacial 3D com orientacao por angulo de rolamento (roll angle psi).
-- Interpolacao contínua de esforcos internos (N, Vy, Vz, T, My, Mz) ao longo das barras utilizando polinomios cubicos de Hermite.
-- Vetores de forcas nodais equivalentes exatos para carregamentos distribuidos uniformes sobre elementos, alem de carregamentos nodais concentrados, molas elasticas e deslocamentos/rotacoes prescritos.
-- Solver esparso direto de Cholesky (SimplicialLDLT) via Eigen 3.4.0 com deteccao e tratamento gracioso de singularidades e mecanismos estruturais.
+1. Mecânica Computacional e Elementos Finitos 3D:
+- Formulação exata de elementos de viga-coluna espacial de Euler-Bernoulli com 6 graus de liberdade por nó (12 DOFs por elemento).
+- Matriz de rigidez local 12x12 considerando efeitos axiais, torção pura de Saint-Venant e flexão nos eixos principais locais y e z.
+- Matriz de rotação espacial 3D com orientação por ângulo de rolamento (roll angle psi).
+- Interpolação contínua de esforços internos (N, Vy, Vz, T, My, Mz) ao longo das barras utilizando polinômios cúbicos de Hermite.
+- Vetores de forças nodais equivalentes exatos para carregamentos distribuídos uniformes sobre elementos, além de carregamentos nodais concentrados, molas elásticas e deslocamentos/rotações prescritos.
+- Solver esparso direto de Cholesky (SimplicialLDLT) via Eigen 3.4.0 com detecção e tratamento seguro de singularidades e mecanismos estruturais.
 
 2. Viewport 3D de Alta Performance (OpenGL 3.3 Core):
-- Pipeline moderno baseado em shaders GLSL 330 com iluminacao Phong.
-- Camera orbital interativa com navegacao fluida por mouse (orbita com botao direito ou do meio, pan com Shift+arraste e zoom na roda do mouse).
-- Visualizacao simultanea da estrutura indeformada (aramado neutro) e da deformada elástica com controle continuo de fator de ampliacao.
-- Algoritmo matematico de selecao espacial por Raycasting (Eye-to-World ray cast) para selecao precisa de nos e barras na viewport.
-- Renderizacao de gradientes de cores (escala espectral) para diagramas N, Vy, Vz, Tx, My e Mz, alem de vetores de reacoes de apoio.
+- Pipeline moderno baseado em shaders GLSL 330 com iluminação Phong.
+- Câmera orbital interativa com navegação fluida por mouse (órbita com botão direito ou do meio, pan com Shift+arraste e zoom na roda do mouse).
+- Visualização simultânea da estrutura indeformada (aramado neutro) e da deformada elástica com controle contínuo de fator de ampliação.
+- Algoritmo matemático de seleção espacial por Raycasting (Eye-to-World ray cast) para seleção precisa de nós e barras na viewport.
+- Renderização de gradientes de cores (escala espectral) para diagramas N, Vy, Vz, Tx, My e Mz, além de vetores de reações de apoio.
 
-3. Interface de Usuario e Produtividade (Qt 6.11.1):
-- Sistema modular com paineis acoplaveis (QDockWidget), inspetor de propriedades e tabelas sincronizadas de nos e barras.
-- Gerenciador parametrico de secoes transversais: secoes retangulares macicas, circulares macicas, tubos circulares, perfis metalicos I/W de abas paralelas e secoes genericas.
-- Banco de materiais padronizados (Aco Estrutural ASTM A36 / MR250, Concreto Armado C25/C30, Aluminio 6061-T6 e Madeira Estrutural C30) com editor para materiais customizados.
-- Persistencia robusta em formato aberto .omniframe (JSON) com validacao estrutural e exportacao de relatorios tecnicos em HTML e Markdown.
+3. Interface de Usuário e Produtividade (Qt 6.11.1):
+- Sistema modular com painéis acopláveis (QDockWidget), inspetor de propriedades e tabelas sincronizadas de nós e barras.
+- Gerenciador paramétrico de seções transversais: seções retangulares maciças, circulares maciças, tubos circulares, perfis metálicos I/W de abas paralelas e seções genéricas.
+- Banco de materiais padronizados (Aço Estrutural ASTM A36 / MR250, Concreto Armado C25/C30, Alumínio 6061-T6 e Madeira Estrutural C30) com editor para materiais customizados.
+- Persistência robusta em formato aberto .omniframe (JSON) com validação estrutural e exportação de relatórios técnicos em HTML e Markdown.
 
-4. Distribuicao, Privacidade e Duplo Licenciamento:
-- Duplo licenciamento implementado: codigo-fonte sob GNU AGPLv3 para a comunidade GitHub e EULA para distribuicao gratuita na Microsoft Store.
-- Scripts de automacao de compilacao para MSVC C++23 (CMake 3.28+), presets dedicados e empacotamento Inno Setup e MSIX com desinstalacao limpa e privacidade 100% offline.
-- Documentacao tecnica bilingue aprofundada (Portugues e Ingles) cobrindo fundamentos de FEA, comparacao com normas (NBR 8800, NBR 6118, AISC 360, Eurocode 3) e casos de teste de referencia.
+4. Distribuição, Privacidade e Duplo Licenciamento:
+- Duplo licenciamento implementado: código-fonte sob GNU AGPLv3 para a comunidade GitHub e EULA para distribuição gratuita na Microsoft Store.
+- Scripts de automação de compilação para MSVC C++23 (CMake 3.28+), presets dedicados e empacotamento Inno Setup e MSIX com desinstalação limpa e privacidade 100% offline.
+- Documentação técnica bilíngue aprofundada (Português e Inglês) cobrindo fundamentos de FEA, comparação com normas (NBR 8800, NBR 6118, AISC 360, Eurocode 3) e casos de teste de referência.

@@ -14,11 +14,14 @@
 
 # OmniFrame 3D — Referência de Linha de Comando (CLI) e Utilitários
 
-**Versão:** `2026.11.20.0`  
-**Data:** `20 de novembro de 2026`  
+**Versão:** `2026.11.21.0`  
+**Data:** `21 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
+
+> [!WARNING]
+> **Escopo Auxiliar da CLI (`omniframe-cli.exe`):** A ferramenta de linha de comando, seus resumos JSON, a auditoria `--nbr-audit` e os arquivos ou relatórios exportados (`--export`, `--report`) utilizam exatamente o mesmo motor auxiliar gratuito da interface gráfica, o qual **ainda não está maduro o suficiente para produção ou uso profissional definitivo**. Devido a limitações, falhas humanas e possíveis erros no código-fonte (abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas), **todos os resultados devem ser conferidos manualmente ou comparados com ferramentas mais consolidadas no mercado**. Caso o usuário decida utilizá-los exclusivamente em produção ou uso profissional na análise e dimensionamento de estruturas, todas as consequências serão de sua inteira e exclusiva responsabilidade (consulte [`README.md`](../README.md#ptbr) e o [EULA Oficial](../source/assets/EULA/EULA_pt_BR.txt)).
 
 ## 1. Execução do Aplicativo Principal (`OmniFrame.exe`) e Delegação CLI
 
@@ -62,7 +65,7 @@ Compilado pelo preset `version-msvc-release` em `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.20.0 --date 2026-11-20 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.21.0 --date 2026-11-21 --apply --root .
 ```
 
 ---
@@ -73,7 +76,7 @@ O binário nativo de console `omniframe-cli.exe` (`/SUBSYSTEM:CONSOLE`) é compi
 
 ### 3.1. Associação com Windows 10/11 (CMD e PowerShell)
 - **Menu GUI em `OmniFrame.exe`:** `Configurações > CLI Windows (CMD / PowerShell)` (registrar sem admin, remover, verificar status, abrir CMD ou PowerShell já prontos com a CLI).
-- **Auto-registro HKCU via CLI:** `omniframe-cli --install-windows-integration` / `--check-windows-integration` / `--uninstall-windows-integration`.
+- **Autorregistro HKCU via CLI:** `omniframe-cli --install-windows-integration` / `--check-windows-integration` / `--uninstall-windows-integration`.
 - **Script PowerShell Portátil:** `.\cmake\register_cli_windows.ps1` (suporta `-CheckOnly`, `-Uninstall`, `-Action install|uninstall|check`, `-CliPath` e `-Json`) ou `.\register_cli_windows.ps1` dentro da pasta distribuída.
 - **Instalador Inno Setup (`OmniFrame.iss`) & MSIX (`AppxManifest.xml`):** tarefas `addtopath` e `assocproj` marcadas por padrão; alias `omniframe-cli.exe` com `desktop4:Subsystem="console"`.
 - **Codificação UTF-8 no terminal:** `chcp 65001 >nul` no CMD e `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` no PowerShell (`CommandLineToArgvW` + caminhos UTF-8 nativos em DXF/IFC4/CSV/VTK/JSON/MD/HTML/PDF).
@@ -140,17 +143,20 @@ omniframe-cli --check-windows-integration --json
 
 # OmniFrame 3D — Command Line Reference & Companion Utilities
 
-**Version:** `2026.11.20.0`  
-**Date:** `November 20, 2026`  
+**Version:** `2026.11.21.0`  
+**Date:** `November 21, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
+
+> [!WARNING]
+> **Auxiliary Scope of the CLI (`omniframe-cli.exe`):** The command-line tool, its JSON outputs, `--nbr-audit` checks, and exported files/reports (`--export`, `--report`) use the exact same free auxiliary engine as the desktop GUI, which **is not yet mature enough for definitive production or professional use**. Due to limitations, human flaws, and possible defects in the source code (encompassing both the applied mathematics and the underlying physics, due to which its algorithms may produce errors), **all outputs must be verified manually or compared against more established tools in the market**. Should the user decide to rely exclusively on this tool for production or professional structural analysis and design, all resulting consequences shall be the user's sole and entire responsibility (see [`README.md`](../README.md#enus) and the [Official EULA](../source/assets/EULA/EULA_en_US.txt)).
 
 ## 1. Main Application Execution (`OmniFrame.exe`) & CLI Delegation
 
 The **`OmniFrame.exe`** desktop executable opens the Qt 6 graphical workspace (`MainWindow`) maximized by default and integrates directly with the command-line ecosystem:
 
-- **Direct project launch from command line (CMD / PowerShell / Explorer):**
+- **Direct project launch from the command line (CMD / PowerShell / Explorer):**
 ```bat
 OmniFrame.exe "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe"
 ```
@@ -188,7 +194,7 @@ Built by the `version-msvc-release` preset in `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.20.0 --date 2026-11-20 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.21.0 --date 2026-11-21 --apply --root .
 ```
 
 ---

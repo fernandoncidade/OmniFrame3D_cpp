@@ -1,11 +1,12 @@
 THIRD-PARTY NOTICES AND ATTRIBUTIONS — OmniFrame 3D
-Version 2026.11.20.0, November 20, 2026
+Version 2026.11.21.0, November 21, 2026
 
 OmniFrame 3D incorporates and utilizes open-source components, libraries, and specifications:
 
 1. OMNIFRAME 3D
    Copyright (C) 2025-2026 Fernando Nillsson Cidade. All rights reserved.
    Provided under GNU AGPLv3 (open-source repository on GitHub) and EULA (official Microsoft Store package).
+   Scope and Disclaimer Notice ("AS IS"): Free application that the user may use as they see fit as an auxiliary tool (educational, academic, and result comparison), and not as a definitive or final tool; not mature enough for production or professional use due to limitations, human flaws, and possible defects in the source code — encompassing both the applied mathematics and the underlying physics, due to which its algorithms may produce errors. Always use more established tools in the market or manually verify all results; should the user decide to rely on it exclusively for production or professional use in structural analysis and structural design, all resulting consequences shall be the user's sole and entire responsibility, in view of these express prior notices and warnings. Provided "AS IS" without warranties and with author exemption under the Official EULA and GNU AGPLv3 Sections 15–16 (exclusive responsibility of a licensed engineer with ART/RRT or equivalent — Brazilian Laws No. 5.194/1966, No. 6.496/1977, and No. 12.378/2010).
 
 2. QT APPLICATION FRAMEWORK
    Version: 6.11.1

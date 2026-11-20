@@ -1,6 +1,6 @@
 PRIVACY POLICY FOR OMNIFRAME 3D
-Last Updated: November 20, 2026
-Version: 2026.11.20.0
+Last Updated: November 21, 2026
+Version: 2026.11.21.0
 
 Your privacy, the professional confidentiality of your engineering models, and the unrestricted sovereignty of your structural calculation data are foundational principles of OmniFrame 3D. This Privacy Policy explains clearly how OmniFrame 3D ("Software") operates and how your data remains solely under your control.
 
@@ -20,8 +20,8 @@ The Software processes solely data deliberately entered or opened by the user:
 The Software DOES NOT collect, request, store, or process Personally Identifiable Information (name, email, taxpayer/national IDs, phone numbers, geographic location, biometrics, health, financial records, or children's data).
 
 3. Legal Basis and Declared Capability (LGPD / GDPR / Microsoft Store)
-Local processing strictly serves to execute the linear finite element structural analyses requested by the user, render 3D visualization, and save local .omniframe (JSON) files and .html / .md technical reports (LGPD Art. 7, V and IX; legitimate interest and contract performance under GDPR).
-For Microsoft Store MSIX packaging, the manifest declares only the restricted capability <rescap:Capability Name="runFullTrust" /> (required for native C++23 / Qt 6 execution, OpenGL 3.3 Core rendering, and standard Windows file dialogs), without using camera, microphone, location, or contacts.
+Local processing strictly serves to execute the linear finite element structural analyses requested by the user, render 3D visualizations, and save local .omniframe (JSON) files and .html / .md technical reports (LGPD Art. 7, V and IX; legitimate interest and contract performance under GDPR).
+For Microsoft Store MSIX packaging, the manifest declares only the restricted capability <rescap:Capability Name="runFullTrust" /> (required for native C++23 / Qt 6 execution, OpenGL 3.3 Core rendering, and standard Windows file dialogs), without accessing the camera, microphone, location, or contacts.
 
 4. Local Storage, Zero Network Connectivity, and No Third-Party Sharing
 - Strictly Local Storage: Project files (.omniframe) and technical reports (.html and .md) are saved solely to local paths explicitly selected by you via standard Windows file dialogs.

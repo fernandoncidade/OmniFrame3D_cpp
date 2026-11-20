@@ -1,5 +1,5 @@
 COMMERCIAL LICENSING CLARIFICATION AND ENTERPRISE SUPPORT — OmniFrame 3D
-Version 2026.11.20.0, November 20, 2026
+Version 2026.11.21.0, November 21, 2026
 
 Author and Developer: Fernando Nillsson Cidade (Individual Developer)
 Support & Contact Email: linceu_lighthouse@outlook.com
@@ -11,7 +11,7 @@ Official Website / Repository: https://github.com/fernandoncidade/OmniFrame_cpp
 The complete source code of this project is published publicly on GitHub under the GNU Affero General Public License v3 (AGPLv3). Any individual or organization is granted full freedom to inspect, audit, compile, modify, and build derivative works from the source code under GNU AGPLv3 terms.
 
 2. OFFICIAL MICROSOFT STORE EDITION AND CLEAN UNINSTALL:
-For convenient deployment across engineering workstations, universities, and structural consultancies, the author officially distributes OmniFrame 3D as a free application on the Microsoft Store:
+For convenient deployment across academic, educational, research, and comparative-study workstations on Windows, the author officially distributes OmniFrame 3D as a free application on the Microsoft Store:
 https://apps.microsoft.com/detail/OmniFrame3D
 Users may cleanly uninstall and remove the package at any time through Windows Settings or the Start Menu without leaving background services running.
 
@@ -21,11 +21,17 @@ a) Microsoft does NOT provide customer or technical support for OmniFrame 3D, an
 b) Technical support provided by the author (individual developer) takes place via email (linceu_lighthouse@outlook.com) and publicly through the Issues and Discussions tabs of the official GitHub repository;
 c) Support is provided on a strictly voluntary best-effort basis according to author availability, with no phone support, commercial SLA, or 24/7 remote access.
 
-4. CORPORATE VALIDATION AND CUSTOM COMMERCIAL LICENSING:
-For academic institutions or engineering organizations requiring:
-- Compliance evaluation on specific projects under design standards (ABNT NBR 8800, NBR 6118, AISC 360, Eurocodes);
-- Custom integration with proprietary workflows;
-- Exemption from GNU AGPLv3 copyleft obligations for closed-source proprietary commercial distributions;
+4. TECHNICAL SCOPE, FREE AUXILIARY USE, MATURITY LIMITATIONS, AND DISCLAIMER ("AS IS"):
+Because OmniFrame 3D is a free application, the user may use it as they see fit as an auxiliary computational tool for matrix Finite Element structural analysis (linear static, modal, buckling, harmonic, response spectrum, second-order P-Delta/corotational, and J2 plasticity), intended for educational assistance, teaching, academic research, and result comparison — but NOT as a definitive or final tool:
+a) This application is not mature enough to be taken to production or definitive professional use and MUST NEVER, UNDER ANY CIRCUMSTANCES, be used solely and exclusively for that purpose because, due to its limitations, human flaws, and possible errors during source-code development, it may contain serious errors in its code, algorithms, mathematics, and physics applied in programming; the user must always use other, more established tools in the market or manually verify all obtained results;
+b) Its outputs DO NOT replace complete ULS/SLS checks, second-order effects (P-Delta and P-delta), global or local instabilities, specific design-code combinations (ABNT NBR 8800, NBR 6118, AISC 360-22, Eurocode 3), independent cross-validation, or formal oversight by a legally licensed engineer issuing ART/RRT before CREA/CAU (Brazilian Laws No. 5.194/1966, No. 6.496/1977, and No. 12.378/2010; Art. 39, VIII, Brazilian Consumer Defense Code — Law No. 8.078/1990; or equivalent PE/CEng licensure in other jurisdictions);
+c) The Software is supplied "AS IS", with all faults and without warranties (Official EULA, Law No. 9.609/1998, and GNU AGPLv3 Sections 15–16). Should the user decide to rely exclusively on this application as a definitive tool for production or professional use in structural analysis and structural design, all resulting consequences shall be the sole and entire responsibility of the user and responsible licensed engineer — including under Arts. 186, 618, and 927 of the Brazilian Civil Code (Law No. 10.406/2002) and Art. 256 of the Brazilian Penal Code (Decree-Law No. 2.848/1940) — in view of the express prior notices and warnings regarding possible defects in the source code encompassing both the applied mathematics and the underlying physics, due to which its algorithms may produce errors, with complete civil, criminal, and technical exemption of the author to the maximum extent permitted by applicable law.
 
-Please contact the author directly via:
+5. INSTITUTIONAL INQUIRIES AND CUSTOM LICENSING:
+For academic institutions or organizations requiring:
+- Comparative studies under design standards (ABNT NBR 8800, NBR 6118, AISC 360, Eurocodes), always subject to independent validation by a licensed professional engineer;
+- Custom integration with research workflows or internal systems;
+- Exemption from GNU AGPLv3 copyleft obligations for closed-source proprietary distributions (without implying production calculation certification);
+
+Please contact the author directly by email at:
 linceu_lighthouse@outlook.com

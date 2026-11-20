@@ -19,8 +19,8 @@ class QTextEdit;
 
 namespace mocks::version_editor {
 
-inline constexpr const char* kDefaultAppVersion = "2026.11.20.0";
-inline constexpr const char* kDefaultReleaseDate = "2026-11-20";
+inline constexpr const char* kDefaultAppVersion = "2026.11.21.0";
+inline constexpr const char* kDefaultReleaseDate = "2026-11-21";
 
 inline constexpr const char* kLibraryDirName = "library";
 inline constexpr const char* kOmniFrameIssRelPath = "library/OmniFrame.iss";

@@ -1,6 +1,6 @@
 POLÍTICA DE PRIVACIDADE DO OMNIFRAME 3D
-Última atualização: 20 de novembro de 2026
-Versão: 2026.11.20.0
+Última atualização: 21 de novembro de 2026
+Versão: 2026.11.21.0
 
 A sua privacidade, o sigilo profissional de seus projetos de engenharia e a soberania irrestrita dos seus dados estruturais são princípios fundamentais do OmniFrame 3D. Esta Política de Privacidade explica com transparência absoluta como o OmniFrame 3D ("Software") opera e como suas informações permanecem sob seu controle exclusivo.
 
@@ -20,7 +20,7 @@ O Software processa exclusivamente os seguintes dados inseridos ou abertos delib
 O Software NÃO coleta, NÃO solicita, NÃO armazena e NÃO processa dados pessoais identificáveis (nome, e-mail, CPF/CNPJ, telefone, localização geográfica, biometria, saúde, dados financeiros ou dados de crianças).
 
 3. Base Legal e Capacidade Declarada (LGPD / GDPR / Microsoft Store)
-O processamento local atende exclusivamente à execução das análises estruturais por elementos finitos solicitadas pelo usuário, visualização 3D e salvamento local de arquivos .omniframe (JSON) e relatórios técnicos .html / .md (Art. 7º, V e IX da LGPD; interesse legítimo e execução contratual sob o GDPR).
+O processamento local atende exclusivamente à execução das análises estruturais por elementos finitos solicitadas pelo usuário, visualização 3D e salvamento local de arquivos .omniframe (JSON) e relatórios técnicos .html / .md (art. 7º, V e IX, da LGPD; interesse legítimo e execução contratual sob o GDPR).
 Em pacotes MSIX da Microsoft Store, declara-se apenas a capacidade restrita <rescap:Capability Name="runFullTrust" /> (necessária para execução desktop nativa C++23/Qt 6, OpenGL 3.3 Core e diálogos padrão de arquivo do Windows), sem uso de câmera, microfone, localização ou contatos.
 
 4. Armazenamento Local, Zero Rede e Ausência de Compartilhamento

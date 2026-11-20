@@ -14,15 +14,15 @@
 
 # OmniFrame 3D — Modelo de Segurança, Integridade de Dados e Resiliência
 
-**Versão:** `2026.11.20.0`  
-**Data:** `20 de novembro de 2026`  
+**Versão:** `2026.11.21.0`  
+**Data:** `21 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
 
 ## 1. Princípios de Segurança e Filosofia de Design
 
-O **OmniFrame 3D** é projetado para atuar em ambientes de engenharia de missão crítica, estações de trabalho industriais e computadores acadêmicos. Sua arquitetura de segurança é fundamentada em cinco garantias estruturais:
+O **OmniFrame 3D** é projetado para operar com isolamento local e segurança de software em estações de trabalho acadêmicas, ambientes de estudo, pesquisa e análise estrutural comparativa. Sua arquitetura de segurança é fundamentada em cinco garantias estruturais:
 
 1. **Soberania Absoluta e Arquitetura 100% Local-First:** O software opera em regime estrito de isolamento (*air-gapped*). Não há conexões de rede, portas de escuta TCP/UDP, telemetria em segundo plano ou dependência de servidores em nuvem.
 2. **Segurança de Memória e RAII em C++23:** Uso sistemático de semântica de movimentação (*move semantics*), ponteiros inteligentes (`std::unique_ptr`, `std::shared_ptr`), guardas `QPointer` em janelas/callbacks assíncronos, snapshots imutáveis para relatórios não modais e ausência de ponteiros proprietários manuais com risco de *memory leak* ou *use-after-free*.
@@ -50,10 +50,16 @@ O **OmniFrame 3D** é projetado para atuar em ambientes de engenharia de missão
 ## 3. Validação Estrita de Entrada e Sanitização de Modelos
 
 Ao importar ou abrir qualquer arquivo `.omniframe`, `.dxf` ou `.ifc`:
-- **Limites Preventivos (Anti-DoS / OOM):** Arquivos acima do limite estrutural seguro, JSON excessivamente aninhados e strings IFC/DXF malformadas ou truncadas são rejeitados antes da alocação pesada de memória.
+- **Limites Preventivos (Anti-DoS / OOM):** Arquivos acima do limite estrutural seguro, arquivos JSON excessivamente aninhados e strings IFC/DXF malformadas ou truncadas são rejeitados antes da alocação pesada de memória.
 - **Comprimento de Barras e Geometria:** É verificado se as coordenadas são finitas e dentro de faixa física razoável, e se a distância euclidiana entre os nós excede a tolerância mínima (evitando divisões por zero em $EA/L$ e $EI/L^3$).
 - **Propriedades Físicas:** Módulo de elasticidade ($E > 0$), coeficiente de Poisson válido, inércias ($I_y > 0, I_z > 0$), área ($A > 0$) e constante de torção ($J > 0$) são checados contra limites fisicamente admissíveis.
 - **Topologia Consistente:** Referências a nós, materiais ou seções inexistentes e ciclos/duplicidades inválidos de MPC/diafragma são interceptados antes da montagem da matriz de rigidez global.
+
+---
+
+## 4. Distinção Entre Segurança de Software e Maturidade de Cálculo Estrutural ("AS IS")
+
+As garantias descritas neste documento referem-se à segurança da aplicação em execução local (memória, validação de arquivos, prevenção de injeção em exportações e operação offline) e **não certificam maturidade definitiva para produção nem ausência de erros de cálculo estrutural**. O **OmniFrame 3D** é um aplicativo gratuito de uso livre como **ferramenta auxiliar**, ainda não maduro para produção ou uso profissional devido a limitações, falhas humanas e possíveis erros no código-fonte (abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas). Todos os resultados devem ser conferidos manualmente ou com ferramentas consolidadas no mercado, e caso o usuário decida utilizá-lo exclusivamente em produção ou para fins profissionais na análise e dimensionamento de estruturas, todas as consequências serão de sua inteira e exclusiva responsabilidade ([`README.md`](../README.md#ptbr) e [EULA Oficial](../source/assets/EULA/EULA_pt_BR.txt)).
 
 </details>
 
@@ -66,15 +72,15 @@ Ao importar ou abrir qualquer arquivo `.omniframe`, `.dxf` ou `.ifc`:
 
 # OmniFrame 3D — Security Model, Data Integrity & Resilience
 
-**Version:** `2026.11.20.0`  
-**Date:** `November 20, 2026`  
+**Version:** `2026.11.21.0`  
+**Date:** `November 21, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
 
 ## 1. Security Principles & Architectural Guarantees
 
-OmniFrame 3D is designed to operate in mission-critical engineering environments, industrial workstations, and academic computers. Its security architecture rests on five structural guarantees:
+OmniFrame 3D is designed to operate with local isolation and software safety across academic workstations, study, research, and comparative structural-analysis environments. Its security architecture rests on five structural guarantees:
 
 1. **Absolute Sovereignty & 100% Local-First Architecture:** Operates under strict isolation (*air-gapped*). There are zero network connections, zero TCP/UDP listening ports, zero background telemetry, and zero cloud server dependencies.
 2. **Memory Safety & RAII in C++23:** Systematic use of move semantics, smart pointers (`std::unique_ptr`, `std::shared_ptr`), `QPointer` guards on asynchronous/modeless callbacks, immutable snapshots for modeless PDF generation, and complete avoidance of owning raw pointers that risk memory leaks or use-after-free defects.
@@ -106,5 +112,11 @@ When importing or opening any `.omniframe`, `.dxf`, or `.ifc` file:
 - **Member Length & Geometry:** Coordinates are verified to be finite and within physical engineering bounds, and Euclidean distances must exceed minimum geometric tolerances (preventing division by zero in $EA/L$ and $EI/L^3$ terms).
 - **Physical Properties:** Modulus of elasticity ($E > 0$), valid Poisson's ratio, moments of inertia ($I_y > 0, I_z > 0$), area ($A > 0$), and torsion constant ($J > 0$) are enforced.
 - **Consistent Topology:** References to nonexistent nodes/materials/sections and invalid MPC/diaphragm cycles or duplicates are intercepted prior to global stiffness matrix allocation.
+
+---
+
+## 4. Software Security vs. Structural Engineering Production Maturity ("AS IS")
+
+The guarantees described in this document address local software execution security (memory safety, input validation, export sanitization, and offline operation) and **do not certify definitive production maturity or freedom from structural calculation errors**. **OmniFrame 3D** is a free application for free use as an **auxiliary tool**, not yet mature enough for production or professional use due to limitations, human flaws, and possible defects in the source code (encompassing both applied mathematics and underlying physics, as a result of which its algorithms may produce errors). All outputs must be verified manually or against established tools in the market, and should the user decide to rely exclusively on it for production or professional structural analysis and design, all resulting consequences shall be the user's sole and entire responsibility ([`README.md`](../README.md#enus) and [Official EULA](../source/assets/EULA/EULA_en_US.txt)).
 
 </details>

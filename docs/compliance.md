@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Guia de Conformidade Normativa e Validação FEA
 
-**Versão:** `2026.11.20.0`  
-**Data:** `20 de novembro de 2026`  
+**Versão:** `2026.11.21.0`  
+**Data:** `21 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -52,10 +52,10 @@ Os resultados gerados pela aplicação fornecem os dados de entrada necessários
 
 ## 3. Casos de Teste Canônicos e Benchmarks Numéricos
 
-Para assegurar a máxima exatidão e confiabilidade, o kernel FEA e a suíte de solvers do OmniFrame 3D são validados contra soluções analíticas fechadas em **22 suítes automatizadas CTest** (`ctest --preset testes-msvc-release --output-on-failure`).
+Para oferecer rastreabilidade didática e verificação contínua em cenários de referência, o kernel FEA e a suíte de solvers do OmniFrame 3D são validados contra soluções analíticas fechadas em **22 suítes automatizadas CTest** (`ctest --preset testes-msvc-release --output-on-failure`).
 
 ### Benchmark 1: Viga em Balanço 3D sob Carga Transversal e Torção
-- **Propriedades Geométricas:** Comprimento $L = 6.0\text{ m}$; Seção tubular retangular ($A = 0.012\text{ m}^2$, $I_z = 8.5\times 10^{-5}\text{ m}^4$, $I_y = 4.2\times 10^{-5}\text{ m}^4$, $J = 9.8\times 10^{-5}\text{ m}^4$).
+- **Propriedades Geométricas:** Comprimento $L = 6{,}0\text{ m}$; Seção tubular retangular ($A = 0{,}012\text{ m}^2$, $I_z = 8{,}5\times 10^{-5}\text{ m}^4$, $I_y = 4{,}2\times 10^{-5}\text{ m}^4$, $J = 9{,}8\times 10^{-5}\text{ m}^4$).
 - **Material:** Aço Estrutural ($E = 200\text{ GPa}$, $G = 77\text{ GPa}$).
 - **Condições de Contorno:** Nó 1 totalmente engastado ($u_x = u_y = u_z = \theta_x = \theta_y = \theta_z = 0$).
 - **Carregamento no Nó Livre (Nó 2):** Força transversal $F_y = -50\text{ kN}$, Força lateral $F_z = 25\text{ kN}$ e Momento de Torção $M_x = 15\text{ kN}\cdot\text{m}$.
@@ -63,10 +63,10 @@ Para assegurar a máxima exatidão e confiabilidade, o kernel FEA e a suíte de 
 
 | Parâmetro | Solução Analítica Exata | OmniFrame 3D | Divergência (%) |
 |---|:---:|:---:|:---:|
-| Deslocamento Vertical $\delta_y = \frac{F_y L^3}{3 E I_z}$ | $-21.1765\text{ mm}$ | $-21.1765\text{ mm}$ | $0.000\%$ |
-| Deslocamento Lateral $\delta_z = \frac{F_z L^3}{3 E I_y}$ | $+21.4286\text{ mm}$ | $+21.4286\text{ mm}$ | $0.000\%$ |
-| Rotação de Torção $\theta_x = \frac{M_x L}{G J}$ | $+0.011927\text{ rad}$ | $+0.011927\text{ rad}$ | $0.000\%$ |
-| Momento Fletor na Base $M_{z,\text{base}} = F_y L$ | $-300.00\text{ kN}\cdot\text{m}$ | $-300.00\text{ kN}\cdot\text{m}$ | $0.000\%$ |
+| Deslocamento Vertical $\delta_y = \frac{F_y L^3}{3 E I_z}$ | $-21{,}1765\text{ mm}$ | $-21{,}1765\text{ mm}$ | $0{,}000\%$ |
+| Deslocamento Lateral $\delta_z = \frac{F_z L^3}{3 E I_y}$ | $+21{,}4286\text{ mm}$ | $+21{,}4286\text{ mm}$ | $0{,}000\%$ |
+| Rotação de Torção $\theta_x = \frac{M_x L}{G J}$ | $+0{,}011927\text{ rad}$ | $+0{,}011927\text{ rad}$ | $0{,}000\%$ |
+| Momento Fletor na Base $M_{z,\text{base}} = F_y L$ | $-300{,}00\text{ kN}\cdot\text{m}$ | $-300{,}00\text{ kN}\cdot\text{m}$ | $0{,}000\%$ |
 
 ### Benchmark 2: Pórtico Espacial com Cargas Biaxiais
 - **Descrição:** Pórtico espacial tridimensional formado por 4 pilares e 4 vigas de cobertura em aço com nós rígidos. Carga horizontal simula ação de vento combinada em X e Y, e carga gravitacional em Z.
@@ -77,14 +77,25 @@ Para assegurar a máxima exatidão e confiabilidade, o kernel FEA e a suíte de 
 - **Validação:** Comprovação de ausência de momentos fletores e de torção parasitas nos elementos, operando em regime estrito de tração/compressão axial ($N \neq 0$, $M = 0$).
 
 ### Benchmark 4: Placa Fina de Navier (`Quad4-MITC4`) e Acoplamento Misto 1D + 2D
-- **Descrição:** Placa quadrada simplesmente apoiada ($4\times 4\text{ m}$, $t = 0.20\text{ m}$, $q = -10\text{ kPa}$) e laje 2D apoiada sobre 4 pilares 1D engastados no fluxo unificado `FemSolver3D::solve()`.
-- **Validação:** Flecha central comparada à série dupla de Navier, tensões von Mises 2D positivas, compartilhamento exato de DOF em nós coincidentes e equilíbrio global das reações na base dos pilares ($\sum R_z = 192.0\text{ kN}$).
+- **Descrição:** Placa quadrada simplesmente apoiada ($4\times 4\text{ m}$, $t = 0{,}20\text{ m}$, $q = -10\text{ kPa}$) e laje 2D apoiada sobre 4 pilares 1D engastados no fluxo unificado `FemSolver3D::solve()`.
+- **Validação:** Flecha central comparada à série dupla de Navier, tensões von Mises 2D positivas, compartilhamento exato de DOF em nós coincidentes e equilíbrio global das reações na base dos pilares ($\sum R_z = 192{,}0\text{ kN}$).
 
 ### Benchmark 5: Sólidos 3D (`Hex8-Bbar`, `Hex20` Lamé e Fluxo E2E `mask3`)
-- **Descrição:** Cilindro espesso de Lamé em `Hex20`, flexão quase incompressível em `Hex8-Bbar` ($\nu = 0.499$) e barra prismática `Hex8` tracionada ($P = 100\text{ kN}$) via `StructuralModel::surfaceMesh()`.
+- **Descrição:** Cilindro espesso de Lamé em `Hex20`, flexão quase incompressível em `Hex8-Bbar` ($\nu = 0{,}499$) e barra prismática `Hex8` tracionada ($P = 100\text{ kN}$) via `StructuralModel::surfaceMesh()`.
 - **Validação:** Admissão automática de `mask3` (3 DOFs translacionais por nó sólido puro), alongamento axial $u_x(L) = PL/(EA)$ e tensão uniforme $\sigma_{xx} = \sigma_{vM} = P/A = 400\text{ kPa}$ com equilíbrio estático exato.
 
 *(Matriz completa de V&V, ADRs, auditoria técnica e limitações conhecidas documentadas em [`docs/technical-audit-and-roadmap.md`](technical-audit-and-roadmap.md).)*
+
+---
+
+## 4. Limitações de Maturidade, Conferência Obrigatória e Responsabilidade Profissional ("AS IS")
+
+> [!WARNING]
+> **Caráter Auxiliar das Verificações Normativas e Benchmarks:** A classificação `LocalPdfVerified` e a aprovação nas suítes de testes automatizados representam apenas verificação interna de consistência didática e não constituem certificação oficial para produção ou prática profissional.
+
+- Por ser um aplicativo gratuito, o usuário pode utilizar o **OmniFrame 3D** conforme lhe convir como **ferramenta auxiliar** (educacional, acadêmica e comparativa), e **não** como ferramenta definitiva ou final.
+- Este aplicativo **ainda não está maduro o suficiente** para ser utilizado em produção ou uso profissional definitivo, pois, devido a limitações, falhas humanas e eventuais erros no código-fonte — abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas —, **o usuário deve sempre utilizar outras ferramentas mais consolidadas no mercado ou conferir manualmente todos os resultados e verificações normativas (`ABNT NBR`, `AISC 360-22`, `Eurocode 3`)**.
+- Caso o usuário decida utilizar exclusivamente este aplicativo como ferramenta definitiva de produção ou para uso profissional, na análise estrutural e no dimensionamento de estruturas, **todas as consequências serão de sua inteira e exclusiva responsabilidade**, cabendo a responsabilidade técnica exclusivamente a profissional legalmente habilitado com **ART/RRT** perante o **CREA/CAU** (**Leis nº 5.194/1966, nº 6.496/1977 e nº 12.378/2010**; **CDC art. 39, VIII**; **Código Civil arts. 186, 618 e 927**; **Código Penal art. 256**), com fornecimento **"AS IS"** (EULA Oficial, Lei nº 9.609/1998 e GNU AGPLv3 Seções 15–16) e integral isenção do autor na extensão máxima permitida em lei.
 
 </details>
 
@@ -97,8 +108,8 @@ Para assegurar a máxima exatidão e confiabilidade, o kernel FEA e a suíte de 
 
 # OmniFrame 3D — Normative Compliance & FEA Verification Benchmarks
 
-**Version:** `2026.11.20.0`  
-**Date:** `November 20, 2026`  
+**Version:** `2026.11.21.0`  
+**Date:** `November 21, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -136,7 +147,7 @@ The results generated by the application supply the required input data for chec
 
 ## 3. Canonical Test Cases & Numerical Benchmarks
 
-To ensure maximum accuracy and reliability, OmniFrame 3D's FEA kernel and solver suite are validated against closed-form analytical solutions across **22 automated CTest suites** (`ctest --preset testes-msvc-release --output-on-failure`).
+To provide didactic traceability and continuous verification against reference benchmarks, OmniFrame 3D's FEA kernel and solver suite are validated against closed-form analytical solutions across **22 automated CTest suites** (`ctest --preset testes-msvc-release --output-on-failure`).
 
 ### Benchmark 1: 3D Cantilever Beam under Transverse Load and Torsion
 - **Geometric Properties:** Span $L = 6.0\text{ m}$; Rectangular hollow tube ($A = 0.012\text{ m}^2$, $I_z = 8.5\times 10^{-5}\text{ m}^4$, $I_y = 4.2\times 10^{-5}\text{ m}^4$, $J = 9.8\times 10^{-5}\text{ m}^4$).
@@ -169,5 +180,16 @@ To ensure maximum accuracy and reliability, OmniFrame 3D's FEA kernel and solver
 - **Validation:** Pure solid nodes allocate `mask3` translational DOFs ($3$ DOFs/node), recovering exact elongation $u_x(L) = PL/(EA)$ and uniform stress $\sigma_{xx} = \sigma_{vM} = 400\text{ kPa}$ under global static equilibrium.
 
 *(Full V&V matrix, ADRs, technical audit, and known limitations are documented in [`docs/technical-audit-and-roadmap.md`](technical-audit-and-roadmap.md).)*
+
+---
+
+## 4. Maturity Limitations, Mandatory Independent Verification & Professional Responsibility ("AS IS")
+
+> [!WARNING]
+> **Auxiliary Nature of Normative Checks and Benchmarks:** The `LocalPdfVerified` classification and passing automated test suites represent internal didactic consistency checks only and do not constitute official certification for production or professional practice.
+
+- Because **OmniFrame 3D** is a free application, the user may use it as they see fit as an **auxiliary tool** (educational, academic, and comparative), and **not** as a definitive or final tool.
+- This application **is not yet mature enough** for production or definitive professional use because, due to limitations, human flaws, and possible defects in the source code — encompassing both the applied mathematics and the underlying physics, as a result of which its algorithms may produce errors — **the user must always use other, more established tools in the market or manually verify all obtained results and code checks (`ABNT NBR`, `AISC 360-22`, `Eurocode 3`)**.
+- Should the user decide to rely exclusively on this application as a definitive tool for production or professional use in structural analysis and design, **all resulting consequences shall be the user's sole and entire responsibility**, while technical responsibility remains exclusively with a legally licensed engineer issuing **ART/RRT** before **CREA/CAU** (**Brazilian Laws No. 5.194/1966, No. 6.496/1977, and No. 12.378/2010**; **CDC Art. 39, VIII**; **Civil Code Arts. 186, 618, and 927**; **Penal Code Art. 256**; or equivalent PE/CEng licensure in other jurisdictions), provided **"AS IS"** (Official EULA, Law No. 9.609/1998, and GNU AGPLv3 Sections 15–16) with full exemption of the author to the maximum extent permitted by law.
 
 </details>

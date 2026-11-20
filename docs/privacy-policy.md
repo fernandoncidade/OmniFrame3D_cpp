@@ -14,8 +14,8 @@
 
 # POLÍTICA DE PRIVACIDADE — OMNIFRAME 3D
 
-**Versão:** `2026.11.20.0`  
-**Data:** `20 de novembro de 2026`  
+**Versão:** `2026.11.21.0`  
+**Data:** `21 de novembro de 2026`  
 **Desenvolvedor / Controlador:** Fernando Nillsson Cidade (Desenvolvedor Individual)  
 **E-mail de Contato e Privacidade:** `linceu_lighthouse@outlook.com`  
 **Site Oficial do Projeto:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -48,7 +48,7 @@ Todo processamento estrutural permanece sob controle exclusivo do usuário, na R
 
 - **Dados de Engenharia em Memória:** Coordenadas nodais $(X, Y, Z)$, conectividade de barras, materiais ($E, \nu, \alpha, \gamma$), seções transversais ($A, I_y, I_z, J$), ângulo de roll, rótulas, apoios, molas, deslocamentos prescritos e cargas nodais/distribuídas.
 - **Arquivos Salvos Explicitamente pelo Usuário:** Modelos estruturais no formato JSON aberto **`.omniframe`**, arquivos de interoperabilidade CAD/BIM (**`.dxf`**, **`.ifc`**), relatórios técnicos (**`.pdf`**, **`.html`**, **`.md`**) e conjuntos de resultados (**`.json`**, **`.csv`**, **`.vtk`**) são gravados **apenas** na pasta selecionada explicitamente pelo usuário nos diálogos padrão do Windows ou via argumentos explícitos na CLI.
-- **Preferências Locais Mínimas, Recuperação de Sessão e Logs Diagnósticos:** A escolha de idioma, tema visual, estilo de interface, perfil gráfico OpenGL e preferências locais de janela/painéis/tabelas são salvos localmente de forma consolidada no arquivo único JSON `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (ou no contêiner isolado equivalente quando executado via pacote MSIX). O pacote atômico único de recuperação de rascunho por sessão (`%LOCALAPPDATA%\OmniFrame\recovery\`, protegido com `QLockFile` contra colisão entre janelas simultâneas) e logs técnicos diários de execução sem dados pessoais (`%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log`, máximo de 10 arquivos com rotação automática) também permanecem estritamente locais na estação do usuário.
+- **Preferências Locais Mínimas, Recuperação de Sessão e Logs Diagnósticos:** As preferências locais de idioma, tema visual, estilo de interface, perfil gráfico OpenGL e layout de janela/painéis/tabelas são salvas localmente de forma consolidada no arquivo único JSON `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (ou no contêiner isolado equivalente quando executado via pacote MSIX). O pacote atômico único de recuperação de rascunho por sessão (`%LOCALAPPDATA%\OmniFrame\recovery\`, protegido com `QLockFile` contra colisão entre janelas simultâneas) e logs técnicos diários de execução sem dados pessoais (`%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log`, máximo de 10 arquivos com rotação automática) também permanecem estritamente locais na estação do usuário.
 
 ---
 
@@ -83,8 +83,8 @@ O usuário exerce controle pleno sobre todos os dados locais:
 
 # PRIVACY POLICY — OMNIFRAME 3D
 
-**Version:** `2026.11.20.0`  
-**Date:** `November 20, 2026`  
+**Version:** `2026.11.21.0`  
+**Date:** `November 21, 2026`  
 **Developer / Controller:** Fernando Nillsson Cidade (Individual Developer)  
 **Privacy & Support Email:** `linceu_lighthouse@outlook.com`  
 **Official Project Website:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)

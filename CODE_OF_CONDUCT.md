@@ -50,7 +50,7 @@ Este Código de Conduta se aplica a todos os espaços da comunidade e quando um 
 
 ## Aplicação e Contato
 
-Instâncias de comportamento abusivo, ofensivo ou inaceitável podem ser relatadas diretamente ao mantenedor do projeto através do e-mail oficial: `linceu_lighthouse@outlook.com`. Todas as denúncias serão revisadas e investigadas de forma confidencial, justa e atenciosa.
+Instâncias de comportamento abusivo, ofensivo ou inaceitável podem ser relatadas diretamente ao mantenedor do projeto pelo e-mail oficial: `linceu_lighthouse@outlook.com`. Todas as denúncias serão revisadas e investigadas de forma confidencial, justa e atenciosa.
 
 ## Atribuição
 
@@ -69,7 +69,7 @@ Este Código de Conduta é adaptado do [Contributor Covenant](https://www.contri
 
 ## Our Pledge
 
-We as members, contributors, and leaders of the **OmniFrame 3D** project pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of technical experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
+We as members, contributors, and leaders of the **OmniFrame 3D** project pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of technical experience, education, socioeconomic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
 
 We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community dedicated to technical excellence in computational engineering.
 
@@ -89,17 +89,17 @@ Examples of unacceptable behavior include:
 * Trolling, derogatory or insulting comments, and personal or political attacks;
 * Public or private harassment;
 * Publishing others' private information, such as a physical or email address, without their explicit permission;
-* Other conduct which could reasonably be considered inappropriate in a professional setting.
+* Other conduct that could reasonably be considered inappropriate in a professional setting.
 
 ## Enforcement Responsibilities
 
 Community leaders are responsible for clarifying and enforcing our standards of acceptable behavior and will take appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive, or harmful.
 
-Community leaders have the right and responsibility to remove, edit, or reject comments, commits, code, documentation edits, issues, and other contributions that are not aligned to this Code of Conduct, and will communicate reasons for moderation decisions when appropriate.
+Community leaders have the right and responsibility to remove, edit, or reject comments, commits, code, documentation edits, issues, and other contributions that are not aligned with this Code of Conduct, and will communicate reasons for moderation decisions when appropriate.
 
 ## Scope
 
-This Code of Conduct applies within all community spaces, and also applies when an individual is officially representing the community in public spaces.
+This Code of Conduct applies within all community spaces and also applies when an individual is officially representing the community in public spaces.
 
 ## Enforcement and Contact
 

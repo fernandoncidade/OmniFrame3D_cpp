@@ -16,8 +16,8 @@
 
 # OMNIFRAME 3D - OBSERVAÇÃO TÉCNICA E POSICIONAMENTO ESTRATÉGICO
 
-Versão documentada: `2026.11.20.0`  
-Data do snapshot técnico: `20 de novembro de 2026`  
+Versão documentada: `2026.11.21.0`  
+Data do snapshot técnico: `21 de novembro de 2026`  
 Repositório: `OmniFrame_cpp`  
 Autor identificado no projeto: `Fernando Nillsson Cidade`  
 Licença do repositório: `GNU AGPLv3 (GNU Affero General Public License v3)`  
@@ -25,22 +25,22 @@ Licença da Edição Microsoft Store: `EULA Oficial do Autor (Distribuição Gra
 
 ## 1. Estado Atual do Projeto e Posicionamento
 
-O repositório **OmniFrame 3D** consolida uma plataforma desktop corporativa e científica de engenharia estrutural **nativa em C++23 com Qt 6.11.1**, álgebra linear esparsa com **Eigen 3.4.0** e aceleração gráfica tridimensional em **OpenGL 3.3 Core Profile** (GLSL 330).
+O repositório **OmniFrame 3D** consolida uma plataforma desktop gratuita de caráter educacional, acadêmico e auxiliar para análise estrutural **nativa em C++23 com Qt 6.11.1**, álgebra linear esparsa com **Eigen 3.4.0** e aceleração gráfica tridimensional em **OpenGL 3.3 Core Profile** (GLSL 330).
 
 O produto transcende a categoria de visualizadores geométricos ou ferramentas CAD convencionais, posicionando-se como uma **Suíte Local de Análise Estrutural Tridimensional por Elementos Finitos (FEA) de Pórticos e Treliças Espaciais**.
 
 Sua proposta de valor central responde diretamente à pergunta mais crítica no projeto e cálculo de estruturas civis e mecânicas:
 > **“Quais são os deslocamentos nodais, tensões axiais e esforços solicitantes internos (N, Vy, Vz, T, My, Mz) ao longo de cada elemento no espaço tridimensional sob combinações reais de carregamento?”**
 
-O produto atua como uma solução soberana **100% Local-First** (sem nuvem, sem telemetria, sem criação de contas, sem rastreadores e sem dependência de serviços externos), operando com independência e integridade analítica garantida.
+O produto atua como uma solução soberana **100% Local-First** (sem nuvem, sem telemetria, sem criação de contas, sem rastreadores e sem dependência de serviços externos), operando com independência e transparência matemática integral (como ferramenta auxiliar, sujeita à conferência independente).
 
-## 2. Linha Técnica e Destaques da Versão 2026.11.20.0
+## 2. Linha Técnica e Destaques da Versão 2026.11.21.0
 
-Esta versão consolida a maturidade técnica da engine de cálculo e a estabilização completa dos subsistemas analíticos:
+Esta versão consolida a evolução técnica do motor de cálculo, o endurecimento dos subsistemas analíticos e o reforço transparente da documentação quanto ao caráter auxiliar do aplicativo:
 
 - **Núcleo Puro C++23 + Eigen 3.4.0 (`OmniFrameKernel`):** Biblioteca numérica estritamente sem Qt implementando elementos 1D/2D/3D (`BeamTruss1D`, `Corotational1D`, `ShellElements`, `SolidElements` com DOFs `mask3` e acoplamento automático), índices hash `O(1)` (`ensureIndex` + `ScopedUndoSuppression`), modelos constitutivos elástico linear e **Plasticidade J2** (`LinearElasticMaterial`, `J2PlasticityMaterial`), geração paramétrica de malhas (`MeshGenerator`) e verificações `NbrCodeChecks` (incluindo teto plástico NBR 8800 para $C_b > 1$);
 - **Suíte Multi-Solver & Análises Avançadas:** `LinearSolverSuite` esparso (`SimplicialLDLT` AMD, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB` com fallback rastreável), `BucklingSolver` (com aplicação direta de imperfeição geométrica inicial), `DynamicSolver` (Modal, Harmônica FRF sem duplicação de amortecimento de Rayleigh, Espectro de Resposta NBR 15421 $2{,}5\,C_a\,a_g$ com combinação direcional ortogonal invariante a sinal e Transiente/Sísmica Newmark-$\beta$/HHT-$\alpha$ com histórico de força $F(t)$) e `NonlinearSolver` (P-Delta iterativo incluindo combos `ELU-2 P-Delta`, Corrotacional 3D com Tangente Completa, Line Search com restauração exata de estado e verificação real de equilíbrio, Newton-Raphson & Arc-Length), executados de forma unificada e exclusiva na GUI (`AsyncAnalysisExecutor` + `cloneWithoutHistory()` + `m_modelRevision` + `std::stop_token`);
-- **Viewport Gráfica Interativa em OpenGL 3.3 Core Profile:** Pipeline GLSL 330 com anti-aliasing SSAA/MSAA/Shader SDF (`RenderSettings`), cache de VBOs por camada, renderização instanciada de nós e desconexão segura via `aboutToBeDestroyed` + fallback amigável sem driver 3D, câmera orbital 3D, Raycasting picking, diagramas contínuos de Hermite, **Planos de Corte 3D (Clip Plane)**, **contornos DCR (0,50/0,85/1,00) e Tensão de von Mises (Casca/Sólido)**, **animação contínua inclusive apenas com malha 2D/3D**, plano padrão **`XY (Planta)`**, janelas **modeless** (`WindowZOrderManager`), tabelas interativas MVC compartilhadas (`ResultTableModel` / `ResultTableProxyModel` / `QTableView`) em 1–4 layouts com exportação `.xlsx`/`.csv`/`.txt`/`.json`/`.xml` anti-fórmula e filtro XML 1.0 (`ResultTableConfigurator`), modos de interface **`Customizado` / `Nativo`** (`ThemeManager`), inicialização limpa com proteção de edições (`StartupSessionDialog`) e setas vetoriais nativas de UI via `QProxyStyle`;
+- **Viewport Gráfica Interativa em OpenGL 3.3 Core Profile:** Pipeline GLSL 330 com anti-aliasing SSAA/MSAA/Shader SDF (`RenderSettings`), cache de VBOs por camada, renderização instanciada de nós e desconexão segura via `aboutToBeDestroyed` + fallback amigável sem driver 3D, câmera orbital 3D, Raycasting picking, diagramas contínuos de Hermite, **Planos de Corte 3D (Clip Plane)**, **contornos DCR (0,50/0,85/1,00) e Tensão de von Mises (Casca/Sólido)**, **animação contínua inclusive apenas com malha 2D/3D**, plano padrão **`XY (Planta)`**, janelas **modeless** (`WindowZOrderManager`), tabelas interativas MVC compartilhadas (`ResultTableModel` / `ResultTableProxyModel` / `QTableView`) em 1–4 layouts com exportação `.xlsx`/`.csv`/`.txt`/`.json`/`.xml` antifórmula e filtro XML 1.0 (`ResultTableConfigurator`), modos de interface **`Customizado` / `Nativo`** (`ThemeManager`), inicialização limpa com proteção de edições (`StartupSessionDialog`) e setas vetoriais nativas de UI via `QProxyStyle`;
 - **Interoperabilidade, Conformidade, Persistência & Hardening:** Formato aberto **`.omniframe` JSON Schema `2.1.0`** (retrocompatível com `1.0` / `2.0`), limite anti-DoS (`128 MB`), troca bidirecional **DXF / IFC4** (`DxfInterop`, `IfcInterop` preservando `surfaceMesh`, apoios e espessuras via caminhos UTF-8 `Utf8Path.hpp`), exportação **VTK `UNSTRUCTURED_GRID`** 1D/2D/3D e **CSV**, persistência atômica debounced (`UserPreferencesStore` v2), pacote único atômico de recuperação por sessão (`ProjectRecoveryStore` v3 com `QSaveFile` + `QLockFile`), logs diários rápidos em tail (`AppLogger` máx. 10 arquivos), hardening Windows (`/GS`, `/sdl`, `/guard:cf`, `/CETCOMPAT`, `LOAD_LIBRARY_SEARCH_SYSTEM32`), auditoria **ABNT NBR** (`LocalPdfVerified` / `OutOfLocalPdfScope`), relatórios **Markdown / HTML / PDF A4** e CLI **`omniframe-cli.exe`** (`source/cli/` + `source/os/WindowsCliIntegration`) com associação HKCU e validação numérica estrita (`std::from_chars`).
 
 ## 3. Resumo Estrutural Consolidado do Código-Fonte
@@ -76,6 +76,12 @@ O projeto adota uma fronteira estrita de duplo licenciamento:
 1. **GitHub (Código Aberto):** Todo o repositório está sob a licença **GNU AGPLv3**, assegurando liberdade total para estudo, auditoria, compilações independentes, modificação e criação de forks com preservação do copyleft.
 2. **Microsoft Store (Distribuição Oficial):** O pacote MSIX compilado, assinado e distribuído oficialmente pelo autor é disponibilizado gratuitamente sob o **EULA Oficial do Autor**, vedando a revenda comercial paga por terceiros e preservando a integridade da marca oficial (com Política de Privacidade própria independente da Microsoft e suporte prestado exclusivamente pelo desenvolvedor).
 
+## 6. Escopo Auxiliar Gratuito, Limitações de Maturidade e Isenção Legal ("AS IS")
+
+Por se tratar de um aplicativo gratuito, o usuário pode utilizar o **OmniFrame 3D** conforme lhe convir como **ferramenta auxiliar** (educacional, acadêmica, de pesquisa e de comparação de resultados), e **não** como ferramenta definitiva ou final. Este aplicativo **ainda não está maduro o suficiente** para produção ou uso profissional definitivo, pois, devido a limitações, falhas humanas e possíveis erros no código-fonte — abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas —, exige o emprego de ferramentas mais consolidadas no mercado ou conferência manual independente de todos os resultados.
+
+Caso o usuário decida utilizar exclusivamente este aplicativo como ferramenta definitiva de produção ou para uso profissional na análise estrutural e no dimensionamento de estruturas, todas as consequências serão de sua inteira e exclusiva responsabilidade, tendo em vista os avisos e alertas expressos. O software é fornecido **"NO ESTADO EM QUE SE ENCONTRA" ("AS IS")**, sem garantias (EULA Oficial, Lei nº 9.609/1998 e GNU AGPLv3 Seções 15–16), não substituindo verificações normativas nem a atuação de profissional legalmente habilitado com **ART/RRT** (**Leis nº 5.194/1966, nº 6.496/1977 e nº 12.378/2010**; **CDC art. 39, VIII**; **Código Civil arts. 186, 618 e 927**; **Código Penal art. 256**).
+
 </details>
 
 ---
@@ -87,8 +93,8 @@ O projeto adota uma fronteira estrita de duplo licenciamento:
 
 # OMNIFRAME 3D - TECHNICAL OBSERVATION AND STRATEGIC POSITIONING
 
-Documented Version: `2026.11.20.0`  
-Technical Snapshot Date: `November 20, 2026`  
+Documented Version: `2026.11.21.0`  
+Technical Snapshot Date: `November 21, 2026`  
 Repository: `OmniFrame_cpp`  
 Author Identified in Project: `Fernando Nillsson Cidade`  
 Repository License: `GNU AGPLv3 (GNU Affero General Public License v3)`  
@@ -96,14 +102,14 @@ Microsoft Store Edition License: `Author's Official EULA (Free Distribution)`
 
 ## 1. Current Project State and Positioning
 
-The **OmniFrame 3D** repository consolidates a scientific and enterprise structural engineering desktop platform **natively built in C++23 with Qt 6.11.1**, sparse linear algebra via **Eigen 3.4.0**, and 3D graphics acceleration in **OpenGL 3.3 Core Profile** (GLSL 330).
+The **OmniFrame 3D** repository consolidates a free educational, academic, and auxiliary structural engineering desktop platform **natively built in C++23 with Qt 6.11.1**, sparse linear algebra via **Eigen 3.4.0**, and 3D graphics acceleration in **OpenGL 3.3 Core Profile** (GLSL 330).
 
 The product transcends conventional geometric viewers or CAD utilities, positioning itself as a **Local 3D Space Frame & Truss Finite Element Analysis (FEA) Suite**.
 
 Its core value proposition directly answers the most critical question in civil and mechanical structural engineering design:
 > **“What are the nodal displacements, axial stresses, and internal member forces (N, Vy, Vz, T, My, Mz) along each 3D element under realistic load combinations?”**
 
-The product acts as a **100% Local-First** sovereign solution (no cloud, no telemetry, no account creation, no trackers, and no external service dependencies), operating with full independence and guaranteed analytical integrity.
+The product acts as a **100% Local-First** sovereign solution (no cloud, no telemetry, no account creation, no trackers, and no external service dependencies), operating with full independence and complete mathematical transparency (as an auxiliary tool subject to independent verification).
 
 ## 2. Technical Line & Architecture Highlights
 
@@ -146,6 +152,12 @@ Validated configuration from `CMakeLists.txt` and `CMakePresets.json`:
 The project adopts a strict dual-licensing boundary:
 1. **GitHub (Open Source):** The entire repository is licensed under **GNU AGPLv3**, guaranteeing full freedom to study, audit, compile independently, modify, and fork while preserving copyleft.
 2. **Microsoft Store (Official Distribution):** The MSIX package compiled, signed, and officially distributed by the author is provided free of charge under the **Author's Official EULA**, prohibiting paid commercial resale by third parties and preserving official brand integrity (with its own Privacy Policy independent from Microsoft and support provided exclusively by the developer).
+
+## 6. Free Auxiliary Scope, Maturity Limitations & Legal Disclaimer ("AS IS")
+
+Because **OmniFrame 3D** is a free application, the user may use it as they see fit as an **auxiliary tool** (for educational, academic, research, and result-comparison purposes), and **not** as a definitive or final tool. This application **is not mature enough** for production or definitive professional use because, due to limitations, human flaws, and possible defects in the source code — encompassing both the applied mathematics and the underlying physics, as a result of which its algorithms may produce errors — it requires relying on more established tools in the market or independent manual verification of all results.
+
+Should the user decide to rely exclusively on this application as a definitive tool for production or professional use in structural analysis and design, all resulting consequences shall be the user's sole and entire responsibility, in view of these express prior notices and warnings. The software is provided **"AS IS"**, without warranties (Official EULA, Law No. 9.609/1998, and GNU AGPLv3 Sections 15–16), and does not replace normative checks or a legally licensed professional with **ART/RRT** (**Brazilian Laws No. 5.194/1966, No. 6.496/1977, and No. 12.378/2010**; **CDC Art. 39, VIII**; **Civil Code Arts. 186, 618, and 927**; **Penal Code Art. 256**; or equivalent licensure in other jurisdictions).
 
 </details>
 
@@ -441,7 +453,7 @@ OmniFrame_cpp/
 ├── 📝 compliance.md
 ├── 📝 licensing.md
 ├── 📝 privacy-policy.md
-├── 📝 release-v2026.11.20.0.md
+├── 📝 release-v2026.11.21.0.md
 ├── 📝 security-model.md
 ├── 📝 suggested-issues.md
 ├── 📝 technical-audit-and-roadmap.md

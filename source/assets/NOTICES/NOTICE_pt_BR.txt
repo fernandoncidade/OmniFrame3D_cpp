@@ -1,29 +1,30 @@
 AVISOS E ATRIBUIÇÕES DE TERCEIROS — OmniFrame 3D
-Versao 2026.11.20.0, 20 de novembro de 2026
+Versão 2026.11.21.0, 21 de novembro de 2026
 
 O OmniFrame 3D inclui e utiliza componentes, bibliotecas e especificações abertas desenvolvidas por terceiros:
 
 1. OMNIFRAME 3D
    Copyright (C) 2025-2026 Fernando Nillsson Cidade. Todos os direitos reservados.
-   Disponibilizado sob Licenca GNU AGPLv3 (codigo-fonte aberto no GitHub) e EULA (pacote oficial da Microsoft Store).
+   Disponibilizado sob Licença GNU AGPLv3 (código-fonte aberto no GitHub) e EULA (pacote oficial da Microsoft Store).
+   Aviso de Escopo e Isenção ("AS IS"): Aplicativo gratuito que o usuário pode utilizar conforme lhe convir como ferramenta auxiliar (educacional, acadêmica e de comparação de resultados), mas não como ferramenta definitiva ou final; ainda não está maduro o suficiente para produção ou uso profissional devido a limitações, falhas humanas e eventuais erros no código-fonte — abrangendo tanto a matemática aplicada quanto a física envolvida, razão pela qual seus algoritmos podem apresentar falhas. Utilize sempre ferramentas mais consolidadas no mercado ou confira manualmente os resultados; caso o usuário decida utilizá-lo exclusivamente em produção ou para fins profissionais, na análise estrutural e no dimensionamento de estruturas, todas as consequências serão de sua inteira e exclusiva responsabilidade, tendo em vista os avisos e alertas expressos. Fornecido "NO ESTADO EM QUE SE ENCONTRA" ("AS IS"), sem garantias e com isenção do autor nos termos do EULA Oficial e das Seções 15 e 16 da GNU AGPLv3 (responsabilidade exclusiva de profissional habilitado com ART/RRT — Leis nº 5.194/1966, nº 6.496/1977 e nº 12.378/2010).
 
 2. QT APPLICATION FRAMEWORK
-   Versao: 6.11.1
+   Versão: 6.11.1
    Copyright (C) The Qt Company Ltd. e outros colaboradores.
-   Licenciado sob a Licenca GNU Lesser General Public License versao 3 (LGPLv3).
-   Informacoes completas: https://www.qt.io/licensing
+   Licenciado sob a Licença GNU Lesser General Public License versão 3 (LGPLv3).
+   Informações completas: https://www.qt.io/licensing
 
 3. EIGEN MATRIX TEMPLATE LIBRARY
-   Versao: 3.4.0
+   Versão: 3.4.0
    Desenvolvido pela comunidade Eigen (Benoit Jacob, Gael Guennebaud e contribuidores).
-   Licenciado sob a Mozilla Public License versao 2.0 (MPL 2.0).
-   Informacoes oficiais: https://eigen.tuxfamily.org
+   Licenciado sob a Mozilla Public License versão 2.0 (MPL 2.0).
+   Informações oficiais: https://eigen.tuxfamily.org
 
 4. KHRONOS OPENGL & GLSL
    Copyright (C) The Khronos Group Inc.
-   Especificacao aberta da industria para aceleracao grafica 3D por hardware e processamento de shaders GLSL.
-   Informacoes oficiais: https://www.khronos.org/opengl/
+   Especificação aberta da indústria para aceleração gráfica 3D por hardware e processamento de shaders GLSL.
+   Informações oficiais: https://www.khronos.org/opengl/
 
 5. MICROSOFT WINDOWS SDK
    Copyright (C) Microsoft Corporation.
-   Utilizado para integracao nativa com a plataforma Windows.
+   Utilizado para integração nativa com a plataforma Windows.

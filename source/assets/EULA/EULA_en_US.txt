@@ -1,10 +1,10 @@
 END USER LICENSE AGREEMENT (EULA) — OmniFrame 3D
-Version 2026.11.20.0, November 20, 2026
+Version 2026.11.21.0, November 21, 2026
 
 Copyright (c) 2025-2026 Fernando Nillsson Cidade. All rights reserved.
 
 DUAL-LICENSING AND MICROSOFT INDEPENDENCE NOTICE:
-1. This End User License Agreement (EULA) governs EXCLUSIVELY the pre-compiled, packaged, and digitally signed binary package officially published by the author on the Microsoft Store. These terms operate in harmony with Microsoft Store Standard Application License Terms; to the extent any mandatory term of Microsoft Store Standard Application License Terms or applicable consumer law conflicts with this EULA for Store acquisitions, those mandatory Store/statutory terms prevail.
+1. This End User License Agreement (EULA) governs EXCLUSIVELY the precompiled, packaged, and digitally signed binary package officially published by the author on the Microsoft Store. These terms operate in harmony with the Microsoft Store Standard Application License Terms; to the extent any mandatory term of the Microsoft Store Standard Application License Terms or applicable consumer law conflicts with this EULA for Store acquisitions, those mandatory Store/statutory terms prevail.
 2. The complete source code of OmniFrame 3D is publicly licensed on GitHub under the GNU Affero General Public License v3 (AGPLv3), granting full rights to inspect, compile, modify, fork, and distribute independent builds under AGPLv3.
 3. Microsoft does NOT provide customer or technical support for this application and does NOT cover this Software under any Microsoft privacy policy.
 
@@ -18,7 +18,7 @@ TERMS AND CONDITIONS:
    "Licensee" or "you": Individual or entity that obtained the official package from the Microsoft Store or an authorized channel.
 
 2. LICENSE GRANT AND CLEAN UNINSTALLATION
-   Licensor grants a free, personal, non-exclusive, non-transferable, revocable license to install and run the Software on compatible Windows devices for geometric modeling, finite element analysis (FEA), structural verification, and 3D scientific visualization.
+   Licensor grants a free, personal, non-exclusive, non-transferable, revocable license to install and run the Software on compatible Windows devices as you see fit, as a free application intended to serve as an auxiliary tool — for educational, academic, study, research, 3D scientific visualization, and result-comparison purposes in finite element structural analysis (FEA) — and not as a definitive or final production tool.
    The User has the guaranteed right to cleanly uninstall and remove the Software at any time through Windows Settings or the Start Menu without leaving hidden background services or processes running.
 
 3. RESTRICTIONS ON THE OFFICIAL PACKAGE
@@ -28,12 +28,15 @@ TERMS AND CONDITIONS:
    c) Use the Software for unlawful purposes.
 
 4. INTELLECTUAL PROPERTY
-   The official package is licensed, not sold, and is protected under Brazilian Law 9.609/1998, Law 9.610/1998, and international copyright treaties. Third-party open-source components (Qt 6 under LGPLv3, Eigen 3.4.0 under MPL 2.0, Khronos OpenGL) remain governed by their respective licenses in NOTICES/ and LICENSES/.
+   The official package is licensed, not sold, and is protected under Brazilian Law No. 9.609/1998, Law No. 9.610/1998, and international copyright treaties. Third-party open-source components (Qt 6 under LGPLv3, Eigen 3.4.0 under MPL 2.0, Khronos OpenGL) remain governed by their respective licenses in NOTICES/ and LICENSES/.
 
-5. STRUCTURAL ENGINEERING DISCLAIMER & PROFESSIONAL RESPONSIBILITY
-   a) The Software is an auxiliary linear elastic computational analysis tool intended for qualified engineers, architects, researchers, and students.
-   b) Code checks (ABNT NBR, AISC, Eurocode), load combinations, verification of internal forces, and final structural design sign-off remain the sole, non-delegable responsibility of a licensed professional engineer.
-   c) Licensor assumes no civil, criminal, or engineering liability for structural failure, material damage, or personal injury arising from structures analyzed or built with outputs from the Software.
+5. TECHNICAL SCOPE, FREE AUXILIARY USE, MATURITY LIMITATIONS & PROFESSIONAL RESPONSIBILITY
+   a) Freedom of free use as an auxiliary tool: Because OmniFrame 3D is a free application, the user may use it as they see fit as an auxiliary computational tool for matrix Finite Element structural analysis (linear static, modal, buckling, harmonic, response spectrum, second-order P-Delta/corotational, and J2 plasticity), especially for educational assistance, teaching, academic research, and result comparison, but NOT as a definitive or final tool.
+   b) Immaturity for definitive production use and mandatory verification: This application is not mature enough to serve as a definitive tool taken to production or professional use, and therefore MUST NEVER, UNDER ANY CIRCUMSTANCES, be used solely and exclusively as the basis for final design, construction documents, or real-world works. The user must always use other, more established tools in the market or manually verify all results obtained from the application.
+   c) Limitations, human flaws, and risk of serious errors in development: Due to project limitations, human flaws, and possible errors during source-code development, the Software may contain serious errors in its source code, algorithm logic, mathematical formulations, and applied structural physics implemented in programming, as well as numerical approximations and scope limitations regarding nonlinear behavior, instabilities, and design-code checks.
+   d) Non-replacement of complete verification and licensed oversight: Generated outputs (displacements, support reactions, internal force diagrams, stresses, buckling factors, and code-check helpers) DO NOT replace complete Ultimate and Serviceability Limit State (ULS/SLS) checks, second-order effects (P-Delta and P-delta), global or local instabilities, specific standard load combinations (ABNT NBR 8800, NBR 6118, NBR 6120, NBR 6122, NBR 6123, NBR 7480, NBR 8681, NBR 15421, AISC 360-22, Eurocode 3), independent cross-checking, and formal oversight by a legally licensed engineer.
+   e) Legal basis of professional responsibility: Under Brazilian law, structural design, verification, and technical responsibility are exclusive duties of legally licensed professionals requiring mandatory ART filing with CREA (Federal Law No. 5.194/1966 and Law No. 6.496/1977) or RRT filing with CAU (Law No. 12.378/2010) in compliance with ABNT technical standards (Art. 39, VIII, Brazilian Consumer Defense Code — Law No. 8.078/1990), with exclusive civil liability for unlawful acts and structural solidity/safety resting on the user and engineer of record (Arts. 186, 618, and 927, Brazilian Civil Code — Law No. 10.406/2002) and potential criminal liability for structural collapse hazards (Art. 256, Brazilian Penal Code — Decree-Law No. 2.848/1940), with equivalent licensed-engineer regulations (such as PE or CEng) applying in other jurisdictions.
+   f) User's sole responsibility for consequences and complete exemption of Licensor: Should the user decide to rely exclusively on this application as a definitive tool for production or professional use in structural analysis and structural design, all resulting technical, civil, administrative, and criminal consequences shall be the sole and entire responsibility of the user, in view of the express prior notices and warnings regarding possible defects in the source code — encompassing both the applied mathematics and the underlying physics, as a result of which its algorithms may produce errors — with the Licensor remaining completely exempt, to the maximum extent permitted by applicable law, from liability for calculation errors, structural failures, collapses, pathologies, financial losses, property damage, or personal injury.
 
 6. DATA SOVEREIGNTY AND LOCAL-FIRST PRIVACY
    OmniFrame 3D operates 100% offline with zero telemetry and zero cloud storage. Project models are saved locally as open .omniframe (JSON) files, with optional local export to HTML and Markdown reports, governed exclusively by the Software's own Privacy Policy (PRIVACY_POLICY).
@@ -45,10 +48,10 @@ TERMS AND CONDITIONS:
    This EULA remains effective until terminated by Licensee through clean uninstallation or automatically upon breach of its terms.
 
 9. DISCLAIMER OF WARRANTIES ("AS IS")
-   To the maximum extent permitted by applicable law, the Software is provided "AS IS", "WITH ALL FAULTS", and "AS AVAILABLE", without express or implied warranties of merchantability, fitness for a particular purpose, or uninterrupted operation.
+   To the maximum extent permitted by applicable law (and in harmony with GNU AGPLv3 Sections 15–16 and Brazilian Law No. 9.609/1998), the Software is provided "AS IS", "WITH ALL FAULTS", and "AS AVAILABLE", without express or implied warranties of mathematical or physical accuracy, production maturity, freedom from human flaws or serious errors in source code or algorithms, merchantability, uninterrupted operation, or fitness for professional or production use.
 
 10. LIMITATION OF LIABILITY
-    To the maximum extent not prohibited by mandatory law, Licensor shall not be liable for lost profits or indirect, incidental, special, punitive, or consequential damages arising from the use or inability to use the Software.
+    To the maximum extent not prohibited by mandatory law, Licensor shall not be liable for lost profits, structural failures, or indirect, property, personal, incidental, special, punitive, or consequential damages arising from the use of the Software, its use as a definitive production tool, reliance on its outputs, or inability to use the Software.
 
 11. GOVERNING LAW
     This Agreement is governed by the laws of the Federative Republic of Brazil and any non-waivable consumer protection laws of Licensee's jurisdiction.
