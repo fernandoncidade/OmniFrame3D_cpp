@@ -56,6 +56,7 @@ private:
     QTreeWidget* m_indexTree = nullptr;
     QTextBrowser* m_manualViewer = nullptr;
     bool m_treeExpanded = true;
+    bool m_applyingTheme = false;
 };
 
 } // namespace omniframe::ui

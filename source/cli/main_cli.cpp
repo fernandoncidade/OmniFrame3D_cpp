@@ -1,4 +1,5 @@
 #include "core/StructuralModel.hpp"
+#include "io/AppLogger.hpp"
 #include "io/DxfInterop.hpp"
 #include "io/IfcInterop.hpp"
 #include "io/PdfReportGenerator.hpp"
@@ -11,6 +12,7 @@
 #include "solver/FemSolver3D.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -451,12 +453,35 @@ int main(int argc, char* argv[]) {
     if (needsPdfGui && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
         qputenv("QT_QPA_PLATFORM", "offscreen");
     }
+#ifdef Q_OS_WIN
+    if (needsPdfGui && qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR")) {
+        const QByteArray winDir = qgetenv("WINDIR");
+        const QString baseWin = winDir.isEmpty()
+            ? QStringLiteral("C:/Windows")
+            : QDir::fromNativeSeparators(QString::fromLocal8Bit(winDir));
+        const QString sysFontsDir = QDir(baseWin).filePath(QStringLiteral("Fonts"));
+        if (QDir(sysFontsDir).exists()) {
+            qputenv("QT_QPA_FONTDIR", QDir::toNativeSeparators(sysFontsDir).toLocal8Bit());
+        }
+    }
+#endif
     std::unique_ptr<QCoreApplication> app = needsPdfGui
         ? std::make_unique<QGuiApplication>(argc, argv)
         : std::make_unique<QCoreApplication>(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("OmniFrame"));
     QCoreApplication::setOrganizationName(QStringLiteral("OmniFrame"));
     QCoreApplication::setApplicationVersion(QStringLiteral(OMNIFRAME_APP_VERSION));
+
+    omniframe::io::AppLogger::initialize(true, false);
+    omniframe::io::AppLogger::installTerminateHandler();
+    struct CliLoggerScope {
+        ~CliLoggerScope() {
+            omniframe::io::AppLogger::shutdown();
+        }
+    } cliLoggerScope;
+    omniframe::io::AppLogger::info(
+        QStringLiteral("CLI"),
+        QStringLiteral("Execucao omniframe-cli iniciada (%1 argumento(s))").arg(args.size() > 0 ? args.size() - 1 : 0));
 
     if (args.size() <= 1) {
         printUsage();

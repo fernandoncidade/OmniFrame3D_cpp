@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Modelo de Segurança, Integridade de Dados e Resiliência
 
-**Versão:** `2026.11.17.0`  
-**Data:** `17 de novembro de 2026`  
+**Versão:** `2026.11.18.0`  
+**Data:** `18 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -40,6 +40,7 @@ O **OmniFrame 3D** é projetado para atuar em ambientes de engenharia de missão
 | **Vazamento de Dados / Espionagem Industrial** | Inexistente | Nenhuma chamada de rede existe no executável; nenhuma coordenada ou projeto é enviado para a internet. |
 | **Injeção de Shaders / Falhas de Driver Gráfico** | Baixo | Shaders GLSL 330 com código estático fixo compilado em tempo de execução com verificação de logs de compilação/link. |
 | **CLI Windows 10/11 & Caminhos UTF-8 (`HKCU`)** | Baixo | Decodificação UTF-16 `CommandLineToArgvW`, aberturas de arquivo via `pathFromUtf8`, registro opcional restrito a `HKCU` (sem elevação de administrador) e remoção completa via `--uninstall-windows-integration`. |
+| **Persistência Local, Recuperação & Logs (`%LOCALAPPDATA%`)** | Baixo | Escrita atômica (`QSaveFile`) em `user_preferences.json` (com backup `.corrupt.bak`) e snapshots em `recovery/`, além de rotação automática de logs em `log\omniframe_aaaa-mm-dd.log` estritamente limitada a **10 arquivos** sem dados pessoais. |
 
 ---
 
@@ -61,8 +62,8 @@ Ao importar ou abrir qualquer arquivo `.omniframe`, `.dxf` ou `.ifc`:
 
 # OmniFrame 3D — Security Model, Data Integrity & Resilience
 
-**Version:** `2026.11.17.0`  
-**Date:** `November 17, 2026`  
+**Version:** `2026.11.18.0`  
+**Date:** `November 18, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -87,6 +88,7 @@ OmniFrame 3D is designed to operate in mission-critical engineering environments
 | **Data Exfiltration / Industrial Espionage** | None | Zero network calls exist in the executable; no coordinate or structural project ever leaves the local workstation over the internet. |
 | **Shader Injection / Graphics Driver Faults** | Low | Static fixed-source GLSL 330 shaders compiled at runtime with strict compile/link log verification. |
 | **Windows 10/11 CLI & UTF-8 Paths (`HKCU`)** | Low | UTF-16 `CommandLineToArgvW` decoding, Unicode `pathFromUtf8` stream opening, optional `HKCU`-only user registry integration (zero admin rights), and clean reversal via `--uninstall-windows-integration`. |
+| **Local Preferences, Recovery & Logs (`%LOCALAPPDATA%`)** | Low | Atomic writes (`QSaveFile`) for `user_preferences.json` (with `.corrupt.bak` fallback) and `recovery/` snapshots, plus bounded rotating logs in `log\omniframe_yyyy-mm-dd.log` strictly capped at **10 files** with zero personal data. |
 
 ---
 

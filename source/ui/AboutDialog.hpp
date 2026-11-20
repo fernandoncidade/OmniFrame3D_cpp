@@ -60,6 +60,7 @@ private:
     QTextBrowser* m_licenseBrowser = nullptr;
 
     QVector<DocTabSpec> m_docTabs;
+    bool m_applyingTheme = false;
 };
 
 } // namespace omniframe

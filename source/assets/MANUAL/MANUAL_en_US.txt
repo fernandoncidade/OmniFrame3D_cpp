@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
-Version: 2026.11.17.0 | Date: November 17, 2026 | Author: Fernando Nillsson Cidade
+Version: 2026.11.18.0 | Date: November 18, 2026 | Author: Fernando Nillsson Cidade
 Document Language: English (US) — Strict line-by-line correspondence with pt-BR
 ================================================================================
 
@@ -26,6 +26,7 @@ At any moment you can collapse, expand, toggle, or detach each panel to free scr
 • Collapsing and Expanding "Inspector & Quick Input" (Left Side — Arrow ◀ / ▶): click the spin-button arrow pointing left (◀) in the header to collapse the inspector horizontally to the left edge as a compact vertical strip with its title label rotated 90° counter-clockwise; click the arrow pointing right (▶) at the top of that vertical strip to expand the panel back to full width.
 • Collapsing and Expanding "Result Tables & Structural Diagnostics" (Bottom — Arrow ▼ / ▲): click the spin-button arrow pointing down (▼) on the right side of the header to collapse the tables while keeping the full-width bottom title bar visible; click the arrow pointing up (▲) to restore all four results tabs.
 • Floating Mode, Theme, Language and Numeric Spinboxes: when either panel is floating, the same button collapses and expands the floating window cleanly while preserving compact behavior upon redocking; button tooltips ("Collapse panel" / "Expand panel"), rotated title, and arrows adapt live across Light/Dark themes and en-US/pt-BR languages, collapsed docks reopen automatically whenever Guided Session (F2) interacts with their controls, and all numeric input boxes render spin buttons whose outer corners follow the rounded control frame seamlessly.
+• Resize Grip Handles, Compact Toolbars and Native/Custom Modes: both the vertical Inspector splitter and horizontal Result Tables splitter display dotted drag handles in expanded and collapsed states; when a top toolbar overflows the window width, its extension button displays the tooltip "Expand or collapse hidden toolbar buttons", keeping every dock and control compatible with both Custom and Native modes under Settings > User Interface.
 When a dock is floated as an independent window, it participates fully in visual layering management (Z-Order), allowing free focus switching among the floating dock, the main window, and any open child dialogs.
 
 1.4 Modeless Child Windows and Z-Order Management
@@ -37,15 +38,16 @@ In OmniFrame 3D, all child windows and dialogs — including this Manual (F1), G
 
 CHAPTER 2 — PROJECT MANAGEMENT, FILES, INTEROPERABILITY AND EXAMPLES
 
-2.1 New Project, Undo/Redo and Open .omniframe Format
-The File > New Project (Ctrl+N) command resets the workspace by clearing all nodes, members, restraints, loads, meshes, and solved results after safely confirming any pending work through a non-modal prompt.
-The Edit menu provides full multi-level history with Undo (Ctrl+Z) and Redo (Ctrl+Y), letting you experiment with edits to nodes, members, materials, sections, supports, and loads with safe reversal and consistent recalculation.
+2.1 New Project, Clean Startup, Session Recovery and .omniframe Format
+By default, the application starts with a completely empty workspace (with no preloaded model or previous results). Triggering File > New Project (Ctrl+N) resets the workspace after confirmation in a modeless dialog, while keeping full multi-level history under Edit > Undo (Ctrl+Z) and Redo (Ctrl+Y).
+• Automatic Recovery Snapshot and Exit Protection: whenever you edit nodes, members, supports, loads, combinations, solver options, or wind metadata, an automatic recovery copy is saved under %LOCALAPPDATA%\OmniFrame\recovery\ (recovery_autosave.omniframe). Closing the application with unsaved edits presents a modeless confirmation dialog offering Save, Exit and Keep Recovery, or Cancel.
+• Startup Policy (Previous Session): whenever a saved project, example, or unsaved edit remains from the previous session, the "Resume Previous Session" prompt lets you choose Load Previous Edit / Load Previous Project / Load Previous Example or Start New Project. This policy can be customized under Settings > Session, Startup and Logs (Ask on startup, Automatically load previous, or Always start a new project).
 The native .omniframe format (Schema 2.1.0, backward-compatible with 1.0 and 2.0) uses human-readable UTF-8 JSON storing materials (including density ρ and J2 parameters), cross sections, nodes, elements, load combinations, and code-check settings with strict numerical validation rejecting non-finite values (NaN or infinity) on load.
 WARNING: keep backup copies before editing .omniframe files manually in external text editors, preserving unique integer identifiers for nodes, materials, and cross sections.
 
-2.2 Opening, Saving (.omniframe) and CAD/BIM Exchange (DXF and IFC4)
-To load an existing model, use File > Open (.omniframe)... (Ctrl+O) and pick the target file from the modeless file dialog; upon loading, the camera automatically frames the entire structure in the 3D viewport.
-To write changes to disk, use File > Save (.omniframe)... (Ctrl+S), selecting the destination folder and filename; the serializer stores full coordinates, mechanical properties, support restraints, elastic springs, prescribed displacements, member end releases, Roll angles, thermal variations ΔT, and both nodal/distributed loads and combinations.
+2.2 Opening, Saving, Save As (.omniframe), Session Recovery and CAD/BIM Exchange
+To load an existing model, use File > Open (.omniframe)... (Ctrl+O) and pick the target file from the modeless file dialog (which automatically remembers the last used directory); upon loading, the window title displays the filename and the camera frames the entire structure.
+To save changes to the active file, use File > Save (.omniframe) (Ctrl+S), or use File > Save As (.omniframe)... (Ctrl+Shift+S) to write to a new path; pending unsaved edits show the [*] modified indicator in the window title, and File > Recover Previous Session... restores the last recorded session from disk at any time.
 Beyond the native format, the File menu offers four bidirectional, fully offline CAD and BIM interoperability tools:
 • Import DXF... and Export DXF...: reads 3D wireframe lines and layers from CAD drawings (.dxf) with tolerance-based node merging, and exports structural members and faces back to DXF.
 • Import BIM IFC4... and Export BIM IFC4...: imports open STEP IFC4 (.ifc) structural models reconstructing nodes, members, and surfaces, and exports the OmniFrame 3D model as IFC4 entities compatible with BIM platforms.
@@ -229,18 +231,21 @@ The Scale: slider on the main toolbar spans continuously from 1 to 100 (default 
 • In 3D Deformed Shape mode, the displacement amplification factor scales proportionally with slider position (from 1.5x at minimum 1 up to 150x at maximum 100).
 • Across internal force diagrams (N, Vy, Vz, Tx, My, Mz), diagram height scales proportionally relative to the baseline value 30 in real time.
 
-7.3 Continuous Hermite Polynomial Recovery and Results Tables
+7.3 Continuous Hermite Polynomial Recovery, Interactive Result Tables and Multiple Layouts
 Internally, each element evaluates internal forces and deflections along normalized coordinate ξ in [0, 1] via Element::evaluateAt(xi), using cubic Hermite interpolation polynomials combined with exact distributed-load particular solutions.
 Within the Bottom Dock (Result Tables & Structural Diagnostics), four synchronized tabs summarize exact numerical outputs for every entity:
 • Nodal Displacements Tab: lists node ID and all six computed global components (ux, uy, uz in mm and rotations Rx, Ry, Rz in mrad).
 • Support Reactions Tab: lists restrained nodes together with reactive forces (Rx, Ry, Rz in kN) and reactive moments (Mx, My, Mz in kN·m).
 • Member Forces Tab: lists minimum and maximum values of N, Vy, Vz, Tx, My, Mz and maximum deflection recorded along each member.
 • 2D/3D Forces (Shell/Solid) Tab: lists each 2D/3D continuum mesh element with Element, Type, equivalent von Mises stress (σ_vM (kPa)), principal stresses (σ_1 (kPa), σ_3 (kPa)), and local resultants/stress components (Nxx / σxx, Nyy / σyy, Mxx / τxz).
+• Smart Selection, Header Wrapping and 3D Picking: click the table top-left corner button to toggle between selecting all visible cells and clearing selection; click column headers (with Ctrl to toggle or Shift for range) to select entire columns; narrowing a column automatically reflows multi-line headers and row height; and double-clicking any row selects and highlights the corresponding node, member, or 2D/3D element in the 3D Viewport.
+• Context Menu, Sorting, Colors and Export (.xlsx, .csv, .txt, .json, .xml): right-click cells or headers to Configure Columns (hide/show, Select All Columns, Reset Columns), toggle Sort Rows (smart numeric, min/max range, and natural sorting on header clicks while keeping "Reaction Sum" pinned at the bottom), change Table Row Order (Append at Bottom, Prepend at Top, or Reverse Current Table Rows), Color Columns (Ctrl+Shift+A) and Configure Colors by category (Structural/Mesh Nodes, Supports, Reaction Sum, Frame Bars, 2D Shells, and 3D Solids with automatic contrast text), Copy Selection (Ctrl+C), Copy with Headers (Ctrl+Shift+C), Copy Entire Table, and configure Export Options (Export Active Columns Only / Export Selection Only) before clicking Export Table.
+• Multiple Result Panel Layouts: under Settings > Result Tables Panel Layouts, split the bottom dock into 1 Layout (All Tables), 2 Layouts, 3 Layouts, or 4 Layouts side by side with adjustable splitters, pick which tables appear in 1st Layout Tables through 4th Layout Tables (or Select All Tables), and use Restore Default Layouts to return to the default layout.
 
 7.4 Advanced 3D Post-Processing Controls (Contours, Clip Plane and Animation)
 Open Structure > 3D Controls (Contours / Clip / Animation)... (or Clip/Contours... on Toolbar 2) to inspect advanced results inside the OpenGL Viewport:
 • Surface Contour Maps & Mesh Overlay: under Contour:, switch between Default (Selection/Theme Colors), Displacement Vector Map |u|, DCR Heatmap (ABNT NBR), and von Mises Stress (Shell/Solid), plus toggle Show 2D/3D Mesh (Surfaces/Solids) to display or hide generated meshes over the model.
-• Interactive 3D Clipping Plane: select a sectioning axis (Off, X, Y, or Z), scrub the slice offset continuously across the model bounding box, and flip side orientation to inspect interior solids and dense frames.
+• Interactive 3D Clipping Plane: select a sectioning axis (Off, X, Y, or Z), scrub the slice offset continuously across the model bounding box, and flip side orientation to inspect interior solids and dense frames without clipping the working plane grid (XY, XZ, YZ) or cursor preview marker.
 • Continuous 3D Animation: animate static deformed shapes, natural vibration mode shapes, buckling modes, or harmonic/time-history steps in real time with adjustable playback speed and amplitude.
 
 CHAPTER 8 — GRAPHICS SETTINGS, IMAGE RESOLUTION, THEME AND LANGUAGE
@@ -255,9 +260,9 @@ To eliminate jagged aliasing along angled lines, grid subdivisions, and slender 
 Under Settings > Advanced Resolution and Image Settings... (plus the quick Settings submenus: Graphics Quality Preset, Internal Resolution Scale (SSAA), Hardware Anti-Aliasing (MSAA), Line and Image Definition, Active Plane Appearance, Vertical Sync (VSync), and Restore Maximum Quality Defaults), every option updates the 3D Viewport live before clicking Apply or OK:
 • Graphics Quality Presets: Automatic (Maximum Quality), Ultra (200% SSAA + Max MSAA), High (150% SSAA + 8× MSAA), Balanced (100% Native + 4× MSAA), Performance (100% Native + Shader AA), and Custom (assigned automatically upon manual tuning).
 • Fine Manual Controls: Automatic (GPU Max) resolution checkbox, Internal Resolution Scale (SSAA) slider, Auto or manual MSAA selector (Off, 2x, 4x, 8x, 16x), Subpixel Analytical Line Anti-Aliasing (Shader SDF) toggle, Line Width Multiplier, Edge AA softness, Adaptive Sharpening, Downsample Filter method (Catmull-Rom 16-tap + Sharpen, Smooth Bicubic, or Standard Bilinear), VSync toggle, and viewport resolution telemetry toggle.
-• GPU Hardware Telemetry and Persistence: the dialog reports detected GPU renderer name, vendor, OpenGL version, max hardware MSAA/texture limits, and physical rendered pixel resolution; Cancel cleanly restores prior viewport settings, while Apply or OK saves settings locally to graphics.json.
+• GPU Hardware Telemetry and Persistence: the dialog reports detected GPU renderer name, vendor, OpenGL version, max hardware MSAA/texture limits, and physical rendered pixel resolution; Cancel cleanly restores prior viewport settings, while Apply or OK saves settings locally inside the graphics section of user_preferences.json.
 
-8.3 Active Plane Themes, Interface Theme (Light/Dark) and Contrast
+8.3 Active Plane Themes, Interface Theme (Light/Dark), Native/Custom UI and Contrast
 Under Settings > Theme you can dynamically switch at runtime between Dark and Light modes, instantly adapting windows, modeless dialogs, title bars, tables, HTML documents (Manual and About), Guided Session overlays, the OpenGL viewport, deformed-shape color ramps, and internal force diagrams.
 In addition, under Settings > Active Plane Appearance or inside the advanced resolution dialog you can independently pick the Active Working Plane backdrop:
 • Obsidian Dark (Default) (#07090e): deep obsidian-blue tone balanced for extended modeling sessions without glare or eye strain.
@@ -265,11 +270,14 @@ In addition, under Settings > Active Plane Appearance or inside the advanced res
 • Dark Graphite (#0d1116): balanced dark-graphite tone tailored for brightly lit rooms.
 • Technical Light (#eef3f9): high-contrast light technical drafting canvas pairing crisp slate wireframe members with saturated supports/diagrams and a translucent light HUD.
 • Grid Contrast and Plane Surface Toggle: slider adjusting minor/major grid line contrast plus toggle to show translucent Active Plane surface and frame.
+• User Interface Mode (Native vs. Custom): under Settings > User Interface, switch live between Custom (styled OmniFrame look with rounded spin corners and full Dark/Light palette) and Native (standard Qt 6 / operating system appearance), updating the main window, toolbars, docks, tables, Manual, About, and Guided Session instantaneously.
 
-8.4 Dynamic Runtime Language Switching and Persistence
+8.4 Dynamic Runtime Language Switching, Universal Persistence and Daily Logs
 The Settings > Language submenu switches the interface immediately at runtime between Português (Brasil) and English (US).
 Selecting a language broadcasts QEvent::LanguageChange across the entire application without restarting: menu bar, toolbars, docks, Property Inspector, result tables, 3D viewport HUD, Guided Session, this Manual, the About dialog, and all currently open modeless child dialogs retranslate live in place.
-The chosen language persists locally inside language.json under the user application data directory (%LOCALAPPDATA%\OmniFrame\OmniFrame\).
+The selected language — together with theme, UI style mode, OpenGL graphics settings, window geometry, dock positions, last file dialog directory, toolbar workspace controls, result table layouts/columns/colors, and auxiliary dialog sizes and settings — is stored atomically in the single consolidated file %LOCALAPPDATA%\OmniFrame\user_preferences.json (Schema v2, with automatic migration of legacy files).
+• Settings and Preferences Persistence Menu: open Settings > Settings and Preferences Persistence to run Save All Settings Now, Reload Saved Settings (re-reading preferences from disk live), or Restore All Default Settings.
+• Session, Startup and Daily Logs (Max 10 Files): open Settings > Session, Startup and Logs to choose the startup behavior, toggle unsaved changes exit confirmation, open the logs folder, or open Configure Startup, Session and Logs... to inspect the active daily file omniframe_yyyy-mm-dd.log inside %LOCALAPPDATA%\OmniFrame\log\ (recording Trace, Debug, Info, Warning, Critical, and Fatal messages for both GUI and CLI while retaining at most 10 files and automatically deleting the oldest when a newer log is created).
 
 CHAPTER 9 — HELP, GUIDED SESSION (F2), KEYBOARD SHORTCUTS AND COMPANION TOOLS
 
@@ -279,8 +287,8 @@ CHAPTER 9 — HELP, GUIDED SESSION (F2), KEYBOARD SHORTCUTS AND COMPANION TOOLS
 
 9.2 Interactive Step-by-Step Guided Session (Help > Guided Session..., F2)
 The Help > Guided Session... feature (shortcut F2) runs an automated 30-step walkthrough demonstrating every feature, workflow, and dialog in OmniFrame 3D, simulating a real engineer operating the software starting from any of the three built-in examples:
-• Choosing the Example & Scientific Cognitive Reading Paces (WPM): before starting, select which of the three built-in examples to demonstrate and pick your preferred reading speed profile in Words Per Minute (WPM) — Fluent Typical Reader (250 WPM, 200–300 WPM range), Technical / Engineering Reading (150 WPM, recommended default with +10% margin), Read Aloud Pace (155 WPM), or Dyslexia / Accessible Pace (130 WPM, 100–160 WPM range with +30% extra time for regressions and re-reading without cognitive fatigue).
-• Unified Two-Phase Visual Spotlight & Callout (Zero Overlap): each step highlights the target menu, button, or panel paired with a single unified callout balloon and pointer arrow. In Phase 1 (yellow), the callout explains what the control does and why it is used for a duration proportional to the exact word count and selected WPM; in Phase 2 (green), the step executes (docking child dialogs neatly in the lower-left area while placing the callout without overlapping the child window) using the same word-proportional WPM timing.
+• Choosing the Example, Scientific Cognitive Reading Paces (WPM) & Per-Phase Highlight Color: before starting (or live during playback), select which of the three built-in examples to demonstrate, pick your preferred reading speed profile in Words Per Minute (WPM) — Fluent Typical Reader (250 WPM, 200–300 WPM range), Technical / Engineering Reading (150 WPM, recommended default with +10% margin), Read Aloud Pace (155 WPM), or Dyslexia / Accessible Pace (130 WPM, 100–160 WPM range with +30% extra time for regressions and re-reading without cognitive fatigue) — and choose which phase (1, 2, 3, 4... up to the maximum number of phases across steps) to customize (supporting both distinct colors and repeated colors across phases) using the preset color list, Choose Color... picker, or Default Color button.
+• Unified Visual Spotlight, Independent Phase Color & Theme-Adaptive Frame Backgrounds (Zero Overlap): each step highlights the target menu, button, or panel paired with a single unified callout balloon and pointer arrow. Each phase highlight color inside the Guided Session window (phase badge, banner border, and spotlight overlays) is applied consistently and preserved independently of Settings > Theme (Dark/Light), Settings > User Interface (Custom/Native), and Settings > Language (Portuguese/English), while the dialog frame background and tooltip/callout background dynamically adjust at runtime to match the active theme (light background in Light theme and dark background in Dark theme) regardless of the active User Interface mode, docking auxiliary child dialogs at the lower-left free of overlap.
 • Modeless Controls, Full-Text Layout and Z-Order During Playback: the Guided Session window is sized so every label, selector, and banner renders completely without text truncation, runs modelessly without flashing ghost outlines, and offers progress tracking, countdowns, and Start Guided Session, Pause / Resume, Advance Now, Stop, and Close buttons covering E2E 1D/2D/3D meshing, 2D/3D Forces tab, von Mises contours, linear solver selection, buckling imperfection, and HTML/Markdown/PDF reports.
 • Automatic Restoration to Initial State: upon completing step 30 (or when finalized), the application automatically clears temporary overlays, contours, clipping planes, animations, and auxiliary dialogs and restores the chosen example (with the XY (Plan) work plane active) cleanly to its initial ready-to-solve state.
 
@@ -291,6 +299,7 @@ Use the shortcuts below whenever the main viewport or menu bar holds focus:
 • Ctrl+N — Start a New structural project.
 • Ctrl+O — Open an existing project (.omniframe).
 • Ctrl+S — Save the current project (.omniframe).
+• Ctrl+Shift+S — Save As (.omniframe)...: save a copy of the project under another filename or folder.
 • Ctrl+Z / Ctrl+Y — Undo / Redo modeling and property editing actions.
 • Ctrl+Q — Exit OmniFrame 3D (safely closing all open child windows).
 • F5 — RUN ANALYSIS: execute full 3D FEM solver.
@@ -304,10 +313,12 @@ Use the shortcuts below whenever the main viewport or menu bar holds focus:
 • Right or Middle Mouse Drag — Orbit 3D camera freely.
 • Shift + Right or Middle Mouse Drag — Pan 3D camera laterally/vertically.
 • Mouse Wheel (Scroll) — Zoom camera in and out.
+• Ctrl+C / Ctrl+Shift+C (Tables) — Copy selected table cells (or copy with headers) as tab-delimited text.
+• Ctrl+Shift+A / Double-Click (Tables) — Color all columns in the table / select corresponding node or member in the 3D Viewport.
 
 9.4 Local Storage, Directory Portability and Offline Privacy
 All bilingual documentation assets (about, history, release notes, legal notices, licenses, and this manual) and compiled translations (.qm) load dynamically from the distribution directory with automatic fallback to embedded Qt resources inside the executable, guaranteeing full functionality regardless of which folder or drive hosts the app.
-OmniFrame 3D collects zero telemetry, opens zero network sockets, and stores only user-saved project/report files (.omniframe, .dxf, .ifc, .html, .md, .pdf) plus three local configuration files (language.json, theme.json, and graphics.json) inside %LOCALAPPDATA%\OmniFrame\OmniFrame\.
+OmniFrame 3D collects zero telemetry, opens zero network sockets, and stores only user-saved project/report/table files (.omniframe, .dxf, .ifc, .xlsx, .csv, .txt, .json, .xml, .html, .md, .pdf), alongside the consolidated preferences file (user_preferences.json), local session recovery snapshots (recovery\), and local rotating daily logs (log\, max 10 files) inside %LOCALAPPDATA%\OmniFrame\.
 When uninstalled via Microsoft Store or removed as a portable distribution, zero kernel drivers or hidden background services remain on the operating system.
 
 9.5 Companion Distribution Utilities and Command-Line Interface (CLI)

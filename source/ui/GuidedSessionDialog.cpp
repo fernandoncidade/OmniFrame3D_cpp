@@ -1,5 +1,6 @@
 #include "ui/GuidedSessionDialog.hpp"
 
+#include "io/UserPreferencesStore.hpp"
 #include "locale/GerenciadorTraducao.hpp"
 #include "render/Viewport3D.hpp"
 #include "ui/Dialogs.hpp"
@@ -12,6 +13,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QColorDialog>
 #include <QComboBox>
 #include <QDockWidget>
 #include <QDoubleSpinBox>
@@ -20,8 +22,11 @@
 #include <QEventLoop>
 #include <QFontMetrics>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QJsonArray>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
@@ -30,6 +35,8 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPalette>
+#include <QPixmap>
 #include <QPolygonF>
 #include <QProgressBar>
 #include <QPushButton>
@@ -54,6 +61,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -189,6 +197,59 @@ QPointF clampPointToRect(const QPointF& pt, const QRectF& rect) {
                    std::clamp(pt.y(), rect.top(), rect.bottom()));
 }
 
+struct HighlightColorPreset {
+    const char* hex;
+    const char* labelPtBr;
+};
+
+constexpr std::array<HighlightColorPreset, 7> kHighlightColorPresets{{
+    {"#F59E0B", "Âmbar Dourado — Padrão (#F59E0B)"},
+    {"#10B981", "Verde Esmeralda (#10B981)"},
+    {"#3B82F6", "Azul Cobalto (#3B82F6)"},
+    {"#06B6D4", "Ciano Técnico (#06B6D4)"},
+    {"#8B5CF6", "Violeta Intenso (#8B5CF6)"},
+    {"#EC4899", "Magenta Vibrante (#EC4899)"},
+    {"#EF4444", "Vermelho Coral (#EF4444)"},
+}};
+
+QIcon makeColorSwatchIcon(const QColor& color) {
+    QPixmap pm(14, 14);
+    pm.fill(Qt::transparent);
+    QPainter painter(&pm);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setBrush(color.isValid() ? color : QColor(QStringLiteral("#F59E0B")));
+    painter.setPen(QPen(color.darker(130), 1.0));
+    painter.drawRoundedRect(QRectF(0.5, 0.5, 13.0, 13.0), 3.0, 3.0);
+    return QIcon(pm);
+}
+
+QColor normalizeHighlightColor(const QColor& color) {
+    if (!color.isValid()) {
+        return QColor(QStringLiteral("#F59E0B"));
+    }
+    return QColor(color.red(), color.green(), color.blue());
+}
+
+QColor computeThemeAdaptiveCardBg(const QColor& accent, bool light, int alpha = 255) {
+    const QColor c = normalizeHighlightColor(accent);
+    if (light) {
+        return QColor(
+            (248 * 90 + c.red() * 10) / 100,
+            (250 * 90 + c.green() * 10) / 100,
+            (252 * 90 + c.blue() * 10) / 100,
+            alpha);
+    }
+    return QColor(
+        (18 * 84 + c.red() * 16) / 100,
+        (24 * 84 + c.green() * 16) / 100,
+        (34 * 84 + c.blue() * 16) / 100,
+        alpha);
+}
+
+QColor computeThemeAdaptiveCardText(bool light) {
+    return light ? QColor(QStringLiteral("#0F172A")) : QColor(QStringLiteral("#F8FAFC"));
+}
+
 } // namespace
 
 // ============================================================================
@@ -233,6 +294,16 @@ void GuidedTargetOverlay::setShowCalloutCard(bool show) {
 void GuidedTargetOverlay::setShowSpotlight(bool show) {
     if (m_showSpotlight != show) {
         m_showSpotlight = show;
+        if (isVisible()) {
+            update();
+        }
+    }
+}
+
+void GuidedTargetOverlay::setHighlightColor(const QColor& color) {
+    const QColor normalized = normalizeHighlightColor(color);
+    if (m_highlightColor != normalized) {
+        m_highlightColor = normalized;
         if (isVisible()) {
             update();
         }
@@ -579,14 +650,16 @@ void GuidedTargetOverlay::paintEvent(QPaintEvent* /*event*/) {
     p.setRenderHint(QPainter::Antialiasing, true);
 
     const bool light = ThemeManager::instance().isLight();
-    const bool isPhase2 = (m_phase == 2);
-
-    const QColor accent = isPhase2
-        ? (light ? QColor(QStringLiteral("#059669")) : QColor(QStringLiteral("#34D399")))
-        : (light ? QColor(QStringLiteral("#D97706")) : QColor(QStringLiteral("#FBBF24")));
-    const QColor accentStrong = isPhase2
-        ? (light ? QColor(QStringLiteral("#047857")) : QColor(QStringLiteral("#10B981")))
-        : (light ? QColor(QStringLiteral("#B45309")) : QColor(QStringLiteral("#F59E0B")));
+    // Cor do realce da fase ativa independente de Tema (Claro/Escuro),
+    // Estilo de UI (Nativo/Customizado) e Idioma (pt_BR/en_US).
+    // Fundo e texto do cartão do tooltip acompanham dinamicamente o Tema Claro/Escuro
+    // independentemente do modo de Interface do Usuário.
+    const QColor accent = normalizeHighlightColor(m_highlightColor);
+    const QColor accentStrong = accent.darker(118);
+    const QColor badgeTextColor = (accent.lightness() > 145)
+        ? QColor(QStringLiteral("#0F172A"))
+        : QColor(QStringLiteral("#FFFFFF"));
+    const QColor textPrimary = computeThemeAdaptiveCardText(light);
 
     const double pulse = 0.5 + 0.5 * std::sin(m_pulseTick * 0.7853981633974483);
 
@@ -597,7 +670,7 @@ void GuidedTargetOverlay::paintEvent(QPaintEvent* /*event*/) {
     if (m_showSpotlight) {
         // 1. Halo externo pulsante ao redor do widget/controle em foco
         QColor haloFill = accent;
-        haloFill.setAlpha(static_cast<int>(light ? (22 + 18 * pulse) : (28 + 24 * pulse)));
+        haloFill.setAlpha(static_cast<int>(28 + 24 * pulse));
         QColor haloPenColor = accent;
         haloPenColor.setAlpha(static_cast<int>(90 + 85 * pulse));
         p.setBrush(haloFill);
@@ -643,8 +716,6 @@ void GuidedTargetOverlay::paintEvent(QPaintEvent* /*event*/) {
     if (cardRect.isEmpty()) {
         return;
     }
-
-    const QColor textPrimary = light ? QColor(QStringLiteral("#0F172A")) : QColor(QStringLiteral("#F8FAFC"));
 
     QFont badgeFont = font();
     badgeFont.setPointSize(std::max(8, badgeFont.pointSize() - 1));
@@ -701,19 +772,18 @@ void GuidedTargetOverlay::paintEvent(QPaintEvent* /*event*/) {
         }
     }
 
-    // Sombra suave + Fundo do cartão adaptado ao tema
+    // Sombra suave + Fundo adaptado dinamicamente ao Tema Claro/Escuro (independente de Nativo/Customizado)
+    // com borda e cabeçalho na cor definida para o realce da fase
     const QRectF shadowRect = cardRectF.translated(2.0, 3.0);
-    p.setBrush(light ? QColor(15, 23, 42, 34) : QColor(0, 0, 0, 115));
+    p.setBrush(light ? QColor(15, 23, 42, 34) : QColor(0, 0, 0, 110));
     p.setPen(Qt::NoPen);
     p.drawRoundedRect(shadowRect, 8.0, 8.0);
 
-    QColor cardBg = light
-        ? (isPhase2 ? QColor(QStringLiteral("#ECFDF5")) : QColor(QStringLiteral("#FFFBEB")))
-        : (isPhase2 ? QColor(QStringLiteral("#10221C")) : QColor(QStringLiteral("#231D12")));
-    cardBg.setAlpha(244);
+    const QColor cardBg = computeThemeAdaptiveCardBg(accent, light, light ? 248 : 246);
+    m_lastCardBgColor = cardBg;
 
     p.setBrush(cardBg);
-    p.setPen(QPen(accentStrong, 1.8));
+    p.setPen(QPen(accent, 1.8));
     p.drawRoundedRect(cardRectF, 8.0, 8.0);
 
     // Cabeçalho colorido do Callout
@@ -721,9 +791,9 @@ void GuidedTargetOverlay::paintEvent(QPaintEvent* /*event*/) {
     headerClip.addRoundedRect(cardRectF, 8.0, 8.0);
     p.save();
     p.setClipPath(headerClip);
-    p.fillRect(QRectF(cardRectF.left(), cardRectF.top(), cardRectF.width(), headerH), accentStrong);
+    p.fillRect(QRectF(cardRectF.left(), cardRectF.top(), cardRectF.width(), headerH), accent);
     p.setFont(badgeFont);
-    p.setPen(Qt::white);
+    p.setPen(badgeTextColor);
     p.drawText(QRect(cardRect.left() + 11, cardRect.top() + 5, innerW, badgeH),
                Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignVCenter,
                m_badgeText);
@@ -748,17 +818,23 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
       m_overlay(new GuidedTargetOverlay(nullptr)),
       m_childOverlay(new GuidedTargetOverlay(nullptr)) {
     setObjectName(QStringLiteral("GuidedSessionDialog"));
-    setMinimumSize(540, 620);
-    resize(560, 660);
+    setMinimumSize(540, 640);
+    resize(560, 680);
+    m_stepPhaseCounts.fill(2);
+    ensurePhaseColorCapacity(maxPhasesCount());
+    loadSavedHighlightColor();
+    const QColor initialHl = activePhaseHighlightColor();
     if (m_overlay) {
         m_overlay->setObjectName(QStringLiteral("guided_target_overlay"));
         m_overlay->setShowCalloutCard(true);
         m_overlay->setShowSpotlight(true);
+        m_overlay->setHighlightColor(initialHl);
     }
     if (m_childOverlay) {
         m_childOverlay->setObjectName(QStringLiteral("guided_child_target_overlay"));
         m_childOverlay->setShowCalloutCard(false);
         m_childOverlay->setShowSpotlight(true);
+        m_childOverlay->setHighlightColor(initialHl);
     }
 
     m_timer->setSingleShot(true);
@@ -768,13 +844,13 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
     connect(m_countdownTimer, &QTimer::timeout, this, &GuidedSessionDialog::onCountdownTick);
 
     auto* rootLayout = new QVBoxLayout(this);
-    rootLayout->setSpacing(10);
+    rootLayout->setSpacing(8);
 
     m_introLabel = new QLabel(this);
     m_introLabel->setWordWrap(true);
     rootLayout->addWidget(m_introLabel);
 
-    // Configuração de Exemplo e Perfil Científico de Leitura (PPM)
+    // Configuração de Exemplo, Perfil Científico de Leitura (PPM) e Cor do Realce por Fase
     m_setupGroup = new QGroupBox(this);
     auto* setupLayout = new QVBoxLayout(m_setupGroup);
     setupLayout->setSpacing(6);
@@ -815,11 +891,80 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
     m_readingInfoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     m_readingInfoLabel->setObjectName(QStringLiteral("guided_reading_info"));
 
+    auto* colorHeaderRow = new QHBoxLayout();
+    colorHeaderRow->setSpacing(6);
+
+    m_highlightColorLabel = new QLabel(m_setupGroup);
+    m_highlightColorLabel->setWordWrap(true);
+
+    m_highlightPhaseCombo = new QComboBox(m_setupGroup);
+    m_highlightPhaseCombo->setObjectName(QStringLiteral("guided_highlight_phase_combo"));
+    m_highlightPhaseCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_highlightPhaseCombo->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(m_highlightPhaseCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        if (idx >= 0 && m_highlightPhaseCombo) {
+            const int phase = m_highlightPhaseCombo->itemData(idx).toInt();
+            if (phase >= 1) {
+                selectHighlightPhase(phase);
+            }
+        }
+    });
+
+    colorHeaderRow->addWidget(m_highlightColorLabel, 1);
+    colorHeaderRow->addWidget(m_highlightPhaseCombo);
+
+    auto* colorRow = new QHBoxLayout();
+    colorRow->setSpacing(6);
+
+    m_highlightColorSwatch = new QLabel(m_setupGroup);
+    m_highlightColorSwatch->setObjectName(QStringLiteral("guided_highlight_color_swatch"));
+    m_highlightColorSwatch->setFixedSize(28, 28);
+
+    m_highlightColorCombo = new QComboBox(m_setupGroup);
+    m_highlightColorCombo->setObjectName(QStringLiteral("guided_highlight_color_combo"));
+    m_highlightColorCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_highlightColorCombo->setMinimumContentsLength(16);
+    m_highlightColorCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    for (const HighlightColorPreset& preset : kHighlightColorPresets) {
+        const QColor presetColor(QString::fromLatin1(preset.hex));
+        m_highlightColorCombo->addItem(
+            makeColorSwatchIcon(presetColor),
+            QString(),
+            QString::fromLatin1(preset.hex));
+    }
+    connect(m_highlightColorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        if (idx < 0 || !m_highlightColorCombo) {
+            return;
+        }
+        const QString hex = m_highlightColorCombo->itemData(idx).toString();
+        const QColor chosen(hex);
+        if (chosen.isValid()) {
+            setPhaseHighlightColor(m_selectedHighlightPhase, chosen);
+        }
+    });
+
+    m_btnPickHighlightColor = new QPushButton(m_setupGroup);
+    m_btnPickHighlightColor->setObjectName(QStringLiteral("guided_btn_pick_highlight_color"));
+    m_btnPickHighlightColor->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(m_btnPickHighlightColor, &QPushButton::clicked, this, &GuidedSessionDialog::onPickHighlightColorClicked);
+
+    m_btnResetHighlightColor = new QPushButton(m_setupGroup);
+    m_btnResetHighlightColor->setObjectName(QStringLiteral("guided_btn_reset_highlight_color"));
+    m_btnResetHighlightColor->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    connect(m_btnResetHighlightColor, &QPushButton::clicked, this, &GuidedSessionDialog::onResetHighlightColorClicked);
+
+    colorRow->addWidget(m_highlightColorSwatch);
+    colorRow->addWidget(m_highlightColorCombo, 1);
+    colorRow->addWidget(m_btnPickHighlightColor);
+    colorRow->addWidget(m_btnResetHighlightColor);
+
     setupLayout->addWidget(m_exampleLabel);
     setupLayout->addWidget(m_exampleCombo);
     setupLayout->addWidget(m_readingProfileLabel);
     setupLayout->addWidget(m_readingProfileCombo);
     setupLayout->addWidget(m_readingInfoLabel);
+    setupLayout->addLayout(colorHeaderRow);
+    setupLayout->addLayout(colorRow);
     rootLayout->addWidget(m_setupGroup);
 
     // Painel de Progresso, Controle em Foco, Cronômetro e Cartão Sincronizado
@@ -843,26 +988,26 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
     m_timerCountdownLabel->setObjectName(QStringLiteral("guided_countdown_label"));
     progLayout->addWidget(m_timerCountdownLabel);
 
-    auto* bannerScroll = new QScrollArea(m_progressGroup);
-    bannerScroll->setFrameShape(QFrame::NoFrame);
-    bannerScroll->setWidgetResizable(true);
-    bannerScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    bannerScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    bannerScroll->setMinimumHeight(185);
-    bannerScroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
-    if (bannerScroll->viewport()) {
-        bannerScroll->viewport()->setAutoFillBackground(false);
-        bannerScroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
+    m_bannerScroll = new QScrollArea(m_progressGroup);
+    m_bannerScroll->setFrameShape(QFrame::NoFrame);
+    m_bannerScroll->setWidgetResizable(true);
+    m_bannerScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_bannerScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_bannerScroll->setMinimumHeight(150);
+    m_bannerScroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+    if (m_bannerScroll->viewport()) {
+        m_bannerScroll->viewport()->setAutoFillBackground(false);
+        m_bannerScroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
     }
 
-    m_targetActionBannerLabel = new QLabel(bannerScroll);
+    m_targetActionBannerLabel = new QLabel(m_bannerScroll);
     m_targetActionBannerLabel->setWordWrap(true);
     m_targetActionBannerLabel->setTextFormat(Qt::RichText);
     m_targetActionBannerLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     m_targetActionBannerLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
     m_targetActionBannerLabel->setObjectName(QStringLiteral("guided_target_action_banner"));
-    bannerScroll->setWidget(m_targetActionBannerLabel);
-    progLayout->addWidget(bannerScroll, 1);
+    m_bannerScroll->setWidget(m_targetActionBannerLabel);
+    progLayout->addWidget(m_bannerScroll, 1);
 
     // Mantém os widgets legados ocultos para que apenas a versão moderna unificada seja exibida
     m_stepTitleLabel = new QLabel(m_progressGroup);
@@ -924,6 +1069,15 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
             m_childOverlay->refreshTheme();
         }
     });
+    connect(&ThemeManager::instance(), &ThemeManager::uiStyleModeChanged, this, [this](UiStyleMode) {
+        applyCardTheme();
+        if (m_overlay) {
+            m_overlay->refreshTheme();
+        }
+        if (m_childOverlay) {
+            m_childOverlay->refreshTheme();
+        }
+    });
 
     retranslateUi();
     applyCardTheme();
@@ -933,6 +1087,10 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
 GuidedSessionDialog::~GuidedSessionDialog() {
     if (m_timer && m_timer->isActive()) m_timer->stop();
     if (m_countdownTimer && m_countdownTimer->isActive()) m_countdownTimer->stop();
+    if (m_colorPickerDialog) {
+        m_colorPickerDialog->close();
+        delete m_colorPickerDialog.data();
+    }
     clearVisualHighlight();
     if (m_overlay) {
         delete m_overlay.data();
@@ -941,6 +1099,319 @@ GuidedSessionDialog::~GuidedSessionDialog() {
         delete m_childOverlay.data();
     }
     QToolTip::hideText();
+}
+
+QColor GuidedSessionDialog::defaultPhaseHighlightColor(int phase) {
+    switch (std::max(1, phase)) {
+        case 1:
+            return QColor(QStringLiteral("#F59E0B"));
+        case 2:
+            return QColor(QStringLiteral("#10B981"));
+        case 3:
+            return QColor(QStringLiteral("#3B82F6"));
+        case 4:
+            return QColor(QStringLiteral("#8B5CF6"));
+        default: {
+            const std::size_t idx =
+                static_cast<std::size_t>(phase - 1) % kHighlightColorPresets.size();
+            return QColor(QString::fromLatin1(kHighlightColorPresets[idx].hex));
+        }
+    }
+}
+
+void GuidedSessionDialog::ensurePhaseColorCapacity(int minPhases) {
+    const int needed = std::max(1, minPhases);
+    while (static_cast<int>(m_phaseHighlightColors.size()) < needed) {
+        const int nextPhase = static_cast<int>(m_phaseHighlightColors.size()) + 1;
+        m_phaseHighlightColors.push_back(defaultPhaseHighlightColor(nextPhase));
+    }
+}
+
+int GuidedSessionDialog::phasesForStep(int step) const {
+    const int clamped = std::clamp(step, 1, kTotalSteps);
+    return std::max(1, m_stepPhaseCounts[static_cast<std::size_t>(clamped - 1)]);
+}
+
+void GuidedSessionDialog::setPhasesForStep(int step, int phaseCount) {
+    if (step < 1 || step > kTotalSteps) {
+        return;
+    }
+    m_stepPhaseCounts[static_cast<std::size_t>(step - 1)] = std::max(1, phaseCount);
+    const int maxP = maxPhasesCount();
+    ensurePhaseColorCapacity(maxP);
+    m_selectedHighlightPhase = std::clamp(m_selectedHighlightPhase, 1, maxP);
+    syncHighlightColorControls();
+    if (m_running && m_currentStep == step) {
+        if (m_currentPhase > phasesForStep(step)) {
+            m_currentPhase = phasesForStep(step);
+        }
+        refreshCurrentStepTexts();
+        updateVisualHighlight();
+    } else {
+        applyCardTheme();
+    }
+}
+
+int GuidedSessionDialog::maxPhasesCount() const {
+    int maxP = 2;
+    for (int p : m_stepPhaseCounts) {
+        maxP = std::max(maxP, p);
+    }
+    return maxP;
+}
+
+void GuidedSessionDialog::selectHighlightPhase(int phase) {
+    const int maxP = maxPhasesCount();
+    const int clamped = std::clamp(phase, 1, maxP);
+    if (m_selectedHighlightPhase != clamped) {
+        m_selectedHighlightPhase = clamped;
+    }
+    syncHighlightColorControls();
+    applyCardTheme();
+}
+
+QColor GuidedSessionDialog::phaseHighlightColor(int phase) const {
+    const int idx = std::max(1, phase) - 1;
+    if (idx < static_cast<int>(m_phaseHighlightColors.size())) {
+        return normalizeHighlightColor(m_phaseHighlightColors[static_cast<std::size_t>(idx)]);
+    }
+    return defaultPhaseHighlightColor(phase);
+}
+
+QColor GuidedSessionDialog::activePhaseHighlightColor() const {
+    const int phase = (m_running && m_currentPhase > 0) ? m_currentPhase : m_selectedHighlightPhase;
+    return phaseHighlightColor(phase);
+}
+
+void GuidedSessionDialog::loadSavedHighlightColor() {
+    bool exists = false;
+    const QJsonObject sec = io::UserPreferencesStore::readSection(QStringLiteral("guidedSession"), &exists);
+    QJsonArray colorsArr;
+    QString legacyHex;
+
+    if (exists && sec.value(QStringLiteral("phaseHighlightColors")).isArray()) {
+        colorsArr = sec.value(QStringLiteral("phaseHighlightColors")).toArray();
+    } else if (exists && sec.contains(QStringLiteral("stepHighlightColor"))) {
+        legacyHex = sec.value(QStringLiteral("stepHighlightColor")).toString().trimmed();
+    } else {
+        const QJsonObject dialogsSec = io::UserPreferencesStore::readSection(QStringLiteral("dialogs"));
+        const QJsonObject guidedObj = dialogsSec.value(QStringLiteral("GuidedSessionDialog")).toObject();
+        const QJsonObject controlsObj = guidedObj.value(QStringLiteral("controls")).toObject();
+        if (controlsObj.value(QStringLiteral("phaseHighlightColors")).isArray()) {
+            colorsArr = controlsObj.value(QStringLiteral("phaseHighlightColors")).toArray();
+        } else {
+            legacyHex = controlsObj.value(QStringLiteral("stepHighlightColor")).toString().trimmed();
+        }
+    }
+
+    ensurePhaseColorCapacity(std::max(maxPhasesCount(), static_cast<int>(colorsArr.size())));
+    if (!colorsArr.isEmpty()) {
+        for (int i = 0; i < colorsArr.size(); ++i) {
+            const QColor c(colorsArr.at(i).toString().trimmed());
+            if (c.isValid()) {
+                m_phaseHighlightColors[static_cast<std::size_t>(i)] = normalizeHighlightColor(c);
+            }
+        }
+    } else if (!legacyHex.isEmpty()) {
+        const QColor saved(legacyHex);
+        if (saved.isValid() && !m_phaseHighlightColors.empty()) {
+            m_phaseHighlightColors[0] = normalizeHighlightColor(saved);
+        }
+    }
+}
+
+void GuidedSessionDialog::saveHighlightColorPreference() const {
+    QJsonObject sec = io::UserPreferencesStore::readSection(QStringLiteral("guidedSession"));
+    QJsonArray colorsArr;
+    for (const QColor& c : m_phaseHighlightColors) {
+        colorsArr.append(normalizeHighlightColor(c).name(QColor::HexRgb).toUpper());
+    }
+    sec.insert(QStringLiteral("phaseHighlightColors"), colorsArr);
+    sec.insert(QStringLiteral("stepHighlightColor"),
+               phaseHighlightColor(1).name(QColor::HexRgb).toUpper());
+    io::UserPreferencesStore::updateSection(QStringLiteral("guidedSession"), sec);
+}
+
+void GuidedSessionDialog::syncHighlightColorControls() {
+    using locale::GerenciadorTraducao;
+    const int maxP = maxPhasesCount();
+    ensurePhaseColorCapacity(maxP);
+    m_selectedHighlightPhase = std::clamp(m_selectedHighlightPhase, 1, maxP);
+
+    if (m_highlightPhaseCombo) {
+        const QSignalBlocker phaseBlocker(m_highlightPhaseCombo);
+        m_highlightPhaseCombo->clear();
+        for (int p = 1; p <= maxP; ++p) {
+            const QColor pCol = phaseHighlightColor(p);
+            const QString pHex = pCol.name(QColor::HexRgb).toUpper();
+            m_highlightPhaseCombo->addItem(
+                makeColorSwatchIcon(pCol),
+                GerenciadorTraducao::trText("Fase %1 (%2)").arg(p).arg(pHex),
+                p);
+        }
+        const int phaseIdx = m_highlightPhaseCombo->findData(m_selectedHighlightPhase);
+        if (phaseIdx >= 0) {
+            m_highlightPhaseCombo->setCurrentIndex(phaseIdx);
+        }
+    }
+
+    const QColor normalized = phaseHighlightColor(m_selectedHighlightPhase);
+    const QString targetHex = normalized.name(QColor::HexRgb).toUpper();
+
+    if (m_highlightColorCombo) {
+        const QSignalBlocker blocker(m_highlightColorCombo);
+        int matchedIdx = -1;
+        for (int i = 0; i < static_cast<int>(kHighlightColorPresets.size()) && i < m_highlightColorCombo->count(); ++i) {
+            const QString presetHex = QString::fromLatin1(kHighlightColorPresets[static_cast<std::size_t>(i)].hex).toUpper();
+            m_highlightColorCombo->setItemText(
+                i, GerenciadorTraducao::trText(kHighlightColorPresets[static_cast<std::size_t>(i)].labelPtBr));
+            m_highlightColorCombo->setItemData(i, presetHex);
+            m_highlightColorCombo->setItemIcon(i, makeColorSwatchIcon(QColor(presetHex)));
+            if (presetHex == targetHex) {
+                matchedIdx = i;
+            }
+        }
+
+        const int customIdx = static_cast<int>(kHighlightColorPresets.size());
+        if (matchedIdx >= 0) {
+            if (m_highlightColorCombo->count() > customIdx) {
+                m_highlightColorCombo->removeItem(customIdx);
+            }
+            m_highlightColorCombo->setCurrentIndex(matchedIdx);
+        } else {
+            const QString customLabel = GerenciadorTraducao::trText("Cor Personalizada (%1)").arg(targetHex);
+            if (m_highlightColorCombo->count() > customIdx) {
+                m_highlightColorCombo->setItemText(customIdx, customLabel);
+                m_highlightColorCombo->setItemData(customIdx, targetHex);
+                m_highlightColorCombo->setItemIcon(customIdx, makeColorSwatchIcon(normalized));
+            } else {
+                m_highlightColorCombo->addItem(makeColorSwatchIcon(normalized), customLabel, targetHex);
+            }
+            m_highlightColorCombo->setCurrentIndex(customIdx);
+        }
+    }
+
+    if (m_btnResetHighlightColor) {
+        m_btnResetHighlightColor->setEnabled(
+            normalized != normalizeHighlightColor(defaultPhaseHighlightColor(m_selectedHighlightPhase)));
+    }
+}
+
+void GuidedSessionDialog::setPhaseHighlightColor(int phase, const QColor& color) {
+    if (!color.isValid()) {
+        return;
+    }
+    const int targetPhase = std::max(1, phase);
+    ensurePhaseColorCapacity(targetPhase);
+    const QColor normalized = normalizeHighlightColor(color);
+    const std::size_t idx = static_cast<std::size_t>(targetPhase - 1);
+    const bool changed = (m_phaseHighlightColors[idx] != normalized);
+    m_phaseHighlightColors[idx] = normalized;
+    m_selectedHighlightPhase = targetPhase;
+
+    const QColor activeCol = activePhaseHighlightColor();
+    if (m_overlay) {
+        m_overlay->setHighlightColor(activeCol);
+    }
+    if (m_childOverlay) {
+        m_childOverlay->setHighlightColor(activeCol);
+    }
+    syncHighlightColorControls();
+    applyCardTheme();
+    if (m_running && m_currentStep > 0) {
+        updateVisualHighlight();
+    }
+
+    if (changed) {
+        saveHighlightColorPreference();
+        emit stepHighlightColorChanged(normalized);
+    }
+}
+
+void GuidedSessionDialog::setStepHighlightColor(const QColor& color) {
+    const int targetPhase = (m_running && m_currentPhase > 0) ? m_currentPhase : m_selectedHighlightPhase;
+    setPhaseHighlightColor(targetPhase, color);
+}
+
+void GuidedSessionDialog::resetStepHighlightColor() {
+    setPhaseHighlightColor(m_selectedHighlightPhase, defaultPhaseHighlightColor(m_selectedHighlightPhase));
+}
+
+void GuidedSessionDialog::resetAllPhaseHighlightColors() {
+    const int count = std::max(maxPhasesCount(), static_cast<int>(m_phaseHighlightColors.size()));
+    ensurePhaseColorCapacity(count);
+    bool anyChanged = false;
+    for (int p = 1; p <= count; ++p) {
+        const QColor defCol = defaultPhaseHighlightColor(p);
+        const std::size_t idx = static_cast<std::size_t>(p - 1);
+        if (m_phaseHighlightColors[idx] != defCol) {
+            m_phaseHighlightColors[idx] = defCol;
+            anyChanged = true;
+        }
+    }
+    const QColor activeCol = activePhaseHighlightColor();
+    if (m_overlay) {
+        m_overlay->setHighlightColor(activeCol);
+    }
+    if (m_childOverlay) {
+        m_childOverlay->setHighlightColor(activeCol);
+    }
+    syncHighlightColorControls();
+    applyCardTheme();
+    if (m_running && m_currentStep > 0) {
+        updateVisualHighlight();
+    }
+    if (anyChanged) {
+        saveHighlightColorPreference();
+        emit stepHighlightColorChanged(activeCol);
+    }
+}
+
+void GuidedSessionDialog::onPickHighlightColorClicked() {
+    if (m_colorPickerDialog) {
+        m_colorPickerDialog->show();
+        m_colorPickerDialog->raise();
+        m_colorPickerDialog->activateWindow();
+        return;
+    }
+
+    const int targetPhase = m_selectedHighlightPhase;
+    const QColor previousColor = phaseHighlightColor(targetPhase);
+    auto* colorDlg = new QColorDialog(previousColor, nullptr);
+    m_colorPickerDialog = colorDlg;
+    colorDlg->setObjectName(QStringLiteral("guided_highlight_color_dialog"));
+    colorDlg->setWindowTitle(locale::GerenciadorTraducao::trText("Selecionar Cor do Realce das Etapas"));
+    colorDlg->setAttribute(Qt::WA_DeleteOnClose, true);
+    colorDlg->setModal(false);
+    colorDlg->setWindowModality(Qt::NonModal);
+
+    connect(colorDlg, &QColorDialog::currentColorChanged, this, [this, targetPhase](const QColor& chosen) {
+        if (chosen.isValid()) {
+            setPhaseHighlightColor(targetPhase, chosen);
+        }
+    });
+    connect(colorDlg, &QColorDialog::colorSelected, this, [this, targetPhase](const QColor& chosen) {
+        if (chosen.isValid()) {
+            setPhaseHighlightColor(targetPhase, chosen);
+        }
+    });
+    connect(colorDlg, &QDialog::rejected, this, [this, targetPhase, previousColor]() {
+        setPhaseHighlightColor(targetPhase, previousColor);
+    });
+
+    if (m_mainWindow && m_mainWindow->windowZOrderManager()) {
+        m_mainWindow->windowZOrderManager()->prepareModelessDialog(colorDlg, false, true);
+        m_mainWindow->windowZOrderManager()->showAndRaise(colorDlg);
+    } else {
+        colorDlg->show();
+        colorDlg->raise();
+        colorDlg->activateWindow();
+    }
+    ThemeManager::instance().applyWindowChrome(colorDlg);
+}
+
+void GuidedSessionDialog::onResetHighlightColorClicked() {
+    resetStepHighlightColor();
 }
 
 GuidedSessionDialog::ReadingProfileSpec GuidedSessionDialog::profileSpec(ReadingProfile profile) const {
@@ -1058,7 +1529,7 @@ void GuidedSessionDialog::positionHudNearMainWindow() {
     const QSize desiredSize = size()
                                   .expandedTo(sizeHint())
                                   .expandedTo(minimumSizeHint())
-                                  .expandedTo(QSize(560, 660));
+                                  .expandedTo(QSize(560, 680));
     const int targetW = std::min(desiredSize.width(), std::max(540, avail.width() - 32));
     const int targetH = std::min(desiredSize.height(), std::max(560, avail.height() - 32));
     if (size() != QSize(targetW, targetH)) {
@@ -1073,13 +1544,105 @@ void GuidedSessionDialog::positionHudNearMainWindow() {
 }
 
 void GuidedSessionDialog::applyCardTheme() {
+    auto clearStyleSheetIfSet = [](QWidget* w) {
+        if (w && !w->styleSheet().isEmpty()) {
+            w->setStyleSheet(QString());
+        }
+    };
+
     const bool light = ThemeManager::instance().isLight();
-    const QString cardBg = light ? QStringLiteral("#FFFDF5") : QStringLiteral("#1F2633");
-    const QString cardBorder = light ? QStringLiteral("#C5A34E") : QStringLiteral("#4C78B8");
-    const QString cardText = light ? QStringLiteral("#1F242D") : QStringLiteral("#EDF2FA");
-    m_tooltipCardLabel->setStyleSheet(
-        QStringLiteral("QLabel { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 10px; color: %3; }")
-            .arg(cardBg, cardBorder, cardText));
+    // Cor do realce da fase ativa aplicada independentemente de Tema (Claro/Escuro),
+    // Interface do Usuário (Customizado/Nativo) e Idioma (pt_BR/en_US).
+    // Já a cor de fundo do quadro e do tooltip acompanha dinamicamente Tema Claro/Escuro
+    // em tempo de execução, independentemente do modo Nativo/Customizado.
+    const QColor hl = normalizeHighlightColor(activePhaseHighlightColor());
+    const QString hlHex = hl.name(QColor::HexRgb).toUpper();
+    const QString hlStrongHex = hl.darker(118).name(QColor::HexRgb).toUpper();
+    const QString badgeTextHex = (hl.lightness() > 145)
+        ? QStringLiteral("#0F172A")
+        : QStringLiteral("#FFFFFF");
+    const QColor bannerBgColor = computeThemeAdaptiveCardBg(hl, light);
+    const QString bannerBgHex = bannerBgColor.name(QColor::HexRgb).toUpper();
+    const QString bannerTextHex = computeThemeAdaptiveCardText(light).name(QColor::HexRgb).toUpper();
+
+    if (m_highlightColorSwatch) {
+        m_highlightColorSwatch->setStyleSheet(
+            QStringLiteral("QLabel { background-color: %1; border: 1px solid %2; border-radius: 4px; }")
+                .arg(hlHex, hlStrongHex));
+    }
+
+    if (m_bannerScroll) {
+        m_bannerScroll->setFrameShape(QFrame::NoFrame);
+        m_bannerScroll->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; border: none; }"));
+        if (QWidget* vp = m_bannerScroll->viewport()) {
+            vp->setAutoFillBackground(false);
+            vp->setStyleSheet(QStringLiteral("background: transparent;"));
+        }
+    }
+
+    if (m_phaseBadgeLabel) {
+        m_phaseBadgeLabel->setFrameShape(QFrame::NoFrame);
+        m_phaseBadgeLabel->setMargin(0);
+        m_phaseBadgeLabel->setStyleSheet(
+            QStringLiteral("QLabel { background-color: %1; border: 1px solid %2; color: %3; "
+                           "border-radius: 4px; padding: 4px 8px; font-weight: bold; }")
+                .arg(hlHex, hlStrongHex, badgeTextHex));
+    }
+
+    if (m_targetActionBannerLabel) {
+        m_targetActionBannerLabel->setContentsMargins(0, 0, 0, 0);
+        m_targetActionBannerLabel->setStyleSheet(
+            QStringLiteral("QLabel { background-color: %1; border-left: 4px solid %2; border-top: 1px solid %2; "
+                           "border-right: 1px solid %2; border-bottom: 1px solid %2; border-radius: 5px; "
+                           "padding: 7px 9px; color: %3; }")
+                .arg(bannerBgHex, hlHex, bannerTextHex));
+    }
+
+    if (m_tooltipCardLabel) {
+        m_tooltipCardLabel->setStyleSheet(
+            QStringLiteral("QLabel { background-color: %1; border: 1px solid %2; border-radius: 6px; padding: 10px; color: %3; }")
+                .arg(bannerBgHex, hlHex, bannerTextHex));
+    }
+
+    if (ThemeManager::instance().isNativeUi()) {
+        if (m_timerCountdownLabel) {
+            QFont countdownFont = m_timerCountdownLabel->font();
+            countdownFont.setBold(true);
+            m_timerCountdownLabel->setFont(countdownFont);
+        }
+        clearStyleSheetIfSet(this);
+        clearStyleSheetIfSet(m_readingInfoLabel);
+        clearStyleSheetIfSet(m_timerCountdownLabel);
+        setPalette(QPalette());
+        setAttribute(Qt::WA_SetPalette, false);
+        for (QWidget* child : findChildren<QWidget*>()) {
+            if (!child ||
+                child == m_highlightColorSwatch ||
+                child == m_phaseBadgeLabel ||
+                child == m_targetActionBannerLabel ||
+                child == m_tooltipCardLabel ||
+                child == m_bannerScroll ||
+                (m_bannerScroll && child == m_bannerScroll->viewport())) {
+                continue;
+            }
+            child->setPalette(QPalette());
+            child->setAttribute(Qt::WA_SetPalette, false);
+        }
+        ThemeManager::instance().applyWindowChrome(this);
+        if (m_colorPickerDialog) {
+            ThemeManager::instance().applyWindowChrome(m_colorPickerDialog);
+        }
+        return;
+    }
+
+    if (m_phaseBadgeLabel) {
+        m_phaseBadgeLabel->setFont(QFont());
+        m_phaseBadgeLabel->setAttribute(Qt::WA_SetFont, false);
+    }
+    if (m_timerCountdownLabel) {
+        m_timerCountdownLabel->setFont(QFont());
+        m_timerCountdownLabel->setAttribute(Qt::WA_SetFont, false);
+    }
 
     const QString infoColor = light ? QStringLiteral("#4A5568") : QStringLiteral("#9FB3C8");
     m_readingInfoLabel->setStyleSheet(QStringLiteral("QLabel { color: %1; font-size: 11px; }").arg(infoColor));
@@ -1087,52 +1650,10 @@ void GuidedSessionDialog::applyCardTheme() {
         QStringLiteral("QLabel { color: %1; font-weight: bold; }")
             .arg(light ? QStringLiteral("#1E4E8C") : QStringLiteral("#8AC4FF")));
 
-    QString bannerBg;
-    QString bannerBorder;
-    QString bannerText;
-    if (!m_running && !m_completed) {
-        bannerBg = light ? QStringLiteral("#F1F5F9") : QStringLiteral("#232A36");
-        bannerBorder = light ? QStringLiteral("#94A3B8") : QStringLiteral("#475569");
-        bannerText = light ? QStringLiteral("#1E293B") : QColor(226, 232, 240).name();
-    } else if (m_completed) {
-        bannerBg = light ? QStringLiteral("#ECFDF5") : QStringLiteral("#10271E");
-        bannerBorder = light ? QStringLiteral("#059669") : QStringLiteral("#34D399");
-        bannerText = light ? QStringLiteral("#064E3B") : QStringLiteral("#D1FAE5");
-    } else if (m_currentPhase == 1) {
-        bannerBg = light ? QStringLiteral("#FFFBEB") : QStringLiteral("#2A2112");
-        bannerBorder = light ? QStringLiteral("#D97706") : QStringLiteral("#FBBF24");
-        bannerText = light ? QStringLiteral("#78350F") : QStringLiteral("#FEF3C7");
-    } else {
-        bannerBg = light ? QStringLiteral("#ECFDF5") : QStringLiteral("#112620");
-        bannerBorder = light ? QStringLiteral("#059669") : QStringLiteral("#34D399");
-        bannerText = light ? QStringLiteral("#064E3B") : QStringLiteral("#D1FAE5");
+    ThemeManager::instance().applyWindowChrome(this);
+    if (m_colorPickerDialog) {
+        ThemeManager::instance().applyWindowChrome(m_colorPickerDialog);
     }
-    if (m_targetActionBannerLabel) {
-        m_targetActionBannerLabel->setStyleSheet(
-            QStringLiteral("QLabel { background-color: %1; border-left: 4px solid %2; border-top: 1px solid %2; "
-                           "border-right: 1px solid %2; border-bottom: 1px solid %2; border-radius: 5px; padding: 7px 9px; color: %3; }")
-                .arg(bannerBg, bannerBorder, bannerText));
-    }
-
-    QString badgeStyle;
-    if (!m_running && !m_completed) {
-        badgeStyle = light
-            ? QStringLiteral("QLabel { background-color: #E8ECF2; color: #2D3748; border-radius: 4px; padding: 4px 8px; font-weight: bold; }")
-            : QStringLiteral("QLabel { background-color: #2B3340; color: #CBD5E1; border-radius: 4px; padding: 4px 8px; font-weight: bold; }");
-    } else if (m_completed) {
-        badgeStyle = QStringLiteral("QLabel { background-color: #1E6B43; color: #FFFFFF; border-radius: 4px; padding: 4px 8px; font-weight: bold; }");
-    } else if (m_paused) {
-        badgeStyle = QStringLiteral("QLabel { background-color: #8A5A00; color: #FFFFFF; border-radius: 4px; padding: 4px 8px; font-weight: bold; }");
-    } else if (m_currentPhase == 1) {
-        badgeStyle = light
-            ? QStringLiteral("QLabel { background-color: #B45309; color: #FFFFFF; border-radius: 4px; padding: 4px 8px; font-weight: bold; }")
-            : QStringLiteral("QLabel { background-color: #9B5E00; color: #FFFFFF; border-radius: 4px; padding: 4px 8px; font-weight: bold; }");
-    } else {
-        badgeStyle = light
-            ? QStringLiteral("QLabel { background-color: #047857; color: #FFFFFF; border-radius: 4px; padding: 4px 8px; font-weight: bold; }")
-            : QStringLiteral("QLabel { background-color: #059669; color: #FFFFFF; border-radius: 4px; padding: 4px 8px; font-weight: bold; }");
-    }
-    m_phaseBadgeLabel->setStyleSheet(badgeStyle);
 }
 
 void GuidedSessionDialog::changeEvent(QEvent* event) {
@@ -1140,7 +1661,13 @@ void GuidedSessionDialog::changeEvent(QEvent* event) {
     if (!event) return;
     if (event->type() == QEvent::LanguageChange) {
         retranslateUi();
-    } else if (event->type() == QEvent::PaletteChange || event->type() == QEvent::StyleChange) {
+    } else if (event->type() == QEvent::ThemeChange ||
+               event->type() == QEvent::ApplicationPaletteChange) {
+        static thread_local bool inThemeChange = false;
+        if (inThemeChange) {
+            return;
+        }
+        inThemeChange = true;
         applyCardTheme();
         if (m_overlay) {
             m_overlay->refreshTheme();
@@ -1148,10 +1675,14 @@ void GuidedSessionDialog::changeEvent(QEvent* event) {
         if (m_childOverlay) {
             m_childOverlay->refreshTheme();
         }
+        inThemeChange = false;
     }
 }
 
 void GuidedSessionDialog::closeEvent(QCloseEvent* event) {
+    if (m_colorPickerDialog) {
+        m_colorPickerDialog->close();
+    }
     stopSession();
     QDialog::closeEvent(event);
 }
@@ -1266,6 +1797,33 @@ void GuidedSessionDialog::retranslateUi() {
     }
     updateReadingInfoLabel();
 
+    if (m_highlightColorLabel) {
+        m_highlightColorLabel->setText(GerenciadorTraducao::trText("Cor do Realce por Fase (Independente de Tema/UI/Idioma):"));
+    }
+    if (m_highlightPhaseCombo) {
+        m_highlightPhaseCombo->setToolTip(GerenciadorTraducao::trText(
+            "Seleciona qual fase (1, 2, 3...) terá sua cor de realce configurada."));
+    }
+    if (m_highlightColorCombo) {
+        m_highlightColorCombo->setToolTip(GerenciadorTraducao::trText(
+            "Define a cor aplicada no realce da fase selecionada na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos."));
+    }
+    if (m_highlightColorSwatch) {
+        m_highlightColorSwatch->setToolTip(GerenciadorTraducao::trText("Prévia da cor ativa para o realce da fase."));
+    }
+    if (m_btnPickHighlightColor) {
+        m_btnPickHighlightColor->setText(GerenciadorTraducao::trText("Escolher Cor..."));
+        m_btnPickHighlightColor->setToolTip(GerenciadorTraducao::trText("Abrir seletor de cores personalizado para o realce das etapas."));
+    }
+    if (m_btnResetHighlightColor) {
+        m_btnResetHighlightColor->setText(GerenciadorTraducao::trText("Cor Padrão"));
+        m_btnResetHighlightColor->setToolTip(GerenciadorTraducao::trText("Restaurar a cor padrão do realce da fase selecionada."));
+    }
+    if (m_colorPickerDialog) {
+        m_colorPickerDialog->setWindowTitle(GerenciadorTraducao::trText("Selecionar Cor do Realce das Etapas"));
+    }
+    syncHighlightColorControls();
+
     m_progressGroup->setTitle(GerenciadorTraducao::trText("Execução Passo a Passo e Tooltip Explicativo"));
     m_btnStart->setText(GerenciadorTraducao::trText("Iniciar Sessão Guiada"));
     m_btnPauseResume->setText(m_paused ? GerenciadorTraducao::trText("Continuar") : GerenciadorTraducao::trText("Pausar"));
@@ -1329,6 +1887,8 @@ void GuidedSessionDialog::startSession(int customPhaseIntervalMs) {
     m_completed = false;
     m_currentStep = 1;
     m_currentPhase = 1;
+    m_selectedHighlightPhase = 1;
+    syncHighlightColorControls();
     m_progressBar->setValue(0);
 
     if (m_mainWindow) {
@@ -1424,21 +1984,26 @@ void GuidedSessionDialog::onTimerTick() {
     }
     m_executingStep = true;
 
-    if (m_currentPhase == 1) {
-        // Fase 2: executa a ação correspondente mantendo eventual diálogo aberto e destacando o alvo ativo
-        m_currentPhase = 2;
+    const int totalPhasesInStep = phasesForStep(m_currentStep);
+    if (m_currentPhase < totalPhasesInStep) {
+        const bool enteringExecutionPhase = (m_currentPhase == 1);
+        ++m_currentPhase;
+        m_selectedHighlightPhase = std::clamp(m_currentPhase, 1, maxPhasesCount());
+        syncHighlightColorControls();
         refreshCurrentStepTexts();
         updateControlsState();
         pumpUiEvents(12);
 
-        executeStepAction(m_currentStep);
-        if (!m_running) {
-            m_executingStep = false;
-            return;
+        if (enteringExecutionPhase) {
+            executeStepAction(m_currentStep);
+            if (!m_running) {
+                m_executingStep = false;
+                return;
+            }
+            m_progressBar->setValue(m_currentStep);
         }
-        m_progressBar->setValue(m_currentStep);
 
-        if (m_currentStep >= kTotalSteps) {
+        if (m_currentStep >= kTotalSteps && m_currentPhase >= totalPhasesInStep) {
             updateVisualHighlight();
             commitPendingStepEdits(m_currentStep);
             finishSession();
@@ -1460,6 +2025,8 @@ void GuidedSessionDialog::onTimerTick() {
             return;
         }
         m_currentPhase = 1;
+        m_selectedHighlightPhase = 1;
+        syncHighlightColorControls();
         showPreActionTooltipForStep(m_currentStep);
         updateControlsState();
         updateVisualHighlight();
@@ -1562,12 +2129,27 @@ void GuidedSessionDialog::refreshCurrentStepTexts() {
     const QString targetTr = GerenciadorTraducao::trText(spec.targetWidgetNamePtBr);
     const QString actionTr = GerenciadorTraducao::trText(spec.actionSummaryPtBr);
 
+    const int totalPhasesInStep = phasesForStep(m_currentStep);
     if (m_paused) {
         m_phaseBadgeLabel->setText(GerenciadorTraducao::trText("PAUSADA — CLIQUE EM CONTINUAR OU AVANÇAR AGORA"));
     } else if (m_currentPhase == 1) {
-        m_phaseBadgeLabel->setText(GerenciadorTraducao::trText("FASE 1/2 — PRÓXIMO CONTROLE A ACIONAR (TOOLTIP + MIRA)"));
+        if (totalPhasesInStep == 2) {
+            m_phaseBadgeLabel->setText(GerenciadorTraducao::trText("FASE 1/2 — PRÓXIMO CONTROLE A ACIONAR (TOOLTIP + MIRA)"));
+        } else {
+            m_phaseBadgeLabel->setText(
+                GerenciadorTraducao::trText("FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR (TOOLTIP + MIRA)")
+                    .arg(m_currentPhase)
+                    .arg(totalPhasesInStep));
+        }
     } else {
-        m_phaseBadgeLabel->setText(GerenciadorTraducao::trText("FASE 2/2 — EXECUTANDO NESTE CONTROLE / DIÁLOGO"));
+        if (totalPhasesInStep == 2) {
+            m_phaseBadgeLabel->setText(GerenciadorTraducao::trText("FASE 2/2 — EXECUTANDO NESTE CONTROLE / DIÁLOGO"));
+        } else {
+            m_phaseBadgeLabel->setText(
+                GerenciadorTraducao::trText("FASE %1/%2 — EXECUTANDO NESTE CONTROLE / DIÁLOGO")
+                    .arg(m_currentPhase)
+                    .arg(totalPhasesInStep));
+        }
     }
 
     m_currentStepTitle = GerenciadorTraducao::trText("Etapa %1 de %2: %3")
@@ -2123,10 +2705,24 @@ void GuidedSessionDialog::updateVisualHighlight() {
         m_overlay->setObjectName(QStringLiteral("guided_target_overlay"));
     }
 
-    const QString badgeTxt = (m_currentPhase == 1)
-        ? GerenciadorTraducao::trText("FASE 1/2 — PRÓXIMO CONTROLE A ACIONAR")
-        : GerenciadorTraducao::trText("FASE 2/2 — EXECUTANDO NESTE CONTROLE");
+    const int totalPhasesInStep = phasesForStep(m_currentStep);
+    QString badgeTxt;
+    if (m_currentPhase == 1) {
+        badgeTxt = (totalPhasesInStep == 2)
+            ? GerenciadorTraducao::trText("FASE 1/2 — PRÓXIMO CONTROLE A ACIONAR")
+            : GerenciadorTraducao::trText("FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR")
+                  .arg(m_currentPhase)
+                  .arg(totalPhasesInStep);
+    } else {
+        badgeTxt = (totalPhasesInStep == 2)
+            ? GerenciadorTraducao::trText("FASE 2/2 — EXECUTANDO NESTE CONTROLE")
+            : GerenciadorTraducao::trText("FASE %1/%2 — EXECUTANDO NESTE CONTROLE")
+                  .arg(m_currentPhase)
+                  .arg(totalPhasesInStep);
+    }
 
+    const QColor activeHl = activePhaseHighlightColor();
+    m_overlay->setHighlightColor(activeHl);
     m_overlay->setShowCalloutCard(true);
 
     if (hostWin != m_mainWindow) {
@@ -2137,6 +2733,7 @@ void GuidedSessionDialog::updateVisualHighlight() {
             m_childOverlay = new GuidedTargetOverlay(nullptr);
             m_childOverlay->setObjectName(QStringLiteral("guided_child_target_overlay"));
         }
+        m_childOverlay->setHighlightColor(activeHl);
         m_childOverlay->setShowCalloutCard(false);
         m_childOverlay->setShowSpotlight(true);
         m_childOverlay->setHighlight(hostWin, target, subRect, m_currentPhase, badgeTxt, QString());

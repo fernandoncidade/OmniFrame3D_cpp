@@ -1,7 +1,11 @@
 #include "TestHelper.hpp"
 #include "core/StructuralModel.hpp"
+#include "io/AppLogger.hpp"
 #include "io/PdfReportGenerator.hpp"
+#include "io/ProjectRecoveryStore.hpp"
+#include "io/UserPreferencesStore.hpp"
 #include "locale/GerenciadorTraducao.hpp"
+#include "render/RenderSettings.hpp"
 #include "render/Viewport3D.hpp"
 #include "solver/FemSolver3D.hpp"
 #include "ui/AboutDialog.hpp"
@@ -9,14 +13,33 @@
 #include "ui/EngineeringDialogs.hpp"
 #include "ui/GuidedSessionDialog.hpp"
 #include "ui/MainWindow.hpp"
+#include "ui/ManualDialog.hpp"
+#include "ui/ResultTableConfigurator.hpp"
+#include "ui/StartupSessionDialog.hpp"
 #include "ui/ThemeManager.hpp"
 #include "ui/WindowZOrderManager.hpp"
 
+#include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
+#include <QDate>
+#include <QGuiApplication>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMouseEvent>
+#include <QPalette>
+#include <QPixmap>
 #include <QMenu>
 #include <QMenuBar>
+#include <QSet>
+#include <QToolBar>
 #include <QToolTip>
 #include <QCheckBox>
 #include <QComboBox>
@@ -25,20 +48,33 @@
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QImage>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMetaObject>
+#include <QPlainTextEdit>
 #include <QPointer>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
+#include <QSplitter>
+#include <QStyle>
+#include <QStyleHints>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTextBlock>
+#include <QTextBlockFormat>
+#include <QTextBrowser>
+#include <QTextDocument>
+#include <QTextFrame>
 #include <QThread>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -275,10 +311,14 @@ void testLoadCombinationsAutoCaptureAndSelection() {
     TEST_ASSERT(model.getLoadCases().empty(), "BuildingFrameExample inicia com cargas no viewport e 0 casos explícitos");
 
     int modelUpdateCalls = 0;
+    LoadCombinationsDialog* dlgPtr = nullptr;
     LoadCombinationsDialog dlg(nullptr, &model, [&]() {
         ++modelUpdateCalls;
-        dlg.refreshLists(); // Simula MainWindow::onModelModified()
+        if (dlgPtr) {
+            dlgPtr->refreshLists(); // Simula MainWindow::onModelModified()
+        }
     });
+    dlgPtr = &dlg;
     dlg.show();
     pumpEvents(40);
 
@@ -415,8 +455,10 @@ void testPostProcessNbrAndPdfWorkflow() {
     MainWindow mw;
     mw.show();
     pumpEvents(80);
+    mw.loadExampleBuilding();
+    pumpEvents(60);
 
-    // Garante estado NÃO resolvido (loadExampleBuilding() no startup dispara F5 automático)
+    // Garante estado NÃO resolvido (desativa recálculo automático e invalida solução após carregar o exemplo)
     TEST_ASSERT(QMetaObject::invokeMethod(&mw, "onAutoRecalculateToggled", Qt::DirectConnection, Q_ARG(bool, false)),
                 "Desativar recálculo automático para testar estado não resolvido");
     TEST_ASSERT(QMetaObject::invokeMethod(&mw, "onModelModified", Qt::DirectConnection),
@@ -559,8 +601,11 @@ void testExamplesCatalogComboAndReeditingWorkflow() {
 
     auto* vp = mw.findChild<Viewport3D*>();
     TEST_ASSERT(vp != nullptr && vp->model() != nullptr, "MainWindow deve expor Viewport3D com StructuralModel");
+    TEST_ASSERT(vp->model()->getNodes().empty() && vp->model()->getElements().empty() &&
+                    vp->model()->surfaceMesh().elements.empty(),
+                "MainWindow deve inicializar vazio sem exemplo carregado no startup");
     TEST_ASSERT(vp->workPlane() == WorkPlane::XY_Top,
-                "Exemplo inicial carregado ao abrir o software deve usar o plano XY (Planta) por padrão");
+                "Startup vazio deve usar o plano XY (Planta) por padrão");
     StructuralModel* model = vp->model();
 
     auto findInspectorGroup = [&]() -> QGroupBox* {
@@ -921,16 +966,179 @@ void testGuidedSessionWalkthroughAndTranslations() {
     };
     verifyGuidedHudNoClipping(QStringLiteral("pt_BR"));
 
-    // Adaptação dinâmica de tema antes da execução (Claro <-> Escuro)
+    // Personalização por fase (1, 2, 3, 4...) da cor aplicada no realce das etapas:
+    // a cor da fase permanece invariante entre Tema, Interface do Usuário e Idioma,
+    // enquanto o fundo do quadro da janela e do tooltip/callout acompanha o Tema (Claro/Escuro)
+    // em tempo de execução independentemente do modo de Interface do Usuário (Customizado/Nativo).
     const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const UiStyleMode originalUiStyle = ThemeManager::instance().uiStyleMode();
+    auto* phaseCombo = dlg->findChild<QComboBox*>(QStringLiteral("guided_highlight_phase_combo"));
+    auto* colorCombo = dlg->findChild<QComboBox*>(QStringLiteral("guided_highlight_color_combo"));
+    auto* colorSwatch = dlg->findChild<QLabel*>(QStringLiteral("guided_highlight_color_swatch"));
+    auto* phaseBadge = dlg->findChild<QLabel*>(QStringLiteral("guided_phase_badge"));
+    auto* btnPickColor = dlg->findChild<QPushButton*>(QStringLiteral("guided_btn_pick_highlight_color"));
+    auto* btnResetColor = dlg->findChild<QPushButton*>(QStringLiteral("guided_btn_reset_highlight_color"));
+    TEST_ASSERT(phaseCombo != nullptr && colorCombo != nullptr && colorSwatch != nullptr &&
+                    phaseBadge != nullptr && btnPickColor != nullptr && btnResetColor != nullptr,
+                "Controles de personalização de cor por fase do realce devem existir na Sessão Guiada");
+    TEST_ASSERT(dlg->maxPhasesCount() == 2 && phaseCombo->count() == 2 &&
+                    dlg->phaseHighlightColor(1) == GuidedSessionDialog::defaultPhaseHighlightColor(1) &&
+                    dlg->phaseHighlightColor(2) == GuidedSessionDialog::defaultPhaseHighlightColor(2) &&
+                    dlg->stepHighlightColor() == GuidedSessionDialog::defaultStepHighlightColor(),
+                "Cores iniciais das Fases 1 e 2 devem corresponder aos padrões (#F59E0B e #10B981)");
+
+    auto extractBannerBgColor = [](const QString& qss) -> QColor {
+        const int idx = qss.indexOf(QLatin1String("background-color:"));
+        if (idx < 0) return {};
+        const int start = idx + 17;
+        int end = qss.indexOf(QLatin1Char(';'), start);
+        if (end < 0) end = qss.indexOf(QLatin1Char('}'), start);
+        if (end < 0) end = qss.size();
+        const QString val = qss.mid(start, end - start).trimmed();
+        if (val.startsWith(QLatin1Char('#'))) {
+            return QColor(val);
+        }
+        if (val.startsWith(QLatin1String("rgb"))) {
+            const int openP = val.indexOf(QLatin1Char('('));
+            const int closeP = val.indexOf(QLatin1Char(')'));
+            if (openP >= 0 && closeP > openP) {
+                const QStringList parts = val.mid(openP + 1, closeP - openP - 1).split(QLatin1Char(','));
+                if (parts.size() >= 3) {
+                    return QColor(parts[0].trimmed().toInt(),
+                                  parts[1].trimmed().toInt(),
+                                  parts[2].trimmed().toInt());
+                }
+            }
+        }
+        return {};
+    };
+
+    auto findVisibleOverlay = [&]() -> GuidedTargetOverlay* {
+        for (GuidedTargetOverlay* ov : mw.findChildren<GuidedTargetOverlay*>()) {
+            if (ov != nullptr && ov->isVisible()) {
+                return ov;
+            }
+        }
+        for (QWidget* w : QApplication::allWidgets()) {
+            if (auto* ov = qobject_cast<GuidedTargetOverlay*>(w); ov != nullptr && ov->isVisible()) {
+                return ov;
+            }
+        }
+        return nullptr;
+    };
+
+    // Expande a etapa 1 para 4 fases e testa 4 cores distintas + adaptação de fundo por tema
+    dlg->setPhasesForStep(1, 4);
+    pumpEvents(25);
+    TEST_ASSERT(dlg->phasesForStep(1) == 4 && dlg->maxPhasesCount() == 4 && phaseCombo->count() == 4,
+                "Se alguma etapa possui 4 fases, o sistema e a UI devem permitir configurar cores para as 4 fases");
+
+    const QList<QColor> distinctColors = {
+        QColor(QStringLiteral("#E11D48")),
+        QColor(QStringLiteral("#10B981")),
+        QColor(QStringLiteral("#3B82F6")),
+        QColor(QStringLiteral("#A855F7"))
+    };
+    for (int p = 1; p <= 4; ++p) {
+        dlg->setPhaseHighlightColor(p, distinctColors[p - 1]);
+    }
+    dlg->selectHighlightPhase(4);
+    pumpEvents(25);
+    TEST_ASSERT(dlg->selectedHighlightPhase() == 4 && phaseCombo->currentIndex() == 3 &&
+                    dlg->phaseHighlightColor(4) == distinctColors[3] &&
+                    colorCombo->count() == 8 && colorCombo->itemText(7).contains(QStringLiteral("#A855F7")),
+                "Selecionar fase 4 com cor personalizada deve refletir imediatamente na combobox e prévia");
+
+    auto assertPhaseColorAndAdaptiveBg = [&](const QColor& expectedPhaseColor, bool expectLightTheme, const char* contextTag) {
+        const QString expectedHex = expectedPhaseColor.name(QColor::HexRgb).toUpper();
+        TEST_ASSERT(dlg->activePhaseHighlightColor() == expectedPhaseColor &&
+                        phaseBadge->styleSheet().contains(expectedHex, Qt::CaseInsensitive) &&
+                        targetBanner->styleSheet().contains(expectedHex, Qt::CaseInsensitive),
+                    std::string("Cor da fase ativa (") + expectedHex.toStdString() +
+                        ") deve ser preservada em " + contextTag);
+        const QColor bannerBg = extractBannerBgColor(targetBanner->styleSheet());
+        TEST_ASSERT(bannerBg.isValid(), std::string("Banner deve possuir background-color válido em ") + contextTag);
+        if (expectLightTheme) {
+            TEST_ASSERT(bannerBg.lightness() > 200,
+                        std::string("Fundo do quadro da janela deve ficar claro no Tema Claro em ") + contextTag);
+        } else {
+            TEST_ASSERT(bannerBg.lightness() < 70,
+                        std::string("Fundo do quadro da janela deve ficar escuro no Tema Escuro em ") + contextTag);
+        }
+        if (auto* ov = findVisibleOverlay()) {
+            ov->repaint();
+            pumpEvents(15);
+            const QColor ovBg = ov->cardBackgroundColor();
+            TEST_ASSERT(ovBg.isValid(), std::string("Overlay/tooltip deve possuir cardBackgroundColor válido em ") + contextTag);
+            if (expectLightTheme) {
+                TEST_ASSERT(ovBg.lightness() > 200,
+                            std::string("Fundo do tooltip/callout deve ficar claro no Tema Claro em ") + contextTag);
+            } else {
+                TEST_ASSERT(ovBg.lightness() < 70,
+                            std::string("Fundo do tooltip/callout deve ficar escuro no Tema Escuro em ") + contextTag);
+            }
+        }
+    };
+
+    assertPhaseColorAndAdaptiveBg(distinctColors[3],
+                                  ThemeManager::instance().isLight(),
+                                  "Pré-execução Fase 4 Custom Dark pt_BR");
     ThemeManager::instance().setTheme(UiTheme::Light);
-    pumpEvents(25);
-    TEST_ASSERT(targetBanner->styleSheet().contains(QStringLiteral("#F1F5F9"), Qt::CaseInsensitive),
-                "Banner da Sessão Guiada deve adaptar cores ao Tema Claro em tempo real");
+    pumpEvents(30);
+    assertPhaseColorAndAdaptiveBg(distinctColors[3], true, "Pré-execução Fase 4 Custom Light pt_BR");
+    ThemeManager::instance().setUiStyleMode(UiStyleMode::Native);
+    pumpEvents(30);
+    assertPhaseColorAndAdaptiveBg(distinctColors[3], true, "Pré-execução Fase 4 Native Light pt_BR");
     ThemeManager::instance().setTheme(UiTheme::Dark);
+    pumpEvents(30);
+    assertPhaseColorAndAdaptiveBg(distinctColors[3], false, "Pré-execução Fase 4 Native Dark pt_BR");
+    TEST_ASSERT(i18n.definir_idioma(QStringLiteral("en_US")), "Deve carregar en_US preservando cor da fase");
+    pumpEvents(30);
+    assertPhaseColorAndAdaptiveBg(distinctColors[3], false, "Pré-execução Fase 4 Native Dark en_US");
+    TEST_ASSERT(phaseCombo->itemText(3).contains(QStringLiteral("Phase 4")) &&
+                    colorCombo->itemText(7).contains(QStringLiteral("Custom Color")) &&
+                    btnPickColor->text() == QStringLiteral("Choose Color...") &&
+                    btnResetColor->text() == QStringLiteral("Default Color"),
+                "Controles da cor por fase devem traduzir dinamicamente para en_US");
+
+    ThemeManager::instance().setUiStyleMode(originalUiStyle);
+    ThemeManager::instance().setTheme(originalTheme);
+    TEST_ASSERT(i18n.definir_idioma(QStringLiteral("pt_BR")), "Deve retornar para pt_BR");
+    pumpEvents(30);
+    TEST_ASSERT(phaseCombo->itemText(3).contains(QStringLiteral("Fase 4")) &&
+                    btnPickColor->text() == QStringLiteral("Escolher Cor...") &&
+                    btnResetColor->text() == QStringLiteral("Cor Padrão"),
+                "Controles da cor por fase devem restaurar rótulos em pt_BR");
+
+    // Testa também atribuição de cores repetidas em pré-execução (Fase 1/3 ciano, Fase 2/4 magenta)
+    const QColor repeatA(QStringLiteral("#06B6D4"));
+    const QColor repeatB(QStringLiteral("#EC4899"));
+    dlg->setPhaseHighlightColor(1, repeatA);
+    dlg->setPhaseHighlightColor(2, repeatB);
+    dlg->setPhaseHighlightColor(3, repeatA);
+    dlg->setPhaseHighlightColor(4, repeatB);
+    TEST_ASSERT(dlg->phaseHighlightColor(1) == repeatA && dlg->phaseHighlightColor(3) == repeatA &&
+                    dlg->phaseHighlightColor(2) == repeatB && dlg->phaseHighlightColor(4) == repeatB,
+                "Fases distintas devem aceitar armazenamento independente de cores repetidas");
+
+    // Restaura configuração padrão de 2 fases e cores originais antes do percurso completo de 30 etapas
+    dlg->setPhasesForStep(1, 2);
+    dlg->resetAllPhaseHighlightColors();
+    pumpEvents(20);
+    TEST_ASSERT(dlg->maxPhasesCount() == 2 &&
+                    dlg->phaseHighlightColor(1) == GuidedSessionDialog::defaultPhaseHighlightColor(1) &&
+                    dlg->phaseHighlightColor(2) == GuidedSessionDialog::defaultPhaseHighlightColor(2),
+                "resetAllPhaseHighlightColors deve restaurar as cores padrão das fases");
+
+    // Testa seleção via combobox (preset #10B981) na Fase 1 e restauração
+    dlg->selectHighlightPhase(1);
+    colorCombo->setCurrentIndex(1);
     pumpEvents(25);
-    TEST_ASSERT(targetBanner->styleSheet().contains(QStringLiteral("#232A36"), Qt::CaseInsensitive),
-                "Banner da Sessão Guiada deve adaptar cores ao Tema Escuro em tempo real");
+    TEST_ASSERT(dlg->phaseHighlightColor(1) == QColor(QStringLiteral("#10B981")) &&
+                    colorSwatch->styleSheet().contains(QStringLiteral("#10B981"), Qt::CaseInsensitive),
+                "Seleção na combobox deve atualizar a cor da fase selecionada para Verde Esmeralda (#10B981)");
+    dlg->resetAllPhaseHighlightColors();
+    pumpEvents(20);
 
     // Verifica calibração científica de ritmo de leitura em PPM por perfil (Fase 1 e Fase 2)
     dlg->selectReadingProfile(GuidedSessionDialog::ReadingProfile::FluentTypical);
@@ -989,6 +1197,79 @@ void testGuidedSessionWalkthroughAndTranslations() {
 
     auto* vp = mw.findChild<Viewport3D*>();
     TEST_ASSERT(vp != nullptr && vp->model() != nullptr, "Viewport 3D e modelo devem estar ativos");
+
+    // Verifica em execução ao vivo (4 fases com overlay ativo) cores distintas, cores repetidas e fundo adaptativo
+    dlg->setPhasesForStep(1, 4);
+    for (int p = 1; p <= 4; ++p) {
+        dlg->setPhaseHighlightColor(p, distinctColors[p - 1]);
+    }
+    dlg->selectExampleByNumber(1);
+    dlg->startSession(60000);
+    pumpEvents(30);
+    TEST_ASSERT(findVisibleOverlay() != nullptr,
+                "Overlay/tooltip da Sessão Guiada deve estar visível ao iniciar execução multi-fase");
+    for (int p = 1; p <= 4; ++p) {
+        TEST_ASSERT(dlg->currentStep() == 1 && dlg->currentPhase() == p,
+                    "Execução deve percorrer sequencialmente todas as fases 1..4 configuradas para a etapa");
+        TEST_ASSERT(phaseBadge->text().contains(QStringLiteral("FASE %1/4").arg(p)),
+                    "Selo de fase deve exibir dinamicamente FASE p/4");
+        assertPhaseColorAndAdaptiveBg(distinctColors[p - 1],
+                                      ThemeManager::instance().isLight(),
+                                      "Execução 4 fases distintas");
+        if (p == 1) {
+            ThemeManager::instance().setTheme(UiTheme::Light);
+            pumpEvents(35);
+            assertPhaseColorAndAdaptiveBg(distinctColors[0], true, "Execução Fase 1 Custom Light");
+
+            ThemeManager::instance().setUiStyleMode(UiStyleMode::Native);
+            pumpEvents(35);
+            assertPhaseColorAndAdaptiveBg(distinctColors[0], true, "Execução Fase 1 Native Light");
+
+            ThemeManager::instance().setTheme(UiTheme::Dark);
+            pumpEvents(35);
+            assertPhaseColorAndAdaptiveBg(distinctColors[0], false, "Execução Fase 1 Native Dark");
+
+            TEST_ASSERT(i18n.definir_idioma(QStringLiteral("en_US")), "Deve carregar en_US durante execução multi-fase");
+            pumpEvents(30);
+            assertPhaseColorAndAdaptiveBg(distinctColors[0], false, "Execução Fase 1 Native Dark en_US");
+            TEST_ASSERT(phaseBadge->text().contains(QStringLiteral("PHASE 1/4")),
+                        "Selo ativo deve traduzir para PHASE 1/4 em execução");
+
+            ThemeManager::instance().setUiStyleMode(originalUiStyle);
+            ThemeManager::instance().setTheme(originalTheme);
+            TEST_ASSERT(i18n.definir_idioma(QStringLiteral("pt_BR")), "Deve retornar para pt_BR durante execução");
+            pumpEvents(30);
+            TEST_ASSERT(phaseBadge->text().contains(QStringLiteral("FASE 1/4")),
+                        "Selo ativo deve retornar para FASE 1/4 em pt_BR");
+        }
+        if (p < 4) {
+            dlg->advancePhaseNow();
+            pumpEvents(25);
+        }
+    }
+    dlg->stopSession();
+    pumpEvents(20);
+
+    dlg->setPhaseHighlightColor(1, repeatA);
+    dlg->setPhaseHighlightColor(2, repeatB);
+    dlg->setPhaseHighlightColor(3, repeatA);
+    dlg->setPhaseHighlightColor(4, repeatB);
+    dlg->startSession(60000);
+    pumpEvents(25);
+    for (int p = 1; p <= 4; ++p) {
+        const QColor expected = (p % 2 == 1) ? repeatA : repeatB;
+        TEST_ASSERT(dlg->currentPhase() == p && dlg->activePhaseHighlightColor() == expected &&
+                        phaseBadge->styleSheet().contains(expected.name(QColor::HexRgb), Qt::CaseInsensitive),
+                    "Fases distintas em execução ao vivo devem aplicar corretamente cores repetidas");
+        if (p < 4) {
+            dlg->advancePhaseNow();
+            pumpEvents(25);
+        }
+    }
+    dlg->stopSession();
+    dlg->setPhasesForStep(1, 2);
+    dlg->resetAllPhaseHighlightColors();
+    pumpEvents(20);
 
     auto runAndVerifyFullExample = [&](int exNumber) {
         dlg->selectExampleByNumber(exNumber);
@@ -1084,18 +1365,23 @@ void testGuidedSessionWalkthroughAndTranslations() {
                 pumpEvents(25);
             }
 
-            // Verifica adaptação de tema ao vivo durante execução (etapa 14 no Exemplo 1)
+            // Verifica invariância da cor escolhida do realce ao alternar Tema (Claro <-> Escuro) durante execução (etapa 14)
             if (exNumber == 1 && step == 14) {
+                const QString activeHex = dlg->stepHighlightColor().name(QColor::HexRgb).toUpper();
                 ThemeManager::instance().setTheme(UiTheme::Light);
                 pumpEvents(25);
-                TEST_ASSERT(targetBanner->styleSheet().contains(QStringLiteral("#FFFBEB"), Qt::CaseInsensitive) &&
+                TEST_ASSERT(targetBanner->styleSheet().contains(activeHex, Qt::CaseInsensitive) &&
+                                phaseBadge->styleSheet().contains(activeHex, Qt::CaseInsensitive) &&
                                 dlg->isTargetHighlightVisible(),
-                            "Tema Claro ao vivo deve atualizar banner e manter destaque visual ativo");
+                            "Tema Claro ao vivo deve preservar exatamente a cor escolhida do realce e manter destaque ativo");
                 ThemeManager::instance().setTheme(UiTheme::Dark);
                 pumpEvents(25);
-                TEST_ASSERT(targetBanner->styleSheet().contains(QStringLiteral("#2A2112"), Qt::CaseInsensitive) &&
+                TEST_ASSERT(targetBanner->styleSheet().contains(activeHex, Qt::CaseInsensitive) &&
+                                phaseBadge->styleSheet().contains(activeHex, Qt::CaseInsensitive) &&
                                 dlg->isTargetHighlightVisible(),
-                            "Tema Escuro ao vivo deve atualizar banner e manter destaque visual ativo");
+                            "Tema Escuro ao vivo deve preservar exatamente a cor escolhida do realce e manter destaque ativo");
+                ThemeManager::instance().setTheme(originalTheme);
+                pumpEvents(25);
             }
 
             // Verifica que elevar MainWindow manualmente não tem seu Z-Order roubado pelo avanço da Sessão Guiada
@@ -1243,6 +1529,8 @@ void testGuidedSessionWalkthroughAndTranslations() {
     runAndVerifyFullExample(2);
     runAndVerifyFullExample(3);
 
+    dlg->resetStepHighlightColor();
+    ThemeManager::instance().setUiStyleMode(originalUiStyle);
     ThemeManager::instance().setTheme(originalTheme);
     TEST_ASSERT(i18n.definir_idioma(QStringLiteral("pt_BR")), "Restaura pt_BR ao finalizar teste");
     dlg->close();
@@ -1255,50 +1543,68 @@ bool hasDistinctArrowTriangle(const QImage& img, const QRect& box, const QColor&
     const QRect clipped = box.intersected(img.rect()).adjusted(2, 2, -2, -2);
     if (!clipped.isValid()) return false;
 
+    const QColor centerBg = img.pixelColor(std::min(clipped.right(), clipped.left() + 2),
+                                           std::min(clipped.bottom(), clipped.top() + 2));
+    const bool darkArrowOnLightBg = expectedArrow.lightness() < 80 && centerBg.lightness() > 140;
+    const bool lightArrowOnDarkBg = expectedArrow.lightness() > 180 && centerBg.lightness() < 110;
+
     auto isArrowPixel = [&](int x, int y) {
         const QColor px = img.pixelColor(x, y);
-        return std::abs(px.red() - expectedArrow.red()) <= 65 &&
-               std::abs(px.green() - expectedArrow.green()) <= 65 &&
-               std::abs(px.blue() - expectedArrow.blue()) <= 65;
+        if (std::abs(px.red() - expectedArrow.red()) <= 75 &&
+            std::abs(px.green() - expectedArrow.green()) <= 75 &&
+            std::abs(px.blue() - expectedArrow.blue()) <= 75) {
+            return true;
+        }
+        if (darkArrowOnLightBg && px.lightness() <= centerBg.lightness() - 60) {
+            return true;
+        }
+        if (lightArrowOnDarkBg && px.lightness() >= centerBg.lightness() + 60) {
+            return true;
+        }
+        return false;
     };
 
-    std::vector<int> sliceCounts;
+    std::vector<int> sliceSpans;
     int totalMatching = 0;
     if (expectedDir == Qt::LeftArrow || expectedDir == Qt::RightArrow) {
         for (int x = clipped.left(); x <= clipped.right(); ++x) {
-            int colCount = 0;
+            int minY = clipped.bottom() + 1;
+            int maxY = clipped.top() - 1;
             for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
                 if (isArrowPixel(x, y)) {
-                    ++colCount;
+                    minY = std::min(minY, y);
+                    maxY = std::max(maxY, y);
                     ++totalMatching;
                 }
             }
-            if (colCount > 0) {
-                sliceCounts.push_back(colCount);
+            if (maxY >= minY) {
+                sliceSpans.push_back(maxY - minY + 1);
             }
         }
-        if (totalMatching < 8 || sliceCounts.size() < 3) return false;
+        if (totalMatching < 5 || sliceSpans.size() < 3) return false;
         return (expectedDir == Qt::LeftArrow)
-            ? (sliceCounts.back() > sliceCounts.front())
-            : (sliceCounts.front() > sliceCounts.back());
+            ? (sliceSpans.back() > sliceSpans.front())
+            : (sliceSpans.front() > sliceSpans.back());
     }
 
     for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
-        int rowCount = 0;
+        int minX = clipped.right() + 1;
+        int maxX = clipped.left() - 1;
         for (int x = clipped.left(); x <= clipped.right(); ++x) {
             if (isArrowPixel(x, y)) {
-                ++rowCount;
+                minX = std::min(minX, x);
+                maxX = std::max(maxX, x);
                 ++totalMatching;
             }
         }
-        if (rowCount > 0) {
-            sliceCounts.push_back(rowCount);
+        if (maxX >= minX) {
+            sliceSpans.push_back(maxX - minX + 1);
         }
     }
-    if (totalMatching < 8 || sliceCounts.size() < 3) return false;
+    if (totalMatching < 5 || sliceSpans.size() < 3) return false;
     return (expectedDir == Qt::UpArrow)
-        ? (sliceCounts.back() > sliceCounts.front())
-        : (sliceCounts.front() > sliceCounts.back());
+        ? (sliceSpans.back() > sliceSpans.front())
+        : (sliceSpans.front() > sliceSpans.back());
 }
 
 bool hasDistinctArrowTriangle(const QImage& img, const QRect& box, const QColor& expectedArrow, bool expectUp) {
@@ -1679,37 +1985,2559 @@ void testCollapsibleDocksWithSpinArrowButtons() {
     traducao.definir_idioma(originalLang);
 }
 
+void testResultTablesLinceuConfigAndFeatures() {
+    auto& traducao = locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.obter_idioma_atual();
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+
+    traducao.definir_idioma(QStringLiteral("pt_BR"));
+    ThemeManager::instance().setTheme(UiTheme::Dark);
+    pumpEvents(30);
+
+    MainWindow w;
+    w.show();
+    w.loadExampleBuilding();
+    pumpEvents(60);
+
+    auto* dispTable = w.findChild<QTableWidget*>(QStringLiteral("dispTable"));
+    auto* reacTable = w.findChild<QTableWidget*>(QStringLiteral("reacTable"));
+    auto* forcesTable = w.findChild<QTableWidget*>(QStringLiteral("forcesTable"));
+    auto* continuumTable = w.findChild<QTableWidget*>(QStringLiteral("continuumTable"));
+    ui::ResultTableConfigurator* cfg = w.resultTableConfigurator();
+
+    TEST_ASSERT(dispTable && reacTable && forcesTable && continuumTable && cfg,
+                "Todas as 4 tabelas de resultados e o configurador devem existir");
+
+    TEST_ASSERT(waitUntil([&]() {
+        return dispTable->rowCount() > 2 && reacTable->rowCount() > 2 && forcesTable->rowCount() > 2;
+    }, 15000), "Tabelas de resultados devem ser populadas após resolução do exemplo");
+    pumpEvents(40);
+
+    // Popula tabela de contínuos com dados representativos (cascas + sólido) para cobertura integral das 4 abas
+    continuumTable->setRowCount(3);
+    struct ContSample { int id; QString tipo; QString vm; QString p1; QString p3; QString s5; QString s6; QString s7; QString cat; };
+    const ContSample samples[3] = {
+        {10, QStringLiteral("Q4"),   QStringLiteral("240.00"), QStringLiteral("260.00"), QStringLiteral("-40.00"),
+         QStringLiteral("125.40 kN/m"), QStringLiteral("30.00 kN/m"), QStringLiteral("2.150 kNm/m"), QStringLiteral("shell")},
+        {2,  QStringLiteral("Q4"),   QStringLiteral("85.00"),  QStringLiteral("90.00"),  QStringLiteral("-12.00"),
+         QStringLiteral("9.50 kN/m"),   QStringLiteral("4.20 kN/m"),  QStringLiteral("0.420 kNm/m"), QStringLiteral("shell")},
+        {5,  QStringLiteral("C3D8"), QStringLiteral("510.00"), QStringLiteral("540.00"), QStringLiteral("-80.00"),
+         QStringLiteral("310.20 kPa"),  QStringLiteral("110.00 kPa"), QStringLiteral("45.00 kPa"),   QStringLiteral("solid")}
+    };
+    for (int r = 0; r < 3; ++r) {
+        auto* idItem = new QTableWidgetItem(QString::number(samples[r].id));
+        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(samples[r].id));
+        idItem->setData(ui::kResultTableRowCategoryRole, samples[r].cat);
+        continuumTable->setItem(r, 0, idItem);
+        continuumTable->setItem(r, 1, new QTableWidgetItem(samples[r].tipo));
+        continuumTable->setItem(r, 2, new QTableWidgetItem(samples[r].vm));
+        continuumTable->setItem(r, 3, new QTableWidgetItem(samples[r].p1));
+        continuumTable->setItem(r, 4, new QTableWidgetItem(samples[r].p3));
+        continuumTable->setItem(r, 5, new QTableWidgetItem(samples[r].s5));
+        continuumTable->setItem(r, 6, new QTableWidgetItem(samples[r].s6));
+        continuumTable->setItem(r, 7, new QTableWidgetItem(samples[r].s7));
+    }
+    cfg->afterTablePopulated(continuumTable);
+
+    // 1) Configuração estrutural aplicada uniformemente às 4 tabelas
+    auto* resultsTabs = qobject_cast<QTabWidget*>(dispTable->parentWidget() ? dispTable->parentWidget()->parentWidget() : nullptr);
+    const QList<QTableWidget*> allTables = {dispTable, reacTable, forcesTable, continuumTable};
+    for (QTableWidget* tbl : allTables) {
+        if (resultsTabs != nullptr) {
+            resultsTabs->setCurrentWidget(tbl);
+            pumpEvents(15);
+        }
+        TEST_ASSERT(tbl->alternatingRowColors(), "alternatingRowColors ativo");
+        TEST_ASSERT(!tbl->isSortingEnabled(), "sorting Qt nativo desligado em favor do sort inteligente");
+        TEST_ASSERT(tbl->selectionBehavior() == QAbstractItemView::SelectItems, "SelectItems");
+        TEST_ASSERT(tbl->selectionMode() == QAbstractItemView::ExtendedSelection, "ExtendedSelection");
+        TEST_ASSERT(tbl->editTriggers() == QAbstractItemView::NoEditTriggers, "NoEditTriggers");
+        TEST_ASSERT(tbl->isCornerButtonEnabled(), "Corner button habilitado");
+        TEST_ASSERT(!tbl->verticalHeader()->isHidden(), "Vertical header configurado como visível");
+        if (resultsTabs != nullptr) {
+            TEST_ASSERT(tbl->verticalHeader()->isVisible(), "Vertical header visível na aba ativa");
+        }
+        TEST_ASSERT(tbl->horizontalHeader()->sectionsMovable(), "Colunas movíveis");
+        TEST_ASSERT(!tbl->horizontalHeader()->stretchLastSection(), "StretchLastSection desabilitado");
+        TEST_ASSERT(tbl->horizontalHeader()->minimumSectionSize() == 10, "Largura mínima de seção 10px");
+        TEST_ASSERT(tbl->horizontalHeader()->font().bold(), "Fonte negrito no cabeçalho");
+        TEST_ASSERT(tbl->itemDelegate() != nullptr && !tbl->styleSheet().isEmpty(), "Delegate e QSS configurados");
+    }
+    if (resultsTabs != nullptr) {
+        resultsTabs->setCurrentWidget(dispTable);
+        pumpEvents(15);
+    }
+
+    // 2) Corner button -> toggle selecionar tudo / desmarcar tudo; clique direto em células, cabeçalho de linha e cabeçalho de coluna
+    if (auto* corner = dispTable->findChild<QAbstractButton*>(QString(), Qt::FindDirectChildrenOnly)) {
+        corner->click();
+        pumpEvents(20);
+        TEST_ASSERT(dispTable->selectedItems().size() == dispTable->rowCount() * dispTable->columnCount(),
+                    "Primeiro clique no botão de canto deve selecionar todas as células da tabela");
+        corner->click();
+        pumpEvents(20);
+        TEST_ASSERT(dispTable->selectedItems().isEmpty(),
+                    "Segundo clique no botão de canto deve desmarcar todas as células da tabela");
+    }
+
+    auto sendMouse = [](QWidget* target, QEvent::Type type, const QPointF& pos,
+                        Qt::MouseButton btn, Qt::MouseButtons buttons) {
+        const QPointF globalPos = target->mapToGlobal(pos);
+        QMouseEvent ev(type, pos, globalPos, btn, buttons, Qt::NoModifier);
+        QApplication::sendEvent(target, &ev);
+    };
+
+    // Seleção direta por arraste em múltiplas células
+    dispTable->clearSelection();
+    dispTable->scrollToTop();
+    pumpEvents(10);
+    {
+        const QPointF p0 = dispTable->visualRect(dispTable->model()->index(0, 0)).center();
+        const QPointF p1 = dispTable->visualRect(dispTable->model()->index(1, 2)).center();
+        sendMouse(dispTable->viewport(), QEvent::MouseButtonPress, p0, Qt::LeftButton, Qt::LeftButton);
+        sendMouse(dispTable->viewport(), QEvent::MouseMove, p1, Qt::NoButton, Qt::LeftButton);
+        sendMouse(dispTable->viewport(), QEvent::MouseButtonRelease, p1, Qt::LeftButton, Qt::NoButton);
+        pumpEvents(15);
+        TEST_ASSERT(dispTable->selectionModel()->selectedIndexes().size() == 6,
+                    "Arraste direto entre (0,0) e (1,2) deve selecionar 6 células");
+    }
+
+    // Seleção de linha via cabeçalho vertical
+    dispTable->clearSelection();
+    if (QHeaderView* vh = dispTable->verticalHeader(); vh != nullptr && vh->viewport() != nullptr) {
+        const QPointF rowHdrPt(vh->viewport()->width() * 0.5,
+                               dispTable->rowViewportPosition(1) + dispTable->rowHeight(1) * 0.5);
+        sendMouse(vh->viewport(), QEvent::MouseButtonPress, rowHdrPt, Qt::LeftButton, Qt::LeftButton);
+        sendMouse(vh->viewport(), QEvent::MouseButtonRelease, rowHdrPt, Qt::LeftButton, Qt::NoButton);
+        pumpEvents(15);
+        TEST_ASSERT(dispTable->selectionModel()->isRowSelected(1, QModelIndex()),
+                    "Clique no cabeçalho de linha deve selecionar toda a linha 1");
+    }
+
+    // Seleção de coluna via cabeçalho horizontal
+    dispTable->clearSelection();
+    emit dispTable->horizontalHeader()->sectionClicked(2);
+    pumpEvents(15);
+    TEST_ASSERT(dispTable->selectionModel()->isColumnSelected(2, QModelIndex()),
+                "Clique no cabeçalho com ordenação desligada deve selecionar a coluna 2");
+    TEST_ASSERT(!dispTable->selectionModel()->isColumnSelected(0, QModelIndex()),
+                "Coluna 0 não deve permanecer selecionada após clique simples na coluna 2");
+
+    // 3) Quebra dinâmica de cabeçalho e ajuste de altura ao reduzir largura da coluna
+    const int initialHeaderH = forcesTable->horizontalHeader()->minimumHeight();
+    forcesTable->setColumnWidth(1, 52); // "N min/max (kN)" precisa quebrar em múltiplas linhas
+    pumpEvents(20);
+    TEST_ASSERT(forcesTable->horizontalHeaderItem(1)->text().contains(QLatin1Char('\n')),
+                "Cabeçalho estreito deve quebrar em múltiplas linhas");
+    TEST_ASSERT(forcesTable->horizontalHeader()->minimumHeight() > initialHeaderH,
+                "Altura do cabeçalho deve crescer conforme número máximo de linhas");
+    cfg->resetColumns(forcesTable);
+
+    // 4) Ordenação inteligente + preservação fixa da linha "Σ Reações" ao fim em Ascending e Descending
+    cfg->setSortingModeEnabled(reacTable, true);
+    cfg->sortTableByColumn(reacTable, 0, Qt::AscendingOrder);
+    TEST_ASSERT(reacTable->item(reacTable->rowCount() - 1, 0)->text() == QStringLiteral("Σ Reações"),
+                "Linha Σ Reações deve permanecer na última linha após ordenação ascendente");
+    cfg->sortTableByColumn(reacTable, 0, Qt::DescendingOrder);
+    TEST_ASSERT(reacTable->item(reacTable->rowCount() - 1, 0)->text() == QStringLiteral("Σ Reações"),
+                "Linha Σ Reações deve permanecer na última linha após ordenação descendente");
+    cfg->setSortingModeEnabled(reacTable, false);
+
+    // Intervalo [min; max] em Esforços nas Barras
+    cfg->setSortingModeEnabled(forcesTable, true);
+    cfg->sortTableByColumn(forcesTable, 1, Qt::AscendingOrder);
+    auto extractIntervalMin = [](const QString& s) {
+        QString inner = s.trimmed();
+        inner.remove(QLatin1Char('['));
+        inner.remove(QLatin1Char(']'));
+        return inner.split(QLatin1Char(';')).value(0).trimmed().toDouble();
+    };
+    TEST_ASSERT(extractIntervalMin(forcesTable->item(0, 1)->text()) <=
+                    extractIntervalMin(forcesTable->item(forcesTable->rowCount() - 1, 1)->text()),
+                "Ordenação de intervalos [min; max] deve ordenar pelo valor numérico inicial");
+    cfg->setSortingModeEnabled(forcesTable, false);
+
+    // Número com unidades na tabela de contínuos ("9.50 kN/m" < "125.40 kN/m" < "310.20 kPa")
+    cfg->sortTableByColumn(continuumTable, 5, Qt::AscendingOrder);
+    TEST_ASSERT(continuumTable->item(0, 5)->text().startsWith(QStringLiteral("9.50")),
+                "Ordenação numérica com unidades deve colocar 9.50 kN/m antes de 125.40 kN/m");
+
+    // 5) Ordem das linhas (PrependTop / Inverter Linhas) mantendo Σ Reações no final
+    const QString firstDispBefore = dispTable->item(0, 0)->text();
+    const QString lastDispBefore = dispTable->item(dispTable->rowCount() - 1, 0)->text();
+    cfg->setRowOrderMode(dispTable, ui::TableRowOrderMode::PrependTop);
+    TEST_ASSERT(dispTable->item(0, 0)->text() == lastDispBefore,
+                "Modo Adicionar no Topo deve exibir último nó no topo");
+    cfg->setRowOrderMode(dispTable, ui::TableRowOrderMode::AppendBottom);
+    TEST_ASSERT(dispTable->item(0, 0)->text() == firstDispBefore,
+                "Voltar para Adicionar no Fim deve restaurar primeiro nó");
+    cfg->invertTableRows(reacTable);
+    TEST_ASSERT(reacTable->item(reacTable->rowCount() - 1, 0)->text() == QStringLiteral("Σ Reações"),
+                "Inverter linhas na tabela de reações deve preservar Σ Reações no final");
+
+    // 6) Visibilidade de colunas, atalho Ctrl+Shift+A, cores de categoria, contraste e renderização
+    cfg->setColumnVisible(dispTable, 3, false);
+    TEST_ASSERT(dispTable->isColumnHidden(3), "Coluna 3 deve ficar oculta");
+    cfg->showAllColumns(dispTable);
+    TEST_ASSERT(!dispTable->isColumnHidden(3), "showAllColumns deve reexibir coluna 3");
+
+    QKeyEvent colorAllEvent(QEvent::KeyPress, Qt::Key_A, Qt::ControlModifier | Qt::ShiftModifier);
+    QApplication::sendEvent(dispTable->viewport(), &colorAllEvent);
+    TEST_ASSERT(cfg->isColumnColored(dispTable, 0) && cfg->showColumnColors(dispTable),
+                "Atalho Ctrl+Shift+A deve colorir todas as colunas");
+
+    cfg->setCategoryColor(dispTable, QStringLiteral("node"), QColor(250, 210, 80));
+    TEST_ASSERT(cfg->categoryColor(dispTable, QStringLiteral("node")) == QColor(250, 210, 80),
+                "Cor customizada por categoria deve persistir no estado da tabela");
+
+    TEST_ASSERT(ui::ResultTableConfigurator::idealTextColorForBackground(QColor(240, 240, 240)) == QColor(Qt::black),
+                "Fundo claro deve gerar texto preto");
+    TEST_ASSERT(ui::ResultTableConfigurator::idealTextColorForBackground(QColor(15, 25, 45)) == QColor(Qt::white),
+                "Fundo escuro deve gerar texto branco");
+
+    // Render offscreen para validar delegate em tempo de pintura
+    QPixmap paintCheck(dispTable->viewport()->size().expandedTo(QSize(200, 120)));
+    dispTable->viewport()->render(&paintCheck);
+
+    // 7) Duplo clique em nó na tabela de deslocamentos seleciona o nó no modelo
+    bool nodeSignalFired = false;
+    unsigned int clickedNodeId = 0;
+    const QMetaObject::Connection conn = QObject::connect(
+        cfg, &ui::ResultTableConfigurator::nodeDoubleClicked, &w, [&](unsigned int id) {
+            nodeSignalFired = true;
+            clickedNodeId = id;
+        });
+    const unsigned int expectedNodeId = dispTable->item(0, 0)->text().toUInt();
+    emit dispTable->doubleClicked(dispTable->model()->index(0, 0));
+    QObject::disconnect(conn);
+    TEST_ASSERT(nodeSignalFired && clickedNodeId == expectedNodeId,
+                "Duplo clique na linha deve emitir nodeDoubleClicked com o ID correto");
+
+    // 8) Atalho Ctrl+Shift+C (copiar com cabeçalhos), cópia integral e menu de contexto completo
+    dispTable->clearSelection();
+    dispTable->setCurrentCell(0, 0);
+    dispTable->item(0, 0)->setSelected(true);
+    QKeyEvent copyHdrEvent(QEvent::KeyPress, Qt::Key_C, Qt::ControlModifier | Qt::ShiftModifier);
+    QApplication::sendEvent(dispTable->viewport(), &copyHdrEvent);
+    if (QClipboard* cb = QApplication::clipboard()) {
+        const QString copied = cb->text();
+        TEST_ASSERT(copied.contains(QStringLiteral("Nó")) && copied.contains(dispTable->item(0, 0)->text()),
+                    "Ctrl+Shift+C deve copiar cabeçalho e valor selecionado");
+    }
+
+    QMenu* ctxMenu = cfg->createTableContextMenu(forcesTable, &w, false);
+    TEST_ASSERT(ctxMenu != nullptr && ctxMenu->actions().size() >= 10,
+                "Menu de contexto deve conter opções completas de configuração, cores, ordem, cópia e exportação");
+    delete ctxMenu;
+
+    // 9) Exportação CSV, TXT, JSON, XML e XLSX (+ filtros de colunas ativas e seleção)
+    QTemporaryDir tmpDir;
+    TEST_ASSERT(tmpDir.isValid(), "QTemporaryDir válido para testes de exportação");
+    for (const QString& ext : {QStringLiteral("csv"), QStringLiteral("txt"),
+                               QStringLiteral("json"), QStringLiteral("xml"), QStringLiteral("xlsx")}) {
+        const QString outPath = tmpDir.filePath(QStringLiteral("export_test.") + ext);
+        QString err;
+        TEST_ASSERT(cfg->exportTableToFile(continuumTable, outPath, &err),
+                    std::string("Exportação deve suceder para .") + ext.toStdString());
+        QFile f(outPath);
+        TEST_ASSERT(f.open(QIODevice::ReadOnly) && f.size() > 0, "Arquivo exportado não pode estar vazio");
+        if (ext == QStringLiteral("xlsx")) {
+            const QByteArray bytes = f.readAll();
+            TEST_ASSERT(bytes.startsWith("PK\x03\x04") && bytes.contains("xl/worksheets/sheet1.xml"),
+                        "Arquivo .xlsx deve conter assinatura ZIP e planilha OpenXML válida");
+        }
+    }
+
+    // Exportação filtrada (apenas colunas ativas + apenas células selecionadas)
+    cfg->setColumnVisible(continuumTable, 2, false);
+    cfg->setExportOnlyActiveColumns(continuumTable, true);
+    continuumTable->clearSelection();
+    continuumTable->item(0, 0)->setSelected(true);
+    continuumTable->item(0, 5)->setSelected(true);
+    cfg->setExportOnlySelectedCells(continuumTable, true);
+    const QString filteredJson = tmpDir.filePath(QStringLiteral("filtered.json"));
+    TEST_ASSERT(cfg->exportTableToFile(continuumTable, filteredJson),
+                "Exportação filtrada para JSON deve suceder");
+    {
+        QFile jf(filteredJson);
+        TEST_ASSERT(jf.open(QIODevice::ReadOnly), "Leitura JSON filtrado");
+        const QJsonDocument doc = QJsonDocument::fromJson(jf.readAll());
+        TEST_ASSERT(doc.isArray() && doc.array().size() == 1,
+                    "Exportar seleção deve gerar exatamente 1 linha no JSON");
+    }
+
+    // 10) Alternância de tema e idioma mantendo cabeçalhos, seleção e paleta sincronizados
+    cfg->setAllColumnsColored(dispTable, false);
+    if (resultsTabs != nullptr) {
+        resultsTabs->setCurrentWidget(dispTable);
+    }
+    ThemeManager::instance().setTheme(UiTheme::Light);
+    pumpEvents(25);
+    TEST_ASSERT(dispTable->palette().color(QPalette::Base) == QColor(255, 255, 255),
+                "Tema claro deve aplicar paleta clara na tabela");
+    TEST_ASSERT(dispTable->palette().color(QPalette::HighlightedText).lightness() < 50,
+                "HighlightedText no tema claro deve ser escuro para legibilidade da seleção");
+
+    // Verifica renderização dinâmica de fonte escura em grupo de células selecionadas no tema claro
+    dispTable->clearSelection();
+    dispTable->scrollToTop();
+    dispTable->setRangeSelected(QTableWidgetSelectionRange(0, 0, 1, 2), true);
+    pumpEvents(25);
+    {
+        QImage vpImg(dispTable->viewport()->size().expandedTo(QSize(200, 120)), QImage::Format_ARGB32);
+        vpImg.fill(Qt::white);
+        dispTable->viewport()->render(&vpImg);
+
+        auto hasDarkGlyphsLightBgAndBlueBorder = [&](int row, int col) {
+            const QRect fullRect = dispTable->visualRect(dispTable->model()->index(row, col))
+                                       .intersected(vpImg.rect());
+            const QRect innerRect = fullRect.adjusted(3, 3, -3, -3);
+            if (!fullRect.isValid() || !innerRect.isValid()) {
+                return false;
+            }
+            int darkPixels = 0;
+            int lightPixels = 0;
+            for (int y = innerRect.top(); y <= innerRect.bottom(); ++y) {
+                for (int x = innerRect.left(); x <= innerRect.right(); ++x) {
+                    const int gray = qGray(vpImg.pixel(x, y));
+                    if (gray < 80) {
+                        ++darkPixels;
+                    } else if (gray > 220) {
+                        ++lightPixels;
+                    }
+                }
+            }
+            int blueBorderPixels = 0;
+            for (int y = fullRect.top(); y <= fullRect.bottom(); ++y) {
+                for (int x = fullRect.left(); x <= fullRect.right(); ++x) {
+                    if (innerRect.contains(x, y)) {
+                        continue;
+                    }
+                    const QColor px = vpImg.pixelColor(x, y);
+                    if (px.blue() > px.red() + 40) {
+                        ++blueBorderPixels;
+                    }
+                }
+            }
+            return darkPixels >= 6 && lightPixels >= 10 && blueBorderPixels >= 12;
+        };
+        TEST_ASSERT(hasDarkGlyphsLightBgAndBlueBorder(0, 0) && hasDarkGlyphsLightBgAndBlueBorder(1, 1),
+                    "Células selecionadas no tema claro devem renderizar texto escuro e borda azul de seleção dinamicamente");
+    }
+
+    // 11) Layouts múltiplos do painel de resultados (1, 2, 3 e 4 layouts no menu Configurações)
+    QMenu* layoutsMenu = w.findChild<QMenu*>(QStringLiteral("resultsLayoutsMenu"));
+    TEST_ASSERT(layoutsMenu != nullptr && w.resultsLayoutCount() == 1,
+                "Submenu de layouts deve existir no menu Configurações iniciando em 1 layout");
+    TEST_ASSERT(w.resultsLayoutTabWidget(0) != nullptr && w.resultsLayoutTabWidget(0)->count() == 4,
+                "Com 1 layout todas as 4 tabelas devem estar no primeiro layout");
+
+    w.setResultsLayoutCount(2);
+    pumpEvents(20);
+    TEST_ASSERT(w.resultsLayoutCount() == 2 &&
+                    w.resultsLayoutTabWidget(0)->isVisible() &&
+                    w.resultsLayoutTabWidget(1)->isVisible() &&
+                    !w.resultsLayoutTabWidget(2)->isVisible() &&
+                    w.resultsLayoutTabWidget(0)->count() == 2 &&
+                    w.resultsLayoutTabWidget(1)->count() == 2,
+                "Com 2 layouts dois conjuntos de abas devem ficar visíveis com distribuição padrão 2+2");
+
+    // Disponibilizar mesma tabela simultaneamente nos 2 layouts e verificar sincronização de linhas
+    w.setResultsLayoutTableVisible(1, ui::ResultTableKind::Displacements, true);
+    pumpEvents(20);
+    TEST_ASSERT(w.resultsLayoutTabWidget(1)->count() == 3,
+                "Personalização de tabelas no 2º layout deve incluir Deslocamentos Nodais sem remover do 1º");
+    auto* extraDisp = qobject_cast<QTableWidget*>(w.resultsLayoutTabWidget(1)->widget(0));
+    TEST_ASSERT(extraDisp != nullptr && extraDisp != dispTable &&
+                    extraDisp->rowCount() == dispTable->rowCount(),
+                "Cópia de tabela em layout adicional deve sincronizar os resultados carregados");
+
+    auto verifyNoTabScrollRectangles = [&](int activeLayouts, const QList<int>& splitSizes) {
+        w.setResultsLayoutCount(activeLayouts);
+        pumpEvents(20);
+        if (w.resultsSplitter() != nullptr) {
+            w.resultsSplitter()->setSizes(splitSizes);
+            pumpEvents(25);
+        }
+        for (int L = 0; L < activeLayouts; ++L) {
+            QTabWidget* tabW = w.resultsLayoutTabWidget(L);
+            TEST_ASSERT(tabW != nullptr && tabW->isVisible(),
+                        "Container do layout ativo deve permanecer visível");
+            TEST_ASSERT(!tabW->usesScrollButtons(),
+                        "QTabWidget de resultados não deve usar botões de rolagem");
+            TEST_ASSERT(tabW->elideMode() == Qt::ElideRight,
+                        "QTabWidget de resultados deve elidir textos à direita ao estreitar o painel");
+            QTabBar* tb = tabW->tabBar();
+            TEST_ASSERT(tb != nullptr && !tb->usesScrollButtons() && tb->elideMode() == Qt::ElideRight,
+                        "QTabBar não deve usar botões de rolagem mesmo após reduzir a largura do splitter");
+            for (QToolButton* scrollerBtn : tb->findChildren<QToolButton*>()) {
+                TEST_ASSERT(!scrollerBtn->isVisible() || scrollerBtn->width() <= 0 || scrollerBtn->height() <= 0,
+                            "QTabBar não deve exibir retângulos/botões de rolagem ao mover o splitter");
+            }
+            for (int t = 0; t < tabW->count(); ++t) {
+                TEST_ASSERT(!tabW->tabToolTip(t).isEmpty(),
+                            "Cada aba deve possuir tooltip completo para modo elidido");
+            }
+        }
+    };
+
+    verifyNoTabScrollRectangles(2, {900, 90});
+    verifyNoTabScrollRectangles(3, {500, 500, 90});
+    TEST_ASSERT(w.resultsLayoutTabWidget(0)->isVisible() &&
+                    w.resultsLayoutTabWidget(1)->isVisible() &&
+                    w.resultsLayoutTabWidget(2)->isVisible() &&
+                    !w.resultsLayoutTabWidget(3)->isVisible(),
+                "Com 3 layouts exatamente três containers de tabelas devem ficar visíveis");
+
+    verifyNoTabScrollRectangles(4, {350, 350, 350, 90});
+    for (int L = 0; L < 4; ++L) {
+        TEST_ASSERT(w.resultsLayoutTabWidget(L)->isVisible() &&
+                        w.resultsLayoutTabWidget(L)->count() == 1,
+                    "Com 4 layouts cada um dos quatro painéis deve estar visível com sua tabela padrão");
+    }
+
+    traducao.definir_idioma(QStringLiteral("en_US"));
+    pumpEvents(25);
+    TEST_ASSERT(dispTable->horizontalHeaderItem(0)->text().simplified() == QStringLiteral("Node"),
+                "Troca de idioma deve atualizar cabeçalhos das tabelas via configurador");
+    TEST_ASSERT(layoutsMenu->title() == QStringLiteral("Result Tables Panel Layouts"),
+                "Troca de idioma deve retraduzir o menu de layouts das tabelas");
+    TEST_ASSERT(w.resultsLayoutTabWidget(0)->tabToolTip(0) == QStringLiteral("Nodal Displacements") &&
+                    w.resultsLayoutTabWidget(1)->tabToolTip(0) == QStringLiteral("Support Reactions") &&
+                    w.resultsLayoutTabWidget(2)->tabToolTip(0) == QStringLiteral("Member Forces") &&
+                    w.resultsLayoutTabWidget(3)->tabToolTip(0) == QStringLiteral("2D/3D Forces (Shell/Solid)"),
+                "Troca de idioma deve atualizar dinamicamente os tooltips das abas dos layouts");
+
+    w.resetResultsLayoutsToDefault();
+    pumpEvents(15);
+    TEST_ASSERT(w.resultsLayoutCount() == 1 &&
+                    w.resultsLayoutTabWidget(0)->count() == 4 &&
+                    !w.resultsLayoutTabWidget(1)->isVisible(),
+                "resetResultsLayoutsToDefault deve restaurar 1 layout com todas as 4 tabelas");
+
+    for (QTableWidget* tbl : allTables) {
+        cfg->resetAllDefaults(tbl);
+    }
+
+    // 12) Persistência universal unificada e recarga automática em AppData/Local/OmniFrame/user_preferences.json
+    traducao.definir_idioma(QStringLiteral("pt_BR"));
+    pumpEvents(20);
+    const QString userPrefsPath = MainWindow::userPreferencesFilePath();
+    TEST_ASSERT(QDir::fromNativeSeparators(userPrefsPath).endsWith(
+                    QStringLiteral("/OmniFrame/user_preferences.json")) &&
+                    !QDir::fromNativeSeparators(userPrefsPath).endsWith(
+                        QStringLiteral("/OmniFrame/OmniFrame/user_preferences.json")),
+                "Caminho do arquivo universal de preferências deve apontar para AppData/Local/OmniFrame/user_preferences.json");
+    TEST_ASSERT(userPrefsPath == io::UserPreferencesStore::userPreferencesFilePath(),
+                "MainWindow::userPreferencesFilePath deve delegar ao UserPreferencesStore unificado");
+
+    w.setResultsLayoutCount(3);
+    pumpEvents(20);
+    w.setResultsLayoutTableVisible(0, ui::ResultTableKind::ContinuumStress, true);
+    pumpEvents(20);
+    w.resultsLayoutTabWidget(0)->setCurrentIndex(1);
+    if (w.resultsSplitter() != nullptr) {
+        w.resultsSplitter()->setSizes({480, 320, 200});
+    }
+    pumpEvents(20);
+
+    cfg->setColumnVisible(dispTable, 2, false);
+    dispTable->setColumnWidth(1, 148);
+    if (QHeaderView* hh = dispTable->horizontalHeader()) {
+        hh->moveSection(3, 1);
+    }
+    pumpEvents(15);
+    cfg->setSortingModeEnabled(dispTable, true);
+    cfg->sortTableByColumn(dispTable, 0, Qt::DescendingOrder);
+    cfg->setRowOrderMode(reacTable, ui::TableRowOrderMode::PrependTop);
+    cfg->setColumnColored(dispTable, 0, true);
+    cfg->setColumnColored(dispTable, 1, true);
+    cfg->setCategoryColor(dispTable, QStringLiteral("node"), QColor(123, 45, 210));
+    cfg->setExportOnlyActiveColumns(dispTable, true);
+    cfg->setExportOnlySelectedCells(dispTable, true);
+
+    // Personalizar qualidade gráfica (seção graphics em user_preferences.json) via menu Configurações
+    QAction* actHighPreset = nullptr;
+    QAction* actVsync = nullptr;
+    for (QAction* act : w.findChildren<QAction*>()) {
+        if (act->text() == QStringLiteral("Alta (SSAA 150% + MSAA 8×)")) {
+            actHighPreset = act;
+        } else if (act->text() == QStringLiteral("Sincronização Vertical (VSync)")) {
+            actVsync = act;
+        }
+    }
+    TEST_ASSERT(actHighPreset != nullptr && actVsync != nullptr,
+                "Ações de qualidade gráfica e VSync devem existir no menu Configurações");
+    actHighPreset->trigger();
+    if (actVsync->isChecked()) {
+        actVsync->trigger();
+    }
+    pumpEvents(20);
+
+    // Personalizar Viewport3D, Barras de Ferramentas, Entrada Rápida e Pós-Processamento 3D
+    const QList<QToolBar*> toolbars = w.findChildren<QToolBar*>();
+    TEST_ASSERT(toolbars.size() >= 2, "MainWindow deve possuir as 2 toolbars principais");
+    auto* planeCombo = toolbars[0]->findChild<QComboBox*>();
+    const auto tb1Spins = toolbars[0]->findChildren<QDoubleSpinBox*>();
+    auto* diagramCombo = toolbars[1]->findChild<QComboBox*>();
+    auto* scaleSlider = toolbars[1]->findChild<QSlider*>();
+    TEST_ASSERT(planeCombo && tb1Spins.size() >= 2 && diagramCombo && scaleSlider,
+                "Controles das toolbars devem existir para personalização");
+
+    const int xzIdx = planeCombo->findData(static_cast<int>(WorkPlane::XZ_Frontal));
+    TEST_ASSERT(xzIdx >= 0, "WorkPlane::XZ_Frontal deve existir no combo de plano");
+    planeCombo->setCurrentIndex(xzIdx);
+    tb1Spins[0]->setValue(4.25);
+    tb1Spins[1]->setValue(1.25);
+    for (QAction* act : toolbars[0]->actions()) {
+        if (act->text().contains(QStringLiteral("Snap Grid"), Qt::CaseInsensitive)) {
+            act->setChecked(false);
+        } else if (act->text().contains(QStringLiteral("Eixos Locais"), Qt::CaseInsensitive)) {
+            act->setChecked(true);
+        }
+    }
+    const int mzIdx = diagramCombo->findData(static_cast<int>(DiagramType::Moment_Mz));
+    TEST_ASSERT(mzIdx >= 0, "DiagramType::Moment_Mz deve existir no combo de diagramas");
+    diagramCombo->setCurrentIndex(mzIdx);
+    scaleSlider->setValue(65);
+    for (QAction* act : toolbars[1]->actions()) {
+        if (act->text().contains(QStringLiteral("Reações"), Qt::CaseInsensitive)) {
+            act->setChecked(false);
+        }
+    }
+
+    QGroupBox* entryGroup = nullptr;
+    for (QGroupBox* gb : w.findChildren<QGroupBox*>()) {
+        if (gb->title().contains(QStringLiteral("Adicionar Nó"), Qt::CaseInsensitive)) {
+            entryGroup = gb;
+            break;
+        }
+    }
+    TEST_ASSERT(entryGroup != nullptr, "Grupo Adicionar Nó por Coordenadas deve existir");
+    const auto quickSpins = entryGroup->findChildren<QDoubleSpinBox*>();
+    TEST_ASSERT(quickSpins.size() >= 3, "Spinboxes X, Y, Z de entrada rápida devem existir");
+    quickSpins[0]->setValue(1.5);
+    quickSpins[1]->setValue(-2.5);
+    quickSpins[2]->setValue(6.0);
+
+    auto* vp = w.findChild<Viewport3D*>();
+    TEST_ASSERT(vp != nullptr, "Viewport3D deve existir em MainWindow");
+    vp->setPostContourMode(Viewport3D::PostContourMode::VonMisesStress);
+    vp->setShowSurfaceMesh(false);
+    vp->setClipPlane(Viewport3D::ClipAxis::Y, 2.5, true);
+    vp->setAnimationSpeed(2.0);
+    vp->setAnimationAmplitude(1.75);
+
+    // Personalizar diálogo secundário (MeshGeneratorDialog) e verificar persistência de seus parâmetros
+    TEST_ASSERT(QMetaObject::invokeMethod(&w, "onOpenMeshGenerator", Qt::DirectConnection),
+                "Abrir MeshGeneratorDialog para registrar preferência do usuário");
+    pumpEvents(30);
+    auto* meshDlg = findVisibleTopLevel<MeshGeneratorDialog>();
+    TEST_ASSERT(meshDlg != nullptr, "MeshGeneratorDialog deve abrir");
+    QDoubleSpinBox* meshLxSpin = nullptr;
+    for (auto* sp : meshDlg->findChildren<QDoubleSpinBox*>()) {
+        if (std::abs(sp->value() - 6.0) < 1e-6) {
+            meshLxSpin = sp;
+            break;
+        }
+    }
+    TEST_ASSERT(meshLxSpin != nullptr, "SpinBox Lx do MeshGeneratorDialog deve existir");
+    meshLxSpin->setValue(14.5);
+    pumpEvents(20);
+    meshDlg->close();
+    pumpEvents(30);
+
+    TEST_ASSERT(QMetaObject::invokeMethod(&w, "onSaveAllSettingsNow", Qt::DirectConnection),
+                "Salvar todas as preferências via ação do menu Configurações");
+    pumpEvents(15);
+    TEST_ASSERT(QFile::exists(userPrefsPath),
+                "Arquivo único user_preferences.json deve existir em AppData/Local/OmniFrame");
+    for (const QString& legacyPath : io::UserPreferencesStore::legacyPreferenceFilePaths()) {
+        TEST_ASSERT(!QFile::exists(legacyPath),
+                    "Arquivos legados (graphics/language/results_tables/theme.json) não devem ser gerados");
+    }
+
+    {
+        QFile checkFile(userPrefsPath);
+        TEST_ASSERT(checkFile.open(QIODevice::ReadOnly), "Abrir user_preferences.json para inspeção estrutural");
+        const QJsonDocument doc = QJsonDocument::fromJson(checkFile.readAll());
+        TEST_ASSERT(doc.isObject(), "user_preferences.json deve conter objeto JSON válido");
+        const QJsonObject rootObj = doc.object();
+        TEST_ASSERT(rootObj.value(QStringLiteral("version")).toInt() ==
+                        io::UserPreferencesStore::kCurrentSchemaVersion,
+                    "Esquema unificado deve estar na versão 2");
+        TEST_ASSERT(rootObj.value(QStringLiteral("app")).isObject() &&
+                        rootObj.value(QStringLiteral("graphics")).isObject() &&
+                        rootObj.value(QStringLiteral("window")).isObject() &&
+                        rootObj.value(QStringLiteral("workspace")).isObject() &&
+                        rootObj.value(QStringLiteral("dialogs")).isObject() &&
+                        rootObj.value(QStringLiteral("resultsPanel")).isObject(),
+                    "user_preferences.json deve consolidar todas as seções (app, graphics, window, workspace, dialogs, resultsPanel)");
+    }
+
+    w.close();
+    pumpEvents(40);
+
+    {
+        MainWindow wReloaded;
+        wReloaded.show();
+        pumpEvents(40);
+
+        auto* reloadedDisp = wReloaded.findChild<QTableWidget*>(QStringLiteral("dispTable"));
+        auto* reloadedReac = wReloaded.findChild<QTableWidget*>(QStringLiteral("reacTable"));
+        auto* reloadedForces = wReloaded.findChild<QTableWidget*>(QStringLiteral("forcesTable"));
+        auto* reloadedCont = wReloaded.findChild<QTableWidget*>(QStringLiteral("continuumTable"));
+        ui::ResultTableConfigurator* reloadedCfg = wReloaded.resultTableConfigurator();
+        auto* reloadedVp = wReloaded.findChild<Viewport3D*>();
+
+        TEST_ASSERT(reloadedDisp && reloadedReac && reloadedForces && reloadedCont && reloadedCfg && reloadedVp,
+                    "Todas as tabelas, viewport e configurador devem existir após reiniciar");
+        TEST_ASSERT(reloadedVp->model() != nullptr && reloadedVp->model()->getNodes().empty() &&
+                        reloadedDisp->rowCount() == 0 && reloadedReac->rowCount() == 0,
+                    "Reinicialização sem projeto aberto deve iniciar vazia antes de carregar modelo");
+
+        // Verificar recarga universal de Viewport3D / Toolbars / Pós-Processamento 3D antes de carregar exemplo
+        TEST_ASSERT(reloadedVp->workPlane() == WorkPlane::XZ_Frontal &&
+                        std::abs(reloadedVp->planeOffset() - 4.25) < 1e-6 &&
+                        !reloadedVp->snapToGrid() &&
+                        std::abs(reloadedVp->gridStep() - 1.25) < 1e-6 &&
+                        reloadedVp->showLocalAxes() &&
+                        !reloadedVp->showReactions() &&
+                        reloadedVp->activeDiagram() == DiagramType::Moment_Mz &&
+                        std::abs(reloadedVp->diagramScale() - (65.0 / 30.0)) < 1e-5,
+                    "Estado do Viewport3D e toolbars deve ser restaurado na reinicialização");
+        TEST_ASSERT(reloadedVp->postContourMode() == Viewport3D::PostContourMode::VonMisesStress &&
+                        !reloadedVp->showSurfaceMesh() &&
+                        reloadedVp->clipAxis() == Viewport3D::ClipAxis::Y &&
+                        std::abs(reloadedVp->clipOffset() - 2.5) < 1e-6 &&
+                        reloadedVp->clipInverted() &&
+                        std::abs(reloadedVp->animationSpeed() - 2.0) < 1e-6 &&
+                        std::abs(reloadedVp->animationAmplitude() - 1.75) < 1e-6,
+                    "Preferências de pós-processamento 3D devem ser restauradas na reinicialização");
+
+        wReloaded.loadExampleBuilding();
+        TEST_ASSERT(reloadedVp->clipAxis() == Viewport3D::ClipAxis::None,
+                    "Carregar exemplo deve limpar plano de corte anterior para exibir a estrutura integralmente");
+        TEST_ASSERT(waitUntil([&]() {
+            return reloadedDisp->rowCount() > 2 && reloadedReac->rowCount() > 2;
+        }, 15000), "Tabelas recarregadas devem ser populadas após resolução do exemplo carregado");
+        pumpEvents(40);
+
+        TEST_ASSERT(wReloaded.resultsLayoutCount() == 3,
+                    "Quantidade de layouts (3) deve ser restaurada na reinicialização");
+        TEST_ASSERT(wReloaded.isResultsLayoutTableVisible(0, ui::ResultTableKind::ContinuumStress),
+                    "Atribuição personalizada de tabela no 1º layout deve ser restaurada");
+        TEST_ASSERT(wReloaded.resultsLayoutTabWidget(0) != nullptr &&
+                        wReloaded.resultsLayoutTabWidget(0)->currentIndex() == 1,
+                    "Aba ativa selecionada pelo usuário deve ser restaurada");
+        TEST_ASSERT(wReloaded.resultsSplitter() != nullptr &&
+                        wReloaded.resultsSplitter()->count() == 3,
+                    "Splitter deve conter os 3 layouts restaurados");
+        TEST_ASSERT(reloadedDisp->isColumnHidden(2),
+                    "Visibilidade oculta de coluna deve ser restaurada");
+        TEST_ASSERT(reloadedDisp->columnWidth(1) == 148,
+                    "Largura ajustada de coluna deve ser restaurada");
+        TEST_ASSERT(reloadedDisp->horizontalHeader() != nullptr &&
+                        reloadedDisp->horizontalHeader()->logicalIndex(1) == 3,
+                    "Ordem visual reordenada das colunas deve ser restaurada");
+        TEST_ASSERT(reloadedCfg->isSortingModeEnabled(reloadedDisp),
+                    "Modo de ordenação habilitado deve ser restaurado");
+        TEST_ASSERT(reloadedDisp->rowCount() > 1 &&
+                        reloadedDisp->item(0, 0)->text().toInt() >=
+                            reloadedDisp->item(reloadedDisp->rowCount() - 1, 0)->text().toInt(),
+                    "Direção de ordenação decrescente na coluna 0 deve ser reaplicada");
+        TEST_ASSERT(reloadedCfg->rowOrderMode(reloadedReac) == ui::TableRowOrderMode::PrependTop,
+                    "Ordem das linhas (PrependTop) deve ser restaurada");
+        TEST_ASSERT(reloadedCfg->isColumnColored(reloadedDisp, 0) &&
+                        reloadedCfg->isColumnColored(reloadedDisp, 1),
+                    "Colunas marcadas para coloração devem ser restauradas");
+        TEST_ASSERT(reloadedCfg->categoryColor(reloadedDisp, QStringLiteral("node")) == QColor(123, 45, 210),
+                    "Cor personalizada de categoria deve ser restaurada");
+        TEST_ASSERT(reloadedCfg->exportOnlyActiveColumns(reloadedDisp) &&
+                        reloadedCfg->exportOnlySelectedCells(reloadedDisp),
+                    "Opções de exportação devem ser restauradas");
+
+        // Verificar recarga das preferências gráficas consolidadas em user_preferences.json
+        const RenderQualitySettings reloadedRender = reloadedVp->renderQualitySettings();
+        TEST_ASSERT(reloadedRender.preset == QualityPreset::HighQuality &&
+                        !reloadedRender.autoMaxResolution &&
+                        std::abs(reloadedRender.resolutionScale - 1.5f) < 0.02f &&
+                        !reloadedRender.autoMsaa &&
+                        reloadedRender.requestedMsaa == 8 &&
+                        !reloadedRender.vsyncEnabled,
+                    "Configurações gráficas (preset HighQuality, SSAA 1.5x, MSAA 8x, VSync) devem ser restauradas via user_preferences.json");
+
+        QGroupBox* reloadedEntryGroup = nullptr;
+        for (QGroupBox* gb : wReloaded.findChildren<QGroupBox*>()) {
+            if (gb->title().contains(QStringLiteral("Adicionar Nó"), Qt::CaseInsensitive)) {
+                reloadedEntryGroup = gb;
+                break;
+            }
+        }
+        TEST_ASSERT(reloadedEntryGroup != nullptr, "Grupo Adicionar Nó deve existir após reiniciar");
+        const auto reloadedQuickSpins = reloadedEntryGroup->findChildren<QDoubleSpinBox*>();
+        TEST_ASSERT(reloadedQuickSpins.size() >= 3 &&
+                        std::abs(reloadedQuickSpins[0]->value() - 1.5) < 1e-6 &&
+                        std::abs(reloadedQuickSpins[1]->value() - (-2.5)) < 1e-6 &&
+                        std::abs(reloadedQuickSpins[2]->value() - 6.0) < 1e-6,
+                    "Coordenadas de entrada rápida (X/Y/Z) devem ser restauradas na reinicialização");
+
+        // Verificar recarga de parâmetros persistidos no MeshGeneratorDialog
+        TEST_ASSERT(QMetaObject::invokeMethod(&wReloaded, "onOpenMeshGenerator", Qt::DirectConnection),
+                    "Reabrir MeshGeneratorDialog após reiniciar");
+        pumpEvents(30);
+        auto* reloadedMeshDlg = findVisibleTopLevel<MeshGeneratorDialog>();
+        TEST_ASSERT(reloadedMeshDlg != nullptr, "MeshGeneratorDialog deve abrir após reiniciar");
+        bool foundSavedLx = false;
+        for (auto* sp : reloadedMeshDlg->findChildren<QDoubleSpinBox*>()) {
+            if (std::abs(sp->value() - 14.5) < 1e-6) {
+                foundSavedLx = true;
+                break;
+            }
+        }
+        TEST_ASSERT(foundSavedLx, "Valor Lx = 14.5 definido no MeshGeneratorDialog deve ser restaurado");
+        reloadedMeshDlg->close();
+        pumpEvents(25);
+
+        // Verificar recarga ao vivo via onReloadSavedSettings após edição externa em user_preferences.json
+        {
+            bool readOk = false;
+            QJsonObject diskRoot = io::UserPreferencesStore::readRootObject(&readOk);
+            TEST_ASSERT(readOk, "Leitura para teste de recarga ao vivo");
+            QJsonObject appObj = diskRoot.value(QStringLiteral("app")).toObject();
+            appObj.insert(QStringLiteral("language"), QStringLiteral("en_US"));
+            diskRoot.insert(QStringLiteral("app"), appObj);
+            QJsonObject gfxObj = diskRoot.value(QStringLiteral("graphics")).toObject();
+            gfxObj.insert(QStringLiteral("vsyncEnabled"), true);
+            diskRoot.insert(QStringLiteral("graphics"), gfxObj);
+            QJsonObject wsObj = diskRoot.value(QStringLiteral("workspace")).toObject();
+            wsObj.insert(QStringLiteral("gridStep"), 2.25);
+            diskRoot.insert(QStringLiteral("workspace"), wsObj);
+            TEST_ASSERT(io::UserPreferencesStore::writeRootObject(diskRoot),
+                        "Gravação de edição externa em user_preferences.json");
+        }
+        TEST_ASSERT(QMetaObject::invokeMethod(&wReloaded, "onReloadSavedSettings", Qt::DirectConnection),
+                    "Recarregar todas as configurações via ação do menu");
+        pumpEvents(25);
+        QMenu* persistMenu = wReloaded.findChild<QMenu*>(QStringLiteral("preferencesPersistenceMenu"));
+        TEST_ASSERT(persistMenu != nullptr &&
+                        persistMenu->title() == QStringLiteral("Settings and Preferences Persistence") &&
+                        !persistMenu->title().contains(QLatin1Char('_')) &&
+                        !persistMenu->title().contains(QLatin1Char('&')) &&
+                        traducao.codigoIdiomaAtual() == QStringLiteral("en_US") &&
+                        reloadedVp->renderQualitySettings().vsyncEnabled &&
+                        std::abs(reloadedVp->gridStep() - 2.25) < 1e-6,
+                    "onReloadSavedSettings deve recarregar idioma, gráficos e workspace do user_preferences.json");
+
+        // Verificar restauração global de padrões
+        wReloaded.restoreAllDefaultSettings();
+        pumpEvents(25);
+        TEST_ASSERT(wReloaded.resultsLayoutCount() == 1 &&
+                        reloadedVp->workPlane() == WorkPlane::XY_Top &&
+                        reloadedVp->snapToGrid() &&
+                        std::abs(reloadedVp->gridStep() - 0.5) < 1e-6 &&
+                        !reloadedVp->showLocalAxes() &&
+                        reloadedVp->showReactions() &&
+                        reloadedVp->postContourMode() == Viewport3D::PostContourMode::None &&
+                        reloadedVp->showSurfaceMesh() &&
+                        reloadedVp->clipAxis() == Viewport3D::ClipAxis::None &&
+                        reloadedVp->renderQualitySettings().preset == QualityPreset::AutoMax &&
+                        reloadedVp->renderQualitySettings().autoMsaa,
+                    "restoreAllDefaultSettings deve restaurar todas as preferências, gráficos e o viewport ao padrão");
+
+        for (const QString& legacyPath : io::UserPreferencesStore::legacyPreferenceFilePaths()) {
+            TEST_ASSERT(!QFile::exists(legacyPath),
+                        "Nenhum arquivo legado deve existir após restauração de padrões");
+        }
+
+        wReloaded.close();
+        pumpEvents(40);
+    }
+
+    ThemeManager::instance().setTheme(originalTheme);
+    traducao.definir_idioma(originalLang);
+}
+
+void testDualUiModeNativeAndCustomSwitchingAndPersistence() {
+    auto& traducao = omniframe::locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.codigoIdiomaAtual();
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const UiStyleMode originalMode = ThemeManager::instance().uiStyleMode();
+
+    TEST_ASSERT(traducao.definir_idioma(QStringLiteral("pt_BR")),
+                "Deve ativar pt_BR para teste de UI Nativo e Customizado");
+    ThemeManager::instance().setUiStyleMode(UiStyleMode::Custom);
+    ThemeManager::instance().setTheme(UiTheme::Dark);
+    pumpEvents(30);
+
+    auto findUiStyleControls = [](MainWindow& win,
+                                  QMenu*& outUiMenu,
+                                  QAction*& outNativeAct,
+                                  QAction*& outCustomAct) {
+        outUiMenu = win.findChild<QMenu*>(QStringLiteral("uiStyleMenu"));
+        outNativeAct = win.findChild<QAction*>(QStringLiteral("actUiStyleNative"));
+        outCustomAct = win.findChild<QAction*>(QStringLiteral("actUiStyleCustom"));
+        bool foundInSettings = false;
+        if (QMenuBar* mb = win.menuBar()) {
+            for (QAction* topAct : mb->actions()) {
+                QMenu* sub = topAct ? topAct->menu() : nullptr;
+                if (!sub) continue;
+                const QString clean = topAct->text().remove(QLatin1Char('&'));
+                if (clean == QStringLiteral("Configurações") || clean == QStringLiteral("Settings")) {
+                    for (QAction* itemAct : sub->actions()) {
+                        if (itemAct && itemAct->menu() == outUiMenu) {
+                            foundInSettings = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return outUiMenu != nullptr && outNativeAct != nullptr && outCustomAct != nullptr && foundInSettings;
+    };
+
+    {
+        MainWindow w;
+        w.setAttribute(Qt::WA_DontShowOnScreen, true);
+        w.resize(1360, 860);
+        w.show();
+        pumpEvents(50);
+
+        QMenu* uiMenu = nullptr;
+        QAction* actNative = nullptr;
+        QAction* actCustom = nullptr;
+        TEST_ASSERT(findUiStyleControls(w, uiMenu, actNative, actCustom),
+                    "Menu Configurações > Interface do Usuário (Nativo / Customizado) deve existir");
+        TEST_ASSERT(uiMenu->title() == QStringLiteral("Interface do Usuário") &&
+                        actNative->text() == QStringLiteral("Nativo") &&
+                        actCustom->text() == QStringLiteral("Customizado"),
+                    "Rótulos em pt_BR de Interface do Usuário devem estar corretos");
+        TEST_ASSERT(ThemeManager::instance().isCustomUi() &&
+                        actCustom->isChecked() && !actNative->isChecked() &&
+                        !qApp->styleSheet().isEmpty() &&
+                        QApplication::style() != nullptr &&
+                        QApplication::style()->objectName().compare(QStringLiteral("windows11"), Qt::CaseInsensitive) != 0 &&
+                        QApplication::style()->objectName().compare(QStringLiteral("windowsvista"), Qt::CaseInsensitive) != 0,
+                    "Estado inicial padrão deve ser Customizado com OmniFrameFusionStyle e stylesheet global");
+
+        auto* inspBtn = w.findChild<QToolButton*>(QStringLiteral("inspectorCollapseButton"));
+        auto* resBtn = w.findChild<QToolButton*>(QStringLiteral("resultsCollapseButton"));
+        auto* dispTable = w.findChild<QTableWidget*>(QStringLiteral("dispTable"));
+        auto* reacTable = w.findChild<QTableWidget*>(QStringLiteral("reacTable"));
+        TEST_ASSERT(inspBtn && resBtn && dispTable && reacTable,
+                    "Botões dos docks e tabelas de resultados devem existir");
+        TEST_ASSERT(!inspBtn->autoRaise() && inspBtn->size() == QSize(24, 20) &&
+                        !dispTable->styleSheet().isEmpty(),
+                    "Modo Customizado deve aplicar estilo customizado nos botões de dock e tabelas");
+
+        auto assertChildHierarchyTracksTheme = [&](bool expectedLight, const char* phaseTag) {
+            const int winLightness = QApplication::palette().color(QPalette::Window).lightness();
+            TEST_ASSERT(expectedLight ? (winLightness > 150) : (winLightness < 80),
+                        std::string("Paleta da aplicacao deve acompanhar tema em ") + phaseTag);
+            QGroupBox* entryGrp = w.findChild<QGroupBox*>();
+            QDoubleSpinBox* anySpin = w.findChild<QDoubleSpinBox*>();
+            QMenu* persistMenu = w.findChild<QMenu*>(QStringLiteral("preferencesPersistenceMenu"));
+            TEST_ASSERT(entryGrp != nullptr && anySpin != nullptr && persistMenu != nullptr,
+                        std::string("Controles internos devem existir em ") + phaseTag);
+            const int grpL = entryGrp->palette().color(QPalette::Window).lightness();
+            const int spinL = anySpin->palette().color(QPalette::Base).lightness();
+            const int menuL = persistMenu->palette().color(QPalette::Window).lightness();
+            const bool ok = expectedLight ? (grpL > 150 && spinL > 150 && menuL > 150)
+                                          : (grpL < 85 && spinL < 85 && menuL < 85);
+            if (!ok) {
+                std::cerr << "[DIAG " << phaseTag << "] winL=" << winLightness
+                          << " wPalL=" << w.palette().color(QPalette::Window).lightness()
+                          << " grpL=" << grpL << " (WA=" << entryGrp->testAttribute(Qt::WA_SetPalette) << ", vis=" << entryGrp->isVisible() << ")"
+                          << " spinL=" << spinL << " (WA=" << anySpin->testAttribute(Qt::WA_SetPalette) << ")"
+                          << " menuL=" << menuL << " (WA=" << persistMenu->testAttribute(Qt::WA_SetPalette) << ")"
+                          << "\n  grp ancestors:";
+                for (QWidget* anc = entryGrp; anc != nullptr; anc = anc->parentWidget()) {
+                    std::cerr << " -> " << anc->metaObject()->className()
+                              << "(" << anc->objectName().toStdString()
+                              << ",L=" << anc->palette().color(QPalette::Window).lightness()
+                              << ",WA=" << anc->testAttribute(Qt::WA_SetPalette)
+                              << ",qss=" << !anc->styleSheet().isEmpty() << ")";
+                }
+                std::cerr << std::endl;
+            }
+            TEST_ASSERT(ok,
+                        std::string("Widgets filhos em QScrollArea, SpinBox e Menus devem adaptar paleta ao vivo em ") + phaseTag);
+        };
+
+        auto assertNativeFramedButtonsUniformHeight = [&](const char* phaseTag) {
+            QList<QPushButton*> pushButtons = w.findChildren<QPushButton*>();
+            TEST_ASSERT(!pushButtons.isEmpty(), std::string("MainWindow deve conter QPushButtons em ") + phaseTag);
+            for (QPushButton* pb : pushButtons) {
+                if (!pb || !pb->isVisible()) continue;
+                TEST_ASSERT(pb->height() == 28 && pb->sizeHint().height() == 28,
+                            std::string("QPushButton deve ter altura vertical padronizada de 28px no modo Nativo em ") + phaseTag);
+                const QImage btnImg = pb->grab().toImage();
+                TEST_ASSERT(!btnImg.isNull() && btnImg.height() == 28,
+                            std::string("QPushButton deve renderizar em 28px no modo Nativo em ") + phaseTag);
+                const QColor topEdge = btnImg.pixelColor(btnImg.width() / 2, 0);
+                const QColor centerPx = btnImg.pixelColor(btnImg.width() / 2, btnImg.height() / 2);
+                const QColor parentBg = pb->parentWidget()
+                    ? pb->parentWidget()->palette().color(pb->parentWidget()->backgroundRole())
+                    : pb->palette().color(QPalette::Window);
+                const bool edgeDiffers = (topEdge != parentBg) || (topEdge != centerPx);
+                TEST_ASSERT(edgeDiffers,
+                            std::string("QPushButton deve exibir borda/moldura visivel no modo Nativo em ") + phaseTag);
+            }
+            for (QToolBar* tb : w.findChildren<QToolBar*>()) {
+                if (!tb || !tb->isVisible()) continue;
+                for (QToolButton* tbtn : tb->findChildren<QToolButton*>()) {
+                    if (!tbtn || !tbtn->isVisible() || tbtn->objectName() == QLatin1String("qt_toolbar_ext_button")) {
+                        continue;
+                    }
+                    TEST_ASSERT(tbtn->height() == 28 && tbtn->sizeHint().height() == 28,
+                                std::string("QToolButton de toolbar deve ter altura padronizada de 28px no modo Nativo em ") + phaseTag);
+                    const QImage tbImg = tbtn->grab().toImage();
+                    TEST_ASSERT(!tbImg.isNull() && tbImg.height() == 28,
+                                std::string("QToolButton de toolbar deve renderizar em 28px no modo Nativo em ") + phaseTag);
+                }
+            }
+        };
+
+        assertChildHierarchyTracksTheme(false, "Custom Dark inicial");
+
+        // Alterna para Custom Light antes de ir para Nativo para garantir transição limpa entre temas/modos
+        ThemeManager::instance().setTheme(UiTheme::Light);
+        pumpEvents(40);
+        assertChildHierarchyTracksTheme(true, "Custom Light");
+
+        ThemeManager::instance().setTheme(UiTheme::Dark);
+        pumpEvents(40);
+        assertChildHierarchyTracksTheme(false, "Custom Dark");
+
+        // Alterna para o modo Nativo via menu "Configurações > Interface do Usuário > Nativo"
+        actNative->trigger();
+        pumpEvents(50);
+
+        TEST_ASSERT(ThemeManager::instance().isNativeUi() &&
+                        actNative->isChecked() && !actCustom->isChecked(),
+                    "Ação Nativo deve ativar modo Nativo e atualizar exclusividade do menu");
+        TEST_ASSERT(qApp->styleSheet().isEmpty() &&
+                        QApplication::style() != nullptr &&
+                        QApplication::style()->objectName().compare(QStringLiteral("fusion"), Qt::CaseInsensitive) != 0,
+                    "Modo Nativo deve remover stylesheet global customizado e restaurar QStyle nativo do Qt6");
+        TEST_ASSERT(inspBtn->autoRaise() && inspBtn->styleSheet().isEmpty() &&
+                        inspBtn->size() == QSize(22, 22) && !inspBtn->grab().toImage().isNull() &&
+                        resBtn->autoRaise() && resBtn->styleSheet().isEmpty() &&
+                        resBtn->size() == QSize(22, 22) && !resBtn->grab().toImage().isNull(),
+                    "Modo Nativo deve alternar botões de dock para QToolButton nativo com autoRaise");
+        TEST_ASSERT(dispTable->styleSheet().isEmpty() && reacTable->styleSheet().isEmpty(),
+                    "Modo Nativo deve limpar QSS customizado das tabelas de resultados");
+        assertChildHierarchyTracksTheme(false, "Native Dark");
+        assertNativeFramedButtonsUniformHeight("Native Dark");
+
+        if (const QStyleHints* hints = QGuiApplication::styleHints()) {
+            TEST_ASSERT(hints->colorScheme() == Qt::ColorScheme::Dark,
+                        "QStyleHints::colorScheme deve refletir Dark no modo Nativo");
+        }
+
+        // Mantem dialogos abertos e verifica adaptacao ao vivo entre Native Dark <-> Native Light <-> Custom
+        {
+            AboutDialog about;
+            about.setAttribute(Qt::WA_DontShowOnScreen, true);
+            about.show();
+
+            ui::ManualDialog manual;
+            manual.setAttribute(Qt::WA_DontShowOnScreen, true);
+            manual.show();
+
+            GuidedSessionDialog guided(&w);
+            guided.setAttribute(Qt::WA_DontShowOnScreen, true);
+            guided.show();
+            pumpEvents(35);
+
+            TEST_ASSERT(about.styleSheet().isEmpty(),
+                        "AboutDialog deve operar sem stylesheet customizado no modo Nativo");
+            TEST_ASSERT(manual.styleSheet().isEmpty(),
+                        "ManualDialog deve operar sem stylesheet customizado no modo Nativo");
+
+            auto* manualViewer = manual.findChild<QTextBrowser*>();
+            TEST_ASSERT(manualViewer != nullptr && manualViewer->document() != nullptr,
+                        "ManualDialog deve conter QTextBrowser inicializado");
+            {
+                const QString manualHtml = manualViewer->toHtml();
+                TEST_ASSERT(!manualHtml.contains(QStringLiteral("#f5f5f5"), Qt::CaseInsensitive),
+                            "HTML do ManualDialog no modo Nativo Escuro nao deve conter fundo claro #f5f5f5 (AlternateBase)");
+
+                auto checkFrameNoLightBg = [&](auto& self, QTextFrame* frame) -> void {
+                    if (!frame) return;
+                    const QTextFrameFormat ff = frame->frameFormat();
+                    if (ff.background().style() != Qt::NoBrush && ff.background().color().alpha() > 0) {
+                        TEST_ASSERT(ff.background().color().lightness() < 110,
+                                    "Nenhum bloco/quadro do ManualDialog deve possuir fundo claro no modo Nativo Escuro");
+                    }
+                    for (auto it = frame->begin(); !it.atEnd(); ++it) {
+                        if (QTextFrame* childFrame = it.currentFrame()) {
+                            self(self, childFrame);
+                        } else {
+                            const QTextBlock blk = it.currentBlock();
+                            if (blk.isValid()) {
+                                const QBrush bb = blk.blockFormat().background();
+                                if (bb.style() != Qt::NoBrush && bb.color().alpha() > 0) {
+                                    TEST_ASSERT(bb.color().lightness() < 110,
+                                                "Nenhuma linha/paragrafo do ManualDialog deve possuir fundo claro no modo Nativo Escuro");
+                                }
+                            }
+                        }
+                    }
+                };
+                checkFrameNoLightBg(checkFrameNoLightBg, manualViewer->document()->rootFrame());
+
+                const QImage manualImg = manualViewer->viewport()->grab().toImage();
+                TEST_ASSERT(!manualImg.isNull() && manualImg.width() > 40 && manualImg.height() > 60,
+                            "Viewport do ManualDialog deve renderizar imagem valida");
+                // Verifica a margem interna esquerda do banner superior (x=18, y=16..42):
+                // nenhuma faixa com fundo claro deve aparecer atras das strings do cabeçalho
+                for (int y = 16; y <= std::min(42, manualImg.height() - 4); y += 6) {
+                    const QColor px = manualImg.pixelColor(18, y);
+                    TEST_ASSERT(px.lightness() < 90,
+                                "Pixels de fundo dos blocos do ManualDialog no modo Nativo Escuro devem permanecer escuros");
+                }
+            }
+
+            guided.setPhaseHighlightColor(1, QColor(QStringLiteral("#3B82F6")));
+            guided.setPhaseHighlightColor(2, QColor(QStringLiteral("#EC4899")));
+            guided.selectHighlightPhase(1);
+            pumpEvents(25);
+            TEST_ASSERT(guided.phaseHighlightColor(2) == QColor(QStringLiteral("#EC4899")),
+                        "Fase 2 deve manter cor independente (#EC4899) ao retornar foco para Fase 1 (#3B82F6)");
+            auto* banner = guided.findChild<QLabel*>(QStringLiteral("guided_target_action_banner"));
+            auto* badge = guided.findChild<QLabel*>(QStringLiteral("guided_phase_badge"));
+            auto* swatch = guided.findChild<QLabel*>(QStringLiteral("guided_highlight_color_swatch"));
+            auto extractDualBg = [](const QString& qss) -> QColor {
+                const int idx = qss.indexOf(QLatin1String("background-color:"));
+                if (idx < 0) return {};
+                const int start = idx + 17;
+                int end = qss.indexOf(QLatin1Char(';'), start);
+                if (end < 0) end = qss.indexOf(QLatin1Char('}'), start);
+                if (end < 0) end = qss.size();
+                const QString val = qss.mid(start, end - start).trimmed();
+                if (val.startsWith(QLatin1Char('#'))) {
+                    return QColor(val);
+                }
+                if (val.startsWith(QLatin1String("rgb"))) {
+                    const int openP = val.indexOf(QLatin1Char('('));
+                    const int closeP = val.indexOf(QLatin1Char(')'));
+                    if (openP >= 0 && closeP > openP) {
+                        const QStringList parts = val.mid(openP + 1, closeP - openP - 1).split(QLatin1Char(','));
+                        if (parts.size() >= 3) {
+                            return QColor(parts[0].trimmed().toInt(),
+                                          parts[1].trimmed().toInt(),
+                                          parts[2].trimmed().toInt());
+                        }
+                    }
+                }
+                return {};
+            };
+            TEST_ASSERT(banner != nullptr && badge != nullptr && swatch != nullptr &&
+                            guided.styleSheet().isEmpty() &&
+                            banner->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            badge->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            swatch->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            extractDualBg(banner->styleSheet()).lightness() < 70,
+                        "GuidedSessionDialog deve usar janela nativa mantendo cor definida por fase e fundo escuro em Native Dark");
+
+            for (QPushButton* dlgBtn : about.findChildren<QPushButton*>()) {
+                if (dlgBtn && dlgBtn->isVisible()) {
+                    TEST_ASSERT(dlgBtn->height() == 28,
+                                "Botões do AboutDialog no modo Nativo devem ter altura padronizada de 28px");
+                }
+            }
+            for (QPushButton* dlgBtn : manual.findChildren<QPushButton*>()) {
+                if (dlgBtn && dlgBtn->isVisible()) {
+                    TEST_ASSERT(dlgBtn->height() == 28,
+                                "Botões do ManualDialog no modo Nativo devem ter altura padronizada de 28px");
+                }
+            }
+
+            // Troca ao vivo Native Dark -> Native Light com dialogos abertos
+            ThemeManager::instance().setTheme(UiTheme::Light);
+            pumpEvents(45);
+            if (const QStyleHints* hints = QGuiApplication::styleHints()) {
+                TEST_ASSERT(hints->colorScheme() == Qt::ColorScheme::Light,
+                            "QStyleHints::colorScheme deve acompanhar alteração ao vivo para Light no modo Nativo");
+            }
+            assertChildHierarchyTracksTheme(true, "Native Light");
+            assertNativeFramedButtonsUniformHeight("Native Light");
+            TEST_ASSERT(about.palette().color(QPalette::Window).lightness() > 150 &&
+                            manual.palette().color(QPalette::Window).lightness() > 150 &&
+                            guided.palette().color(QPalette::Window).lightness() > 150,
+                        "Diálogos abertos devem adaptar paleta ao vivo para Light no modo Nativo");
+            TEST_ASSERT(banner->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            badge->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            extractDualBg(banner->styleSheet()).lightness() > 200,
+                        "Cor do realce em GuidedSessionDialog deve permanecer inalterada e fundo deve ficar claro em Native Light");
+
+            // Troca ao vivo Native Light -> Custom Light -> Custom Dark com dialogos abertos
+            actCustom->trigger();
+            pumpEvents(45);
+            TEST_ASSERT(!about.styleSheet().isEmpty() && !manual.styleSheet().isEmpty() &&
+                            banner->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            badge->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            extractDualBg(banner->styleSheet()).lightness() > 200,
+                        "Diálogos abertos devem assumir QSS Custom Light e GuidedSessionDialog deve manter cor da fase e fundo claro");
+            assertChildHierarchyTracksTheme(true, "Custom Light apos Nativo");
+
+            ThemeManager::instance().setTheme(UiTheme::Dark);
+            pumpEvents(45);
+            assertChildHierarchyTracksTheme(false, "Custom Dark apos Custom Light");
+            TEST_ASSERT(banner->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            badge->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            extractDualBg(banner->styleSheet()).lightness() < 70,
+                        "GuidedSessionDialog aberto deve preservar cor definida por fase e voltar para fundo escuro em Custom Dark");
+
+            // Volta para Nativo Dark e confirma sincronia
+            actNative->trigger();
+            pumpEvents(45);
+            assertChildHierarchyTracksTheme(false, "Native Dark final com dialogos abertos");
+            TEST_ASSERT(about.styleSheet().isEmpty() && manual.styleSheet().isEmpty() &&
+                            guided.styleSheet().isEmpty() &&
+                            banner->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            badge->styleSheet().contains(QStringLiteral("#3B82F6"), Qt::CaseInsensitive) &&
+                            extractDualBg(banner->styleSheet()).lightness() < 70,
+                        "Diálogos abertos devem retornar para Native Dark mantendo cor por fase e fundo escuro");
+
+            // Verifica restauracao e persistencia das cores por fase no MainWindow / GuidedSessionDialog
+            guided.resetAllPhaseHighlightColors();
+            pumpEvents(20);
+            TEST_ASSERT(guided.stepHighlightColor() == GuidedSessionDialog::defaultStepHighlightColor() &&
+                            guided.phaseHighlightColor(1) == GuidedSessionDialog::defaultPhaseHighlightColor(1) &&
+                            guided.phaseHighlightColor(2) == GuidedSessionDialog::defaultPhaseHighlightColor(2),
+                        "resetAllPhaseHighlightColors deve restaurar as cores padrão das fases (#F59E0B / #10B981)");
+
+            ThemeManager::instance().setTheme(UiTheme::Light);
+            pumpEvents(35);
+
+            guided.close();
+            manual.close();
+            about.close();
+        }
+
+        // Regressao de alternancias consecutivas apos resolver modelo e reconstruir inspetor (updateInspector)
+        {
+            QPushButton* solveBtn = nullptr;
+            for (QPushButton* pb : w.findChildren<QPushButton*>()) {
+                if (pb && pb->text().contains(QStringLiteral("CALCULAR"), Qt::CaseInsensitive)) {
+                    solveBtn = pb;
+                    break;
+                }
+            }
+            if (solveBtn) {
+                solveBtn->click();
+                pumpEvents(120);
+            }
+            QAction* actThemeDark = nullptr;
+            QAction* actThemeLight = nullptr;
+            for (QAction* act : w.findChildren<QAction*>()) {
+                if (!act) continue;
+                if (act->text() == QStringLiteral("Escuro") || act->text() == QStringLiteral("Dark")) {
+                    actThemeDark = act;
+                } else if (act->text() == QStringLiteral("Claro") || act->text() == QStringLiteral("Light")) {
+                    actThemeLight = act;
+                }
+            }
+            TEST_ASSERT(actThemeDark != nullptr && actThemeLight != nullptr,
+                        "Acoes Escuro/Claro devem existir para teste consecutivo");
+            for (int cycle = 0; cycle < 12; ++cycle) {
+                (cycle % 2 == 0 ? actCustom : actNative)->trigger();
+                pumpEvents(15);
+                (cycle % 2 == 0 ? actThemeDark : actThemeLight)->trigger();
+                pumpEvents(15);
+            }
+            // Garante retorno final em Nativo + Light antes das verificacoes seguintes
+            actNative->trigger();
+            actThemeLight->trigger();
+            pumpEvents(35);
+            assertChildHierarchyTracksTheme(true, "Native Light apos 12 alternancias consecutivas");
+            assertNativeFramedButtonsUniformHeight("Native Light apos 12 alternancias consecutivas");
+        }
+
+        // Verifica tradução dinâmica en_US <-> pt_BR para todas as novas strings e Persistência
+        TEST_ASSERT(traducao.definir_idioma(QStringLiteral("en_US")),
+                    "Deve ativar en_US para validar tradução dinâmica do menu Interface do Usuário");
+        pumpEvents(30);
+        QMenu* persistMenuEn = w.findChild<QMenu*>(QStringLiteral("preferencesPersistenceMenu"));
+        TEST_ASSERT(persistMenuEn != nullptr &&
+                        persistMenuEn->title() == QStringLiteral("Settings and Preferences Persistence") &&
+                        !persistMenuEn->title().contains(QLatin1Char('_')) &&
+                        !persistMenuEn->title().contains(QLatin1Char('&')),
+                    "Menu Persistência em inglês deve traduzir como 'Settings and Preferences Persistence' sem mnemônico '_'");
+        TEST_ASSERT(uiMenu->title() == QStringLiteral("User Interface") &&
+                        actNative->text() == QStringLiteral("Native") &&
+                        actCustom->text() == QStringLiteral("Custom") &&
+                        traducao.trText("Modo de interface nativo (Qt6 padrão) aplicado.") ==
+                            QStringLiteral("Native (standard Qt6) user interface mode applied.") &&
+                        traducao.trText("Modo de interface customizado aplicado.") ==
+                            QStringLiteral("Custom user interface mode applied."),
+                    "Todas as novas strings de Interface do Usuário devem traduzir dinamicamente em en_US");
+
+        TEST_ASSERT(traducao.definir_idioma(QStringLiteral("pt_BR")),
+                    "Deve retornar para pt_BR dinamicamente");
+        pumpEvents(30);
+        TEST_ASSERT(uiMenu->title() == QStringLiteral("Interface do Usuário") &&
+                        actNative->text() == QStringLiteral("Nativo") &&
+                        actCustom->text() == QStringLiteral("Customizado"),
+                    "Tradução dinâmica para pt_BR deve restaurar rótulos em português");
+
+        w.close();
+        pumpEvents(40);
+    }
+
+    // Verifica persistência de uiStyleMode = "native" em user_preferences.json entre reinicializações
+    {
+        bool readOk = false;
+        const QJsonObject root = io::UserPreferencesStore::readRootObject(&readOk);
+        TEST_ASSERT(readOk &&
+                        root.value(QStringLiteral("app")).toObject().value(QStringLiteral("uiStyleMode")).toString() ==
+                            QStringLiteral("native"),
+                    "Modo de UI Nativo deve ser persistido em user_preferences.json");
+    }
+
+    // Simula nova instância após reinicialização em modo Nativo e retorno ao vivo para Customizado
+    {
+        TEST_ASSERT(ThemeManager::instance().reloadSavedTheme(),
+                    "ThemeManager::reloadSavedTheme deve carregar uiStyleMode salvo");
+        MainWindow wReloaded;
+        wReloaded.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wReloaded.resize(1360, 860);
+        wReloaded.show();
+        pumpEvents(50);
+
+        QMenu* uiMenu = nullptr;
+        QAction* actNative = nullptr;
+        QAction* actCustom = nullptr;
+        TEST_ASSERT(findUiStyleControls(wReloaded, uiMenu, actNative, actCustom) &&
+                        ThemeManager::instance().isNativeUi() &&
+                        actNative->isChecked() && !actCustom->isChecked() &&
+                        qApp->styleSheet().isEmpty() &&
+                        QApplication::style()->objectName().compare(QStringLiteral("fusion"), Qt::CaseInsensitive) != 0,
+                    "Nova instância do MainWindow deve restaurar modo Nativo automaticamente");
+
+        // Alterna de volta para Customizado pelo menu em tempo de execução
+        actCustom->trigger();
+        pumpEvents(50);
+
+        auto* inspBtn = wReloaded.findChild<QToolButton*>(QStringLiteral("inspectorCollapseButton"));
+        auto* dispTable = wReloaded.findChild<QTableWidget*>(QStringLiteral("dispTable"));
+        TEST_ASSERT(ThemeManager::instance().isCustomUi() &&
+                        actCustom->isChecked() && !actNative->isChecked() &&
+                        !qApp->styleSheet().isEmpty() &&
+                        QApplication::style() != nullptr &&
+                        QApplication::style()->objectName().compare(QStringLiteral("windows11"), Qt::CaseInsensitive) != 0 &&
+                        QApplication::style()->objectName().compare(QStringLiteral("windowsvista"), Qt::CaseInsensitive) != 0 &&
+                        inspBtn != nullptr && !inspBtn->autoRaise() && inspBtn->size() == QSize(24, 20) &&
+                        dispTable != nullptr && !dispTable->styleSheet().isEmpty(),
+                    "Ação Customizado deve restaurar integralmente a UI customizada e tabelas Linceu ao vivo");
+        {
+            AboutDialog aboutCustom;
+            aboutCustom.setAttribute(Qt::WA_DontShowOnScreen, true);
+            aboutCustom.show();
+            pumpEvents(20);
+            TEST_ASSERT(!aboutCustom.styleSheet().isEmpty(),
+                        "AboutDialog deve restaurar QSS customizado após alternar de volta para Customizado");
+            aboutCustom.close();
+        }
+
+        // Verifica restoreAllDefaultSettings restaurando Customizado quando estiver em Nativo
+        actNative->trigger();
+        pumpEvents(30);
+        TEST_ASSERT(ThemeManager::instance().isNativeUi(), "Pre-condicao Nativo antes de restaurar padroes");
+        wReloaded.restoreAllDefaultSettings();
+        pumpEvents(40);
+        TEST_ASSERT(ThemeManager::instance().isCustomUi() && actCustom->isChecked() &&
+                        !qApp->styleSheet().isEmpty(),
+                    "restoreAllDefaultSettings deve restaurar o modo de interface padrão Customizado");
+
+        wReloaded.close();
+        pumpEvents(40);
+    }
+
+    ThemeManager::instance().setUiStyleMode(originalMode);
+    ThemeManager::instance().setTheme(originalTheme);
+    traducao.definir_idioma(originalLang);
+}
+
+void testEmptyStartupAndInadvertentCloseProjectPreservation() {
+    auto& traducao = locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.obter_idioma_atual();
+    traducao.definir_idioma(QStringLiteral("pt_BR"));
+
+    // 1) Startup inicial completamente vazio (sem projeto estrutural, sem diagramas, sem tabelas preenchidas)
+    {
+        MainWindow wEmpty;
+        wEmpty.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wEmpty.resize(1280, 820);
+        wEmpty.show();
+        pumpEvents(60);
+
+        auto* vp = wEmpty.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr && vp->model() != nullptr, "Viewport3D deve existir no startup");
+        TEST_ASSERT(vp->model()->getNodes().empty() &&
+                        vp->model()->getElements().empty() &&
+                        vp->model()->surfaceMesh().elements.empty(),
+                    "Startup deve iniciar com modelo completamente vazio (0 nos, 0 barras, 0 malha 2D/3D)");
+        TEST_ASSERT(!vp->hasPostAnimation() && vp->postContourMode() == Viewport3D::PostContourMode::None,
+                    "Startup vazio nao deve exibir pos-processamento/contornos");
+        TEST_ASSERT(!wEmpty.hasUnsavedEdits(), "Startup vazio nao deve iniciar com alterações não salvas");
+        for (const char* tblName : {"dispTable", "reacTable", "forcesTable", "continuumTable"}) {
+            auto* tbl = wEmpty.findChild<QTableWidget*>(QString::fromLatin1(tblName));
+            TEST_ASSERT(tbl != nullptr && tbl->rowCount() == 0,
+                        std::string("Tabela ") + tblName + " deve iniciar vazia (0 linhas)");
+        }
+
+        // Verifica traducao dinamica dos novos itens do menu Arquivo e barra de status
+        QAction* actSave = nullptr;
+        QAction* actSaveAs = nullptr;
+        QAction* actRecover = nullptr;
+        if (QMenuBar* mb = wEmpty.menuBar()) {
+            if (!mb->actions().isEmpty() && mb->actions().first()->menu()) {
+                for (QAction* act : mb->actions().first()->menu()->actions()) {
+                    if (act->text().contains(QStringLiteral("Salvar (.omniframe)"))) actSave = act;
+                    if (act->text().contains(QStringLiteral("Salvar Como"))) actSaveAs = act;
+                    if (act->text().contains(QStringLiteral("Recuperar"))) actRecover = act;
+                }
+            }
+        }
+        TEST_ASSERT(actSave != nullptr && actSaveAs != nullptr && actRecover != nullptr,
+                    "Menu Arquivo deve expor Salvar, Salvar Como e Recuperar Sessão Anterior");
+        TEST_ASSERT(!actRecover->isEnabled(),
+                    "Recuperar Sessão Anterior deve ficar desabilitado quando não há rascunho anterior");
+
+        TEST_ASSERT(traducao.definir_idioma(QStringLiteral("en_US")), "Alternar para en_US no startup vazio");
+        pumpEvents(40);
+        TEST_ASSERT(actSave->text() == QStringLiteral("Save (.omniframe)") &&
+                        actSaveAs->text() == QStringLiteral("Save As (.omniframe)...") &&
+                        actRecover->text() == QStringLiteral("Recover Previous Session..."),
+                    "Novas ações do menu Arquivo devem traduzir dinamicamente para inglês");
+
+        bool foundReadyToModel = false;
+        for (auto* lbl : wEmpty.findChildren<QLabel*>()) {
+            if (lbl->text() == QStringLiteral("Ready to model.")) {
+                foundReadyToModel = true;
+                break;
+            }
+        }
+        TEST_ASSERT(foundReadyToModel, "Status bar inicial vazio deve traduzir dinamicamente para 'Ready to model.'");
+        TEST_ASSERT(traducao.definir_idioma(QStringLiteral("pt_BR")), "Restaurar pt_BR");
+        pumpEvents(30);
+
+        wEmpty.close();
+        pumpEvents(40);
+    }
+
+    // 2) Edições estruturais completas + proteção contra fechamento inadvertido + recuperação automática
+    {
+        MainWindow wWork;
+        wWork.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wWork.resize(1280, 820);
+        wWork.show();
+        pumpEvents(60);
+
+        auto* vp = wWork.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr && vp->model() != nullptr, "Viewport ativo");
+        StructuralModel* m = vp->model();
+
+        const NodeId n1 = m->addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = m->addNode(4.5, 0.0, 3.0);
+        if (Node* np1 = m->findNode(n1)) {
+            np1->support = SupportRestraint::makeFixed();
+            np1->support.springStiffness[2] = 4200.0;
+        }
+        if (Node* np2 = m->findNode(n2)) {
+            np2->load.force = {15.0, 0.0, -35.0};
+        }
+        const ElementId e1 = m->addElement(n1, n2, 1, 2, 0.15);
+        if (Element* el = m->findElement(e1)) {
+            el->releases.end[4] = true;
+            el->distLoad.active = true;
+            el->distLoad.w = {0.0, 0.0, -12.0};
+            el->thermalLoad.active = true;
+            el->thermalLoad.deltaT = 18.0;
+        }
+        m->metadata().projectName = "Galpão Industrial Protegido";
+        m->metadata().windV0_ms = 44.0;
+        m->solverOptions().type = kernel::LinearSolverType::SparseLU;
+        m->pushUndo();
+        TEST_ASSERT(QMetaObject::invokeMethod(&wWork, "onModelModified", Qt::DirectConnection),
+                    "Notificar modificação estrutural");
+        pumpEvents(50);
+
+        TEST_ASSERT(wWork.hasUnsavedEdits() && wWork.windowTitle().contains(QStringLiteral("[*]")),
+                    "Edição estrutural deve marcar projeto com alterações não salvas");
+
+        // Simula tentativa de saída pelo menu Arquivo > Sair: deve pausar e perguntar antes de fechar
+        QAction* actQuit = nullptr;
+        if (QMenuBar* mb = wWork.menuBar()) {
+            if (!mb->actions().isEmpty() && mb->actions().first()->menu()) {
+                for (QAction* act : mb->actions().first()->menu()->actions()) {
+                    if (act->text() == QStringLiteral("Sair") || act->text() == QStringLiteral("Quit") ||
+                        act->text() == QStringLiteral("Exit")) {
+                        actQuit = act;
+                    }
+                }
+            }
+        }
+        TEST_ASSERT(actQuit != nullptr, "Ação Sair deve existir no menu Arquivo");
+        actQuit->trigger();
+        pumpEvents(50);
+
+        auto* closeMsg = findVisibleTopLevel<QMessageBox>();
+        TEST_ASSERT(wWork.isVisible() && closeMsg != nullptr,
+                    "Tentativa interativa de fechar projeto não salvo deve exibir confirmação e manter GUI aberta");
+        QAbstractButton* cancelBtn = nullptr;
+        for (QAbstractButton* b : closeMsg->buttons()) {
+            if (b->text() == QStringLiteral("Cancelar")) cancelBtn = b;
+        }
+        TEST_ASSERT(cancelBtn != nullptr, "Diálogo de fechamento deve conter botão Cancelar");
+        cancelBtn->click();
+        pumpEvents(50);
+        TEST_ASSERT(wWork.isVisible() && vp->model()->getNodes().size() == 2,
+                    "Cancelar fechamento deve manter janela e todas as edições intactas");
+
+        // Simula fechamento da janela: deve gravar snapshot atômico de recuperação em disco
+        wWork.close();
+        pumpEvents(50);
+    }
+
+    TEST_ASSERT(omniframe::io::ProjectRecoveryStore::inspectSnapshot().available,
+                "Snapshot de recuperação automática deve existir em disco após fechar sem salvar");
+
+    // 3) Reabertura após fechamento inadvertido: inicia VAZIO na viewport e oferece recuperação integral
+    QTemporaryDir saveTmp;
+    TEST_ASSERT(saveTmp.isValid(), "QTemporaryDir para salvamento final");
+    const QString finalProjectPath = saveTmp.filePath(QStringLiteral("galpao_final.omniframe"));
+
+    {
+        MainWindow wRecovered;
+        wRecovered.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wRecovered.resize(1280, 820);
+        wRecovered.show();
+        pumpEvents(80);
+
+        auto* vp = wRecovered.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr && vp->model() != nullptr &&
+                        vp->model()->getNodes().empty() && vp->model()->getElements().empty(),
+                    "Mesmo havendo sessão recuperável, a reabertura deve iniciar com viewport vazia");
+
+        auto* recBox = findVisibleTopLevel<QMessageBox>();
+        TEST_ASSERT(recBox != nullptr,
+                    "Ao existir sessão não salva anterior, a abertura deve oferecer recuperação não-bloqueante");
+        TEST_ASSERT(recBox->windowTitle() == QStringLiteral("Retomar Sessão Anterior") &&
+                        recBox->text().contains(QStringLiteral("Galpão Industrial Protegido")),
+                    "Prompt inicial deve identificar o nome do projeto não salvo em português");
+
+        // Valida tradução dinâmica em tempo de execução no diálogo aberto de retomada de sessão
+        traducao.definir_idioma("en_US");
+        pumpEvents(40);
+        TEST_ASSERT(recBox->windowTitle() == QStringLiteral("Resume Previous Session") &&
+                        recBox->text().contains(QStringLiteral("Galpão Industrial Protegido")) &&
+                        recBox->text().contains(QStringLiteral("Would you like to load the previous edit or start a new project?")),
+                    "Prompt aberto de retomada deve traduzir dinamicamente para inglês em tempo de execução");
+        QAbstractButton* btnRecoverEn = nullptr;
+        QAbstractButton* btnNewEn = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Load Previous Edit")) btnRecoverEn = b;
+            if (b->text() == QStringLiteral("Start New Project")) btnNewEn = b;
+        }
+        TEST_ASSERT(btnRecoverEn != nullptr && btnNewEn != nullptr,
+                    "Botões do prompt de retomada devem traduzir para inglês dinamicamente");
+
+        traducao.definir_idioma("pt_BR");
+        pumpEvents(40);
+        QAbstractButton* btnRecover = nullptr;
+        QAbstractButton* btnStartNew = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Carregar Edição Anterior")) btnRecover = b;
+            if (b->text() == QStringLiteral("Iniciar Novo Projeto")) btnStartNew = b;
+        }
+        TEST_ASSERT(btnRecover != nullptr && btnStartNew != nullptr,
+                    "Prompt de recuperação deve possuir botões 'Carregar Edição Anterior' e 'Iniciar Novo Projeto'");
+        btnRecover->click();
+        pumpEvents(60);
+
+        const StructuralModel* restored = vp->model();
+        TEST_ASSERT(restored->getNodes().size() == 2 && restored->getElements().size() == 1 &&
+                        restored->metadata().projectName == "Galpão Industrial Protegido" &&
+                        std::abs(restored->metadata().windV0_ms - 44.0) < 1e-6 &&
+                        restored->solverOptions().type == kernel::LinearSolverType::SparseLU &&
+                        std::abs(restored->findNode(1)->support.springStiffness[2] - 4200.0) < 1e-6 &&
+                        restored->findElement(1)->thermalLoad.active &&
+                        std::abs(restored->findElement(1)->thermalLoad.deltaT - 18.0) < 1e-6 &&
+                        wRecovered.hasUnsavedEdits(),
+                    "Recuperação deve restaurar integralmente toda a produção estrutural editada");
+
+        TEST_ASSERT(wRecovered.saveProjectToPath(finalProjectPath),
+                    "Salvar projeto recuperado deve gravar arquivo .omniframe final");
+        TEST_ASSERT(!wRecovered.hasUnsavedEdits() &&
+                        !omniframe::io::ProjectRecoveryStore::inspectSnapshot().available,
+                    "Salvar no arquivo final deve limpar pendência e remover rascunho temporário de recuperação");
+        const omniframe::io::ProjectRecoveryInfo savedSessionInfo =
+            omniframe::io::ProjectRecoveryStore::inspectPreviousSession();
+        TEST_ASSERT(savedSessionInfo.available && !savedSessionInfo.hasUnsavedChanges &&
+                        savedSessionInfo.sourceKind == omniframe::io::SessionSourceKind::SavedProject &&
+                        savedSessionInfo.projectFilePath == finalProjectPath,
+                    "Após salvar projeto, estado de sessão deve registrar o projeto salvo ativo");
+        TEST_ASSERT(wRecovered.currentProjectFilePath() == finalProjectPath,
+                    "Caminho ativo do projeto deve ser atualizado após salvar");
+
+        wRecovered.close();
+        pumpEvents(40);
+    }
+
+    // 3b) Reinício com projeto salvo "x" limpo aberto ao sair: inicia vazio, identifica "x" e recarrega se aceito
+    {
+        MainWindow wResumeProj;
+        wResumeProj.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wResumeProj.resize(1280, 820);
+        wResumeProj.show();
+        pumpEvents(80);
+
+        auto* vp = wResumeProj.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr && vp->model() != nullptr &&
+                        vp->model()->getNodes().empty() && vp->model()->getElements().empty(),
+                    "Mesmo havendo projeto salvo anterior, app deve iniciar com viewport vazia");
+
+        auto* recBox = findVisibleTopLevel<QMessageBox>();
+        TEST_ASSERT(recBox != nullptr &&
+                        recBox->text().contains(QFileInfo(finalProjectPath).fileName()),
+                    "Prompt de inicialização deve identificar o projeto anterior aberto na tela");
+
+        traducao.definir_idioma("en_US");
+        pumpEvents(40);
+        QAbstractButton* btnLoadProjEn = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Load Previous Project")) btnLoadProjEn = b;
+        }
+        TEST_ASSERT(btnLoadProjEn != nullptr &&
+                        recBox->text().contains(QStringLiteral("project")) &&
+                        recBox->text().contains(QFileInfo(finalProjectPath).fileName()),
+                    "Prompt de projeto anterior deve traduzir para inglês preservando nome do projeto");
+        traducao.definir_idioma("pt_BR");
+        pumpEvents(40);
+
+        QAbstractButton* btnLoadProj = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Carregar Projeto Anterior")) btnLoadProj = b;
+        }
+        TEST_ASSERT(btnLoadProj != nullptr, "Botão 'Carregar Projeto Anterior' deve estar presente");
+        btnLoadProj->click();
+        pumpEvents(60);
+
+        TEST_ASSERT(vp->model()->getNodes().size() == 2 && vp->model()->getElements().size() == 1 &&
+                        !wResumeProj.hasUnsavedEdits() &&
+                        wResumeProj.currentProjectFilePath() == finalProjectPath,
+                    "Aceitar 'Carregar Projeto Anterior' deve reabrir o projeto salvo x intacto");
+
+        // Agora abre um exemplo pré-definido ("Exemplo 2: Balanço Espacial em L") e fecha o app
+        wResumeProj.loadExampleCantilever();
+        pumpEvents(40);
+        TEST_ASSERT(vp->model()->getNodes().size() == 3 && !wResumeProj.hasUnsavedEdits(),
+                    "Exemplo 2 deve carregar limpo sem alterações pendentes");
+        wResumeProj.close();
+        pumpEvents(40);
+    }
+
+    // 3c) Reinício após fechar com exemplo pré-definido aberto: identifica exemplo "y", traduz em tempo real e recarrega
+    {
+        MainWindow wResumeEx;
+        wResumeEx.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wResumeEx.resize(1280, 820);
+        wResumeEx.show();
+        pumpEvents(80);
+
+        auto* vp = wResumeEx.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr && vp->model() != nullptr &&
+                        vp->model()->getNodes().empty() && vp->model()->getElements().empty(),
+                    "Mesmo tendo deixado exemplo aberto na sessão anterior, reinício deve começar vazio");
+
+        auto* recBox = findVisibleTopLevel<QMessageBox>();
+        TEST_ASSERT(recBox != nullptr &&
+                        recBox->text().contains(QStringLiteral("Exemplo 2: Balanço Espacial em L")),
+                    "Prompt deve identificar o exemplo estrutural pré-definido aberto na sessão anterior");
+
+        traducao.definir_idioma("en_US");
+        pumpEvents(40);
+        QAbstractButton* btnLoadExEn = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Load Previous Example")) btnLoadExEn = b;
+        }
+        TEST_ASSERT(btnLoadExEn != nullptr &&
+                        recBox->text().contains(QStringLiteral("Example 2: 3D L-Shaped Cantilever")),
+                    "Nome do exemplo e botões do prompt devem traduzir em tempo de execução para inglês");
+        btnLoadExEn->click();
+        pumpEvents(60);
+
+        TEST_ASSERT(vp->model()->getNodes().size() == 3 && vp->model()->getElements().size() == 2 &&
+                        !wResumeEx.hasUnsavedEdits(),
+                    "Aceitar carregamento deve restaurar o Exemplo 2 completo");
+
+        // Edita o exemplo e encerra para testar prioridade de "Carregar Edição Anterior" sobre exemplo base
+        traducao.definir_idioma("pt_BR");
+        pumpEvents(20);
+        vp->model()->addNode(9.0, 9.0, 4.0);
+        vp->model()->pushUndo();
+        TEST_ASSERT(QMetaObject::invokeMethod(&wResumeEx, "onModelModified", Qt::DirectConnection),
+                    "Notificar modificação no Exemplo 2");
+        pumpEvents(50);
+        wResumeEx.close();
+        pumpEvents(50);
+    }
+
+    // 3d) Reinício após editar exemplo: restaura edição anterior, depois valida "Iniciar Novo Projeto" limpando sessão
+    {
+        MainWindow wResumeEditedEx;
+        wResumeEditedEx.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wResumeEditedEx.resize(1280, 820);
+        wResumeEditedEx.show();
+        pumpEvents(80);
+
+        auto* vp = wResumeEditedEx.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr && vp->model() != nullptr && vp->model()->getNodes().empty(),
+                    "Reinício com exemplo editado também deve iniciar vazio na viewport");
+
+        auto* recBox = findVisibleTopLevel<QMessageBox>();
+        TEST_ASSERT(recBox != nullptr &&
+                        recBox->text().contains(QStringLiteral("Exemplo 2: Balanço Espacial em L")),
+                    "Prompt deve identificar que as edições não salvas pertencem ao Exemplo 2");
+        QAbstractButton* btnLoadEdit = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Carregar Edição Anterior")) btnLoadEdit = b;
+        }
+        TEST_ASSERT(btnLoadEdit != nullptr,
+                    "Exemplo com edições não salvas deve oferecer 'Carregar Edição Anterior'");
+        btnLoadEdit->click();
+        pumpEvents(60);
+
+        TEST_ASSERT(vp->model()->getNodes().size() == 4 && wResumeEditedEx.hasUnsavedEdits(),
+                    "Carregar Edição Anterior deve preservar os nós editados além dos 3 originais do Exemplo 2");
+        wResumeEditedEx.close();
+        pumpEvents(50);
+    }
+
+    {
+        MainWindow wDeclineSession;
+        wDeclineSession.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wDeclineSession.resize(1280, 820);
+        wDeclineSession.show();
+        pumpEvents(80);
+
+        auto* vp = wDeclineSession.findChild<Viewport3D*>();
+        auto* recBox = findVisibleTopLevel<QMessageBox>();
+        TEST_ASSERT(recBox != nullptr, "Prompt de retomada deve aparecer antes de optar por novo projeto");
+        QAbstractButton* btnNew = nullptr;
+        for (QAbstractButton* b : recBox->buttons()) {
+            if (b->text() == QStringLiteral("Iniciar Novo Projeto")) btnNew = b;
+        }
+        TEST_ASSERT(btnNew != nullptr, "Botão 'Iniciar Novo Projeto' deve estar disponível");
+        btnNew->click();
+        pumpEvents(50);
+
+        TEST_ASSERT(vp->model()->getNodes().empty() && vp->model()->getElements().empty() &&
+                        !omniframe::io::ProjectRecoveryStore::inspectPreviousSession().available &&
+                        !omniframe::io::ProjectRecoveryStore::inspectSnapshot().available,
+                    "Escolher 'Iniciar Novo Projeto' deve manter viewport vazia e limpar sessão anterior");
+        wDeclineSession.close();
+        pumpEvents(40);
+    }
+
+    // 4) Planos de trabalho (Planta XY e Lateral YZ) e exemplos nunca podem ser cortados ao meio por ClipPlane residual
+    {
+        MainWindow wClip;
+        wClip.resize(1000, 720);
+        wClip.show();
+        pumpEvents(60);
+
+        auto* vp = wClip.findChild<Viewport3D*>();
+        TEST_ASSERT(vp != nullptr, "Viewport3D deve existir para teste de corte e planos");
+        vp->setClipPlane(Viewport3D::ClipAxis::Y, 2.5, true);
+        vp->setGridStep(0.5);
+        pumpEvents(30);
+
+        // Na vista em Planta (XY) e Lateral (YZ), ambas as metades (superior e inferior do grid) devem renderizar linhas do plano
+        auto verifyGridSymmetricCoverage = [&](WorkPlane wp, const char* tag) {
+            vp->setWorkPlane(wp);
+            if (wp == WorkPlane::XY_Top) {
+                vp->viewTopXY();
+            } else {
+                vp->viewSideYZ();
+            }
+            vp->fitAll();
+            vp->update();
+            pumpEvents(60);
+            const QImage frame = vp->grabFramebuffer();
+            TEST_ASSERT(!frame.isNull() && frame.width() > 200 && frame.height() > 200,
+                        std::string("Captura do Viewport deve ser valida em ") + tag);
+            const QColor bg = frame.pixelColor(frame.width() - 4, 4);
+            auto countNonBgInBand = [&](int y0, int y1) {
+                int count = 0;
+                for (int y = y0; y < y1; y += 2) {
+                    for (int x = frame.width() / 4; x < (frame.width() * 3) / 4; x += 2) {
+                        const QColor px = frame.pixelColor(x, y);
+                        const int diff = std::abs(px.red() - bg.red()) +
+                                         std::abs(px.green() - bg.green()) +
+                                         std::abs(px.blue() - bg.blue());
+                        if (diff > 24) {
+                            ++count;
+                        }
+                    }
+                }
+                return count;
+            };
+            const int topHalfPixels = countNonBgInBand(frame.height() / 5, frame.height() / 2 - 10);
+            const int botHalfPixels = countNonBgInBand(frame.height() / 2 + 10, (frame.height() * 4) / 5);
+            TEST_ASSERT(topHalfPixels > 20 && botHalfPixels > 20,
+                        std::string("Plano de trabalho ") + tag + " deve renderizar ambas as metades sem corte pela metade");
+        };
+
+        verifyGridSymmetricCoverage(WorkPlane::XY_Top, "Planta (XY)");
+        verifyGridSymmetricCoverage(WorkPlane::YZ_Side, "Lateral (YZ)");
+
+        // Carregar qualquer dos 3 exemplos deve limpar o ClipAxis residual para não cortar a estrutura
+        wClip.loadExampleBuilding();
+        pumpEvents(40);
+        TEST_ASSERT(vp->clipAxis() == Viewport3D::ClipAxis::None &&
+                        vp->model()->getNodes().size() == 12,
+                    "loadExampleBuilding deve limpar plano de corte residual e carregar todos os 12 nós");
+        wClip.loadExampleCantilever();
+        pumpEvents(40);
+        TEST_ASSERT(vp->clipAxis() == Viewport3D::ClipAxis::None,
+                    "loadExampleCantilever deve limpar plano de corte residual");
+        wClip.loadExampleSpaceTruss();
+        pumpEvents(40);
+        TEST_ASSERT(vp->clipAxis() == Viewport3D::ClipAxis::None,
+                    "loadExampleSpaceTruss deve limpar plano de corte residual");
+
+        wClip.close();
+        pumpEvents(40);
+    }
+
+    traducao.definir_idioma(originalLang);
+}
+
+void testStartupPolicyConfigurationAndLogsIntegration() {
+    auto& traducao = locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.obter_idioma_atual();
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const UiStyleMode originalMode = ThemeManager::instance().uiStyleMode();
+    traducao.definir_idioma(QStringLiteral("pt_BR"));
+
+    omniframe::io::AppLogger::initialize(true, false);
+
+    // 1) Verifica menu "Sessão, Inicialização e Logs", diálogo não-bloqueante, temas e tradução dinâmica
+    {
+        MainWindow wCfg;
+        wCfg.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wCfg.resize(1280, 820);
+        wCfg.show();
+        pumpEvents(60);
+
+        TEST_ASSERT(wCfg.startupSessionBehavior() == omniframe::io::StartupSessionBehavior::AskOnStartup &&
+                        wCfg.confirmUnsavedOnClose(),
+                    "Configuração inicial padrão deve perguntar ao iniciar e confirmar ao sair");
+
+        QMenu* startupMenu = wCfg.findChild<QMenu*>(QStringLiteral("startupSessionMenu"));
+        QAction* actAsk = wCfg.findChild<QAction*>(QStringLiteral("actStartupAsk"));
+        QAction* actAutoLoad = wCfg.findChild<QAction*>(QStringLiteral("actStartupAutoLoad"));
+        QAction* actNewProj = wCfg.findChild<QAction*>(QStringLiteral("actStartupNewProject"));
+        QAction* actConfirmClose = wCfg.findChild<QAction*>(QStringLiteral("actConfirmUnsavedOnClose"));
+        QAction* actOpenDlg = wCfg.findChild<QAction*>(QStringLiteral("actOpenStartupSessionDialog"));
+        QAction* actOpenLogs = wCfg.findChild<QAction*>(QStringLiteral("actOpenLogDirectory"));
+        TEST_ASSERT(startupMenu && actAsk && actAutoLoad && actNewProj &&
+                        actConfirmClose && actOpenDlg && actOpenLogs,
+                    "Todas as ações do submenu Sessão, Inicialização e Logs devem existir");
+        TEST_ASSERT(startupMenu->title() == QStringLiteral("Sessão, Inicialização e Logs") &&
+                        actAsk->isChecked() && actConfirmClose->isChecked(),
+                    "Estado inicial e títulos do submenu devem refletir padrão em português");
+
+        actOpenDlg->trigger();
+        pumpEvents(50);
+        StartupSessionDialog* dlg = nullptr;
+        for (QWidget* top : QApplication::topLevelWidgets()) {
+            if (auto* sd = qobject_cast<StartupSessionDialog*>(top); sd && sd->isVisible()) {
+                dlg = sd;
+                break;
+            }
+        }
+        TEST_ASSERT(dlg != nullptr && !dlg->isModal(),
+                    "StartupSessionDialog deve abrir de forma não-bloqueante");
+
+        TEST_ASSERT(traducao.definir_idioma(QStringLiteral("en_US")), "Alternar para en_US");
+        pumpEvents(40);
+        TEST_ASSERT(startupMenu->title() == QStringLiteral("Session, Startup and Logs") &&
+                        actAsk->text() == QStringLiteral("Ask on startup (Show dialog)") &&
+                        actAutoLoad->text() == QStringLiteral("Automatically load previous project or example") &&
+                        actNewProj->text() == QStringLiteral("Always start a new project (Empty)") &&
+                        actOpenDlg->text() == QStringLiteral("Configure Startup, Session and Logs...") &&
+                        actOpenLogs->text() == QStringLiteral("Open Logs Folder...") &&
+                        dlg->windowTitle() == QStringLiteral("Session, Startup and Log Settings"),
+                    "Submenu e StartupSessionDialog devem traduzir dinamicamente para inglês em tempo de execução");
+
+        TEST_ASSERT(traducao.definir_idioma(QStringLiteral("pt_BR")), "Retornar para pt_BR");
+        pumpEvents(40);
+        TEST_ASSERT(dlg->windowTitle() == QStringLiteral("Configurações de Sessão, Inicialização e Logs"),
+                    "StartupSessionDialog deve retornar ao título em português em tempo de execução");
+
+        auto* logDirEdit = dlg->findChild<QLineEdit*>(QStringLiteral("logDirPathEdit"));
+        auto* logFileEdit = dlg->findChild<QLineEdit*>(QStringLiteral("logCurrentFileEdit"));
+        auto* logPreview = dlg->findChild<QPlainTextEdit*>(QStringLiteral("logPreviewEdit"));
+        TEST_ASSERT(logDirEdit && logFileEdit && logPreview &&
+                        QDir::fromNativeSeparators(logDirEdit->text()).endsWith(QStringLiteral("/log")) &&
+                        QFileInfo(logFileEdit->text()).fileName() ==
+                            omniframe::io::AppLogger::logFileNameForDate(QDate::currentDate()) &&
+                        !logPreview->toPlainText().isEmpty(),
+                    "Diálogo deve exibir diretório, nome omniframe_aaaa-mm-dd.log e conteúdo gravado");
+
+        ThemeManager::instance().setUiStyleMode(UiStyleMode::Native);
+        ThemeManager::instance().setTheme(UiTheme::Light);
+        pumpEvents(25);
+        ThemeManager::instance().setUiStyleMode(UiStyleMode::Custom);
+        ThemeManager::instance().setTheme(UiTheme::Dark);
+        pumpEvents(25);
+
+        auto* radioAuto = dlg->findChild<QRadioButton*>(QStringLiteral("radioStartupAutoLoad"));
+        auto* chkClose = dlg->findChild<QCheckBox*>(QStringLiteral("chkConfirmUnsavedOnClose"));
+        TEST_ASSERT(radioAuto && chkClose, "Controles radio/checkbox do StartupSessionDialog devem existir");
+        radioAuto->click();
+        chkClose->click();
+        pumpEvents(40);
+
+        TEST_ASSERT(wCfg.startupSessionBehavior() == omniframe::io::StartupSessionBehavior::AutoLoadPrevious &&
+                        !wCfg.confirmUnsavedOnClose() &&
+                        actAutoLoad->isChecked() && !actConfirmClose->isChecked(),
+                    "Alterações no StartupSessionDialog devem sincronizar menu e MainWindow em tempo real");
+
+        actOpenLogs->trigger();
+        pumpEvents(30);
+        dlg->close();
+        pumpEvents(30);
+
+        wCfg.loadExampleCantilever();
+        pumpEvents(40);
+        auto* vp = wCfg.findChild<Viewport3D*>();
+        TEST_ASSERT(vp && vp->model() && vp->model()->getNodes().size() == 3,
+                    "Exemplo 2 carregado com 3 nós");
+        vp->model()->addNode(7.0, 6.0, 2.0);
+        vp->model()->pushUndo();
+        TEST_ASSERT(QMetaObject::invokeMethod(&wCfg, "onModelModified", Qt::DirectConnection),
+                    "Notificar modificação estrutural");
+        pumpEvents(40);
+
+        QAction* actQuit = nullptr;
+        if (QMenuBar* mb = wCfg.menuBar()) {
+            if (!mb->actions().isEmpty() && mb->actions().first()->menu()) {
+                for (QAction* act : mb->actions().first()->menu()->actions()) {
+                    if (act->text() == QStringLiteral("Sair") || act->text() == QStringLiteral("Quit")) {
+                        actQuit = act;
+                    }
+                }
+            }
+        }
+        TEST_ASSERT(actQuit != nullptr, "Ação Sair deve existir no menu Arquivo");
+        actQuit->trigger();
+        pumpEvents(50);
+
+        TEST_ASSERT(findVisibleTopLevel<QMessageBox>() == nullptr && !wCfg.isVisible(),
+                    "Com confirmUnsavedOnClose=false, Sair deve fechar imediatamente preservando rascunho de recuperação");
+    }
+
+    // Confirma persistência de startupSessionBehavior = "auto_load" em user_preferences.json
+    {
+        bool ok = false;
+        const QJsonObject root = omniframe::io::UserPreferencesStore::readRootObject(&ok);
+        const QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
+        TEST_ASSERT(ok &&
+                        appObj.value(QStringLiteral("startupSessionBehavior")).toString() ==
+                            QStringLiteral("auto_load") &&
+                        !appObj.value(QStringLiteral("confirmUnsavedOnClose")).toBool(true),
+                    "Preferências de inicialização devem estar persistidas em user_preferences.json");
+    }
+
+    // 2) Reinício com AutoLoadPrevious: carrega automaticamente o exemplo/edição anterior sem exibir diálogo
+    {
+        MainWindow wAutoResume;
+        wAutoResume.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wAutoResume.resize(1280, 820);
+        wAutoResume.show();
+        pumpEvents(90);
+
+        auto* vp = wAutoResume.findChild<Viewport3D*>();
+        TEST_ASSERT(findVisibleTopLevel<QMessageBox>() == nullptr &&
+                        vp != nullptr && vp->model() != nullptr &&
+                        vp->model()->getNodes().size() == 4 &&
+                        wAutoResume.hasUnsavedEdits(),
+                    "Com AutoLoadPrevious configurado, app deve carregar automaticamente o exemplo editado sem emitir diálogo");
+
+        QAction* actNewProj = wAutoResume.findChild<QAction*>(QStringLiteral("actStartupNewProject"));
+        TEST_ASSERT(actNewProj != nullptr, "Ação Sempre Iniciar Novo Projeto deve existir");
+        actNewProj->trigger();
+        pumpEvents(30);
+        wAutoResume.loadExampleSpaceTruss();
+        pumpEvents(50);
+        TEST_ASSERT(!vp->model()->getNodes().empty(), "Exemplo 3 carregado antes de encerrar");
+
+        wAutoResume.close();
+        pumpEvents(50);
+    }
+
+    // 3) Reinício com AlwaysStartNew: inicia sempre vazio sem exibir diálogo e limpa estado anterior
+    {
+        MainWindow wAlwaysNew;
+        wAlwaysNew.setAttribute(Qt::WA_DontShowOnScreen, true);
+        wAlwaysNew.resize(1280, 820);
+        wAlwaysNew.show();
+        pumpEvents(90);
+
+        auto* vp = wAlwaysNew.findChild<Viewport3D*>();
+        TEST_ASSERT(findVisibleTopLevel<QMessageBox>() == nullptr &&
+                        vp != nullptr && vp->model() != nullptr &&
+                        vp->model()->getNodes().empty() && vp->model()->getElements().empty() &&
+                        !omniframe::io::ProjectRecoveryStore::inspectPreviousSession().available,
+                    "Com AlwaysStartNew configurado, app deve iniciar vazio sem prompt e limpar sessão anterior");
+
+        if (auto* actOpenDlg = wAlwaysNew.findChild<QAction*>(QStringLiteral("actOpenStartupSessionDialog"))) {
+            actOpenDlg->trigger();
+            pumpEvents(40);
+            StartupSessionDialog* dlg = nullptr;
+            for (QWidget* top : QApplication::topLevelWidgets()) {
+                if (auto* sd = qobject_cast<StartupSessionDialog*>(top); sd && sd->isVisible()) {
+                    dlg = sd;
+                    break;
+                }
+            }
+            TEST_ASSERT(dlg != nullptr, "StartupSessionDialog deve abrir no teste de restauração");
+            auto* btnRestore = dlg->findChild<QPushButton*>(QStringLiteral("btnStartupRestoreDefaults"));
+            TEST_ASSERT(btnRestore != nullptr, "Botão Restaurar Padrão deve existir");
+            btnRestore->click();
+            pumpEvents(30);
+            TEST_ASSERT(wAlwaysNew.startupSessionBehavior() == omniframe::io::StartupSessionBehavior::AskOnStartup &&
+                            wAlwaysNew.confirmUnsavedOnClose(),
+                        "Restaurar Padrão deve restabelecer AskOnStartup e confirmUnsavedOnClose=true");
+            dlg->close();
+        }
+        wAlwaysNew.close();
+        pumpEvents(40);
+    }
+
+    // 4) Confirma registros completos no arquivo omniframe_aaaa-mm-dd.log no diretório isolado
+    {
+        omniframe::io::AppLogger::flush();
+        const QString logFile = omniframe::io::AppLogger::currentLogFilePath();
+        QFile f(logFile);
+        TEST_ASSERT(QFile::exists(logFile) && f.open(QIODevice::ReadOnly | QIODevice::Text),
+                    "Arquivo de log diario do fluxo UI deve existir");
+        const QString contents = QString::fromUtf8(f.readAll());
+        TEST_ASSERT(contents.contains(QStringLiteral("AutoLoadPrevious")) &&
+                        contents.contains(QStringLiteral("AlwaysStartNew")) &&
+                        contents.contains(QStringLiteral("[MainWindow]")) &&
+                        contents.contains(QStringLiteral("[Settings]")),
+                    "Arquivo de log da GUI deve registrar eventos de inicializacao, politicas e configuracoes");
+        TEST_ASSERT(omniframe::io::AppLogger::existingLogFiles().size() <= omniframe::io::AppLogger::kMaxLogFiles,
+                    "Quantidade de arquivos de log na pasta nao deve ultrapassar 10");
+    }
+
+    ThemeManager::instance().setUiStyleMode(originalMode);
+    ThemeManager::instance().setTheme(originalTheme);
+    traducao.definir_idioma(originalLang);
+}
+
+void testToolbarOverflowExtensionArrowsAllModes() {
+    auto& traducao = locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.obter_idioma_atual();
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const UiStyleMode originalMode = ThemeManager::instance().uiStyleMode();
+
+    traducao.definir_idioma(QStringLiteral("pt_BR"));
+
+    MainWindow w;
+    w.setAttribute(Qt::WA_DontShowOnScreen, true);
+    w.resize(1200, 760);
+    w.show();
+    pumpEvents(80);
+
+    // Parte A: No modo Nativo (Escuro e Claro), validar moldura nos botões de dock + pontinhos nas barras de arraste
+    auto* inspBtn = w.findChild<QToolButton*>(QStringLiteral("inspectorCollapseButton"));
+    auto* resBtn = w.findChild<QToolButton*>(QStringLiteral("resultsCollapseButton"));
+    auto* viewport = w.findChild<Viewport3D*>();
+    TEST_ASSERT(inspBtn && resBtn && viewport, "Botões de dock e viewport devem existir");
+    auto* inspDock = qobject_cast<QDockWidget*>(inspBtn->parentWidget() ? inspBtn->parentWidget()->parentWidget() : nullptr);
+    auto* resDock = qobject_cast<QDockWidget*>(resBtn->parentWidget() ? resBtn->parentWidget()->parentWidget() : nullptr);
+    TEST_ASSERT(inspDock && resDock, "Docks Inspetor e Tabelas de Resultados devem existir");
+
+    for (const UiTheme nativeTheme : {UiTheme::Dark, UiTheme::Light}) {
+        ThemeManager::instance().setUiStyleMode(UiStyleMode::Native);
+        ThemeManager::instance().setTheme(nativeTheme);
+        w.resize(1200, 760);
+        pumpEvents(70);
+
+        const char* tag = (nativeTheme == UiTheme::Light) ? "Nativo Claro" : "Nativo Escuro";
+
+        // 1) Moldura visível nos botões de expandir/recolher dos dois painéis dock
+        for (QToolButton* dBtn : {inspBtn, resBtn}) {
+            TEST_ASSERT(dBtn->autoRaise() && dBtn->styleSheet().isEmpty() && dBtn->size() == QSize(22, 22),
+                        std::string("Botão de dock deve manter propriedades nativas em ") + tag);
+            const QImage btnImg = dBtn->grab().toImage();
+            TEST_ASSERT(!btnImg.isNull(), std::string("Captura do botão de dock inválida em ") + tag);
+            const QColor titleBg = dBtn->parentWidget()
+                ? dBtn->parentWidget()->palette().color(dBtn->parentWidget()->backgroundRole())
+                : dBtn->palette().color(QPalette::Window);
+            const QColor borderPx = btnImg.pixelColor(btnImg.width() / 2, 0);
+            const QColor cornerInnerPx = btnImg.pixelColor(btnImg.width() / 2, 2);
+            const int edgeDiff = std::abs(borderPx.red() - titleBg.red()) +
+                                 std::abs(borderPx.green() - titleBg.green()) +
+                                 std::abs(borderPx.blue() - titleBg.blue());
+            const int innerDiff = std::abs(borderPx.red() - cornerInnerPx.red()) +
+                                  std::abs(borderPx.green() - cornerInnerPx.green()) +
+                                  std::abs(borderPx.blue() - cornerInnerPx.blue());
+            TEST_ASSERT(edgeDiff >= 12 || innerDiff >= 12,
+                        std::string("Botão de dock deve exibir borda/moldura visível no modo ") + tag);
+        }
+
+        // 2) Seta nativa visível no botão de cada painel
+        const QColor expectedNativeArrow = (nativeTheme == UiTheme::Light)
+            ? QColor(0x1e, 0x29, 0x3b)
+            : QColor(0xe2, 0xe8, 0xf0);
+        TEST_ASSERT(hasDistinctArrowTriangle(
+                        inspBtn->grab().toImage(), inspBtn->rect(), expectedNativeArrow, Qt::LeftArrow),
+                    std::string("Seta esquerda do Inspetor deve estar nítida no modo ") + tag);
+        TEST_ASSERT(hasDistinctArrowTriangle(
+                        resBtn->grab().toImage(), resBtn->rect(), expectedNativeArrow, Qt::DownArrow),
+                    std::string("Seta inferior da Tabela de Resultados deve estar nítida no modo ") + tag);
+
+        // 3) Pontinhos nas barras de arraste: vertical do Inspetor e horizontal da Tabela de Resultados
+        const QImage winImg = w.grab().toImage();
+        TEST_ASSERT(!winImg.isNull(), std::string("Captura da janela principal inválida em ") + tag);
+
+        const QRect inspGeo = inspDock->geometry();
+        const QRect resGeo = resDock->geometry();
+        const QRect vpGeo = viewport->geometry();
+        const int vSepLeft = inspGeo.right() + 1;
+        const int vSepRight = vpGeo.left() - 1;
+        const int hSepTop = vpGeo.bottom() + 1;
+        const int hSepBottom = resGeo.top() - 1;
+        TEST_ASSERT(vSepRight >= vSepLeft + 3 && hSepBottom >= hSepTop + 3,
+                    std::string("Barras de arraste vertical e horizontal devem ter espessura mínima para pontinhos em ") + tag);
+
+        auto countContrastDotsInBand = [&](int x0, int x1, int y0, int y1, const QColor& baseBg) {
+            int count = 0;
+            for (int y = y0; y <= y1; ++y) {
+                for (int x = x0; x <= x1; ++x) {
+                    const QColor px = winImg.pixelColor(x, y);
+                    const int d = std::abs(px.red() - baseBg.red()) +
+                                  std::abs(px.green() - baseBg.green()) +
+                                  std::abs(px.blue() - baseBg.blue());
+                    if (d >= 36) {
+                        ++count;
+                    }
+                }
+            }
+            return count;
+        };
+
+        const QColor winBg = w.palette().color(QPalette::Window);
+        const int vMidY = (inspGeo.top() + inspGeo.bottom()) / 2;
+        const int vCenterDots = countContrastDotsInBand(
+            vSepLeft, vSepRight, vMidY - 18, vMidY + 18, winBg);
+        const int vCornerDots = countContrastDotsInBand(
+            vSepLeft, vSepRight, inspGeo.top() + 8, inspGeo.top() + 28, winBg);
+        TEST_ASSERT(vCenterDots >= 6 && vCenterDots > vCornerDots,
+                    std::string("Barra de arraste vertical do Inspetor deve exibir pontinhos centralizados no modo ") + tag);
+
+        const int hMidX = (resGeo.left() + resGeo.right()) / 2;
+        const int hCenterDots = countContrastDotsInBand(
+            hMidX - 18, hMidX + 18, hSepTop, hSepBottom, winBg);
+        const int hCornerDots = countContrastDotsInBand(
+            resGeo.left() + 8, resGeo.left() + 28, hSepTop, hSepBottom, winBg);
+        TEST_ASSERT(hCenterDots >= 6 && hCenterDots > hCornerDots,
+                    std::string("Barra de arraste horizontal da Tabela de Resultados deve exibir pontinhos centralizados no modo ") + tag);
+
+        // 4) Pontinhos da barra vertical (e horizontal) devem permanecer após recolher/expandir
+        //    Tabela de Resultados e Inspetor nos modos Nativo e Customizado
+        auto countSepContrast = [&](const QImage& img, int x0, int x1, int y0, int y1, const QColor& baseBg) {
+            int count = 0;
+            for (int y = y0; y <= y1; ++y) {
+                for (int x = x0; x <= x1; ++x) {
+                    const QColor px = img.pixelColor(x, y);
+                    const int d = std::abs(px.red() - baseBg.red()) +
+                                  std::abs(px.green() - baseBg.green()) +
+                                  std::abs(px.blue() - baseBg.blue());
+                    if (d >= 18) {
+                        ++count;
+                    }
+                }
+            }
+            return count;
+        };
+
+        auto assertVerticalBarDots = [&](const std::string& phaseLabel) {
+            const QImage img = w.grab().toImage();
+            const QRect ig = inspDock->geometry();
+            const QRect vg = viewport->geometry();
+            const int vl = ig.right() + 1;
+            const int vr = vg.left() - 1;
+            TEST_ASSERT(vr >= vl + 3,
+                        "Barra vertical do Inspetor deve manter largura para pontinhos (" + phaseLabel + ")");
+            TEST_ASSERT(inspDock->maximumWidth() > 1000,
+                        "Inspetor expandido nao pode ficar travado com maximumWidth==320 (" + phaseLabel + ")");
+            const QColor bg = w.palette().color(QPalette::Window);
+            const int vMid = (ig.top() + ig.bottom()) / 2;
+            const int center = countSepContrast(img, vl, vr, vMid - 18, vMid + 18, bg);
+            const int corner = countSepContrast(img, vl, vr, ig.top() + 8, ig.top() + 28, bg);
+            TEST_ASSERT(center >= 6 && center > corner,
+                        "Pontinhos da barra vertical devem permanecer visiveis (" + phaseLabel + ")");
+        };
+
+        auto assertHorizontalBarDots = [&](const std::string& phaseLabel) {
+            const QImage img = w.grab().toImage();
+            const QRect rg = resDock->geometry();
+            const QRect vg = viewport->geometry();
+            const int ht = vg.bottom() + 1;
+            const int hb = rg.top() - 1;
+            TEST_ASSERT(hb >= ht + 3,
+                        "Barra horizontal da Tabela de Resultados deve manter altura para pontinhos (" + phaseLabel + ")");
+            TEST_ASSERT(resDock->maximumHeight() > 1000,
+                        "Tabela de Resultados expandida nao pode ficar travada em height fixo (" + phaseLabel + ")");
+            const QColor bg = w.palette().color(QPalette::Window);
+            const int hMid = (rg.left() + rg.right()) / 2;
+            const int center = countSepContrast(img, hMid - 18, hMid + 18, ht, hb, bg);
+            const int corner = countSepContrast(img, rg.left() + 8, rg.left() + 28, ht, hb, bg);
+            TEST_ASSERT(center >= 6 && center > corner,
+                        "Pontinhos da barra horizontal devem permanecer visiveis (" + phaseLabel + ")");
+        };
+
+        for (const UiStyleMode checkMode : {UiStyleMode::Native, UiStyleMode::Custom}) {
+            ThemeManager::instance().setUiStyleMode(checkMode);
+            ThemeManager::instance().setTheme(nativeTheme);
+            w.resize(1200, 760);
+            pumpEvents(60);
+            const std::string mLabel = std::string(tag) + "/" +
+                (checkMode == UiStyleMode::Native ? "Nativo" : "Customizado");
+
+            resBtn->click();
+            pumpEvents(80);
+            TEST_ASSERT(w.isResultsDockCollapsed(),
+                        "Tabela de Resultados deve estar recolhida (" + mLabel + ")");
+            assertVerticalBarDots(mLabel + " apos recolher Resultados");
+
+            resBtn->click();
+            pumpEvents(80);
+            TEST_ASSERT(!w.isResultsDockCollapsed(),
+                        "Tabela de Resultados deve expandir ao clicar novamente (" + mLabel + ")");
+            assertVerticalBarDots(mLabel + " apos expandir Resultados");
+            assertHorizontalBarDots(mLabel + " apos expandir Resultados");
+
+            inspBtn->click();
+            pumpEvents(80);
+            TEST_ASSERT(w.isInspectorDockCollapsed(),
+                        "Inspetor deve estar recolhido (" + mLabel + ")");
+            inspBtn->click();
+            pumpEvents(80);
+            TEST_ASSERT(!w.isInspectorDockCollapsed(),
+                        "Inspetor deve expandir ao clicar novamente (" + mLabel + ")");
+            assertVerticalBarDots(mLabel + " apos recolher/expandir Inspetor");
+            assertHorizontalBarDots(mLabel + " apos recolher/expandir Inspetor");
+
+            if (checkMode == UiStyleMode::Native) {
+                w.setResultsLayoutCount(2);
+                pumpEvents(70);
+                resBtn->click();
+                pumpEvents(70);
+                resBtn->click();
+                pumpEvents(70);
+                if (QSplitter* sp = w.resultsSplitter(); sp && sp->count() >= 2 && sp->handle(1)) {
+                    QSplitterHandle* sh = sp->handle(1);
+                    const QImage himg = sh->grab().toImage();
+                    const QColor hbg = sh->palette().color(QPalette::Window);
+                    const int sMid = sh->height() / 2;
+                    const int sc = countSepContrast(himg, 0, sh->width() - 1, sMid - 18, sMid + 18, hbg);
+                    const int sCorner = countSepContrast(himg, 0, sh->width() - 1, 4, 24, hbg);
+                    TEST_ASSERT(sc >= 6 && sc > sCorner,
+                                "Pontinhos verticais do splitter da Tabela de Resultados devem permanecer apos recolher/expandir (" + mLabel + ")");
+                }
+                w.setResultsLayoutCount(1);
+                pumpEvents(40);
+            }
+        }
+    }
+
+    // Parte B: Largura estreita força ambas as barras superiores a exibirem o botão de extensão de overflow
+    w.resize(560, 720);
+    w.show();
+    pumpEvents(80);
+
+    const QList<QToolBar*> bars = w.findChildren<QToolBar*>();
+    TEST_ASSERT(bars.size() >= 2, "MainWindow deve possuir pelo menos duas QToolBars superiores");
+
+    auto findVisibleExtButtons = [&]() {
+        std::vector<QToolButton*> buttons;
+        for (QToolBar* tb : bars) {
+            if (!tb) continue;
+            if (auto* ext = tb->findChild<QToolButton*>(QStringLiteral("qt_toolbar_ext_button"))) {
+                if (ext->isVisible()) {
+                    buttons.push_back(ext);
+                }
+            }
+        }
+        return buttons;
+    };
+
+    const std::vector<QToolButton*> initialExts = findVisibleExtButtons();
+    TEST_ASSERT(initialExts.size() >= 2,
+                "Em janela estreita, ambos os botoes de extensao das toolbars devem ficar visiveis");
+
+    // Verifica tradução dinâmica do tooltip dos botões de extensão
+    for (QToolButton* ext : initialExts) {
+        TEST_ASSERT(ext->toolTip() == QStringLiteral("Expandir ou recolher botões ocultos da barra"),
+                    "Tooltip do botão de extensão deve iniciar em português");
+    }
+    TEST_ASSERT(traducao.definir_idioma(QStringLiteral("en_US")), "Alternar para en_US");
+    pumpEvents(40);
+    for (QToolButton* ext : initialExts) {
+        TEST_ASSERT(ext->toolTip() == QStringLiteral("Expand or collapse hidden toolbar buttons"),
+                    "Tooltip do botão de extensão deve traduzir dinamicamente para inglês");
+    }
+    TEST_ASSERT(traducao.definir_idioma(QStringLiteral("pt_BR")), "Retornar para pt_BR");
+    pumpEvents(40);
+
+    // Valida seta apontada para BAIXO nitida e largura adequada em todos os 4 modos visuais
+    struct VisualCombo {
+        UiStyleMode mode;
+        UiTheme theme;
+        const char* tag;
+    };
+    const VisualCombo combos[] = {
+        {UiStyleMode::Custom, UiTheme::Dark, "Customizado Escuro"},
+        {UiStyleMode::Custom, UiTheme::Light, "Customizado Claro"},
+        {UiStyleMode::Native, UiTheme::Dark, "Nativo Escuro"},
+        {UiStyleMode::Native, UiTheme::Light, "Nativo Claro"},
+    };
+
+    for (const VisualCombo& c : combos) {
+        ThemeManager::instance().setUiStyleMode(c.mode);
+        ThemeManager::instance().setTheme(c.theme);
+        w.resize(560, 720);
+        pumpEvents(70);
+
+        const std::vector<QToolButton*> exts = findVisibleExtButtons();
+        TEST_ASSERT(exts.size() >= 2,
+                    std::string("Botoes de extensao visiveis em ") + c.tag);
+
+        const QColor expectedArrow = (c.theme == UiTheme::Light)
+            ? QColor(0x1e, 0x29, 0x3b)
+            : QColor(0xe2, 0xe8, 0xf0);
+
+        for (QToolButton* ext : exts) {
+            TEST_ASSERT(ext->width() >= 22 && ext->height() >= 18,
+                        std::string("Largura do botao de extensao suficiente para seta unificada em ") + c.tag);
+            const QImage img = ext->grab().toImage();
+            TEST_ASSERT(!img.isNull() &&
+                            hasDistinctArrowTriangle(img, QRect(0, 0, img.width(), img.height()),
+                                                     expectedArrow, Qt::DownArrow),
+                        std::string("Botao de extensao da toolbar deve renderizar seta apontada para baixo com o mesmo design dos paineis em ") + c.tag);
+        }
+    }
+
+    // Valida clique para expandir/colapsar a barra temporária em Customizado e Nativo
+    for (const UiStyleMode mode : {UiStyleMode::Custom, UiStyleMode::Native}) {
+        ThemeManager::instance().setUiStyleMode(mode);
+        ThemeManager::instance().setTheme(UiTheme::Dark);
+        w.resize(560, 720);
+        pumpEvents(60);
+
+        const std::vector<QToolButton*> exts = findVisibleExtButtons();
+        TEST_ASSERT(!exts.empty(), "Botao de extensao disponivel para teste de clique");
+        QToolButton* ext = exts.front();
+        ext->click();
+        pumpEvents(50);
+
+        const bool expandedVisible = (QApplication::activePopupWidget() != nullptr) || ext->isChecked();
+        TEST_ASSERT(expandedVisible,
+                    "Clicar no botao de extensao deve expandir a barra temporaria com widgets ocultos");
+        if (ext->isChecked()) {
+            const QImage expandedImg = ext->grab().toImage();
+            const QColor expandedArrow = (mode == UiStyleMode::Custom)
+                ? QColor(Qt::white)
+                : QColor(0xe2, 0xe8, 0xf0);
+            TEST_ASSERT(hasDistinctArrowTriangle(expandedImg,
+                                                 QRect(0, 0, expandedImg.width(), expandedImg.height()),
+                                                 expandedArrow,
+                                                 Qt::UpArrow),
+                        "Quando expandido, botao de extensao deve apontar para cima indicando colapso");
+        }
+        if (QWidget* pop = QApplication::activePopupWidget()) {
+            pop->close();
+        } else if (ext->isChecked()) {
+            ext->click();
+        }
+        pumpEvents(40);
+    }
+
+    w.close();
+    pumpEvents(40);
+    ThemeManager::instance().setUiStyleMode(originalMode);
+    ThemeManager::instance().setTheme(originalTheme);
+    traducao.definir_idioma(originalLang);
+}
+
+void testFileExitShortcutAndNoDuplicatesAllModes() {
+    using namespace omniframe;
+
+    auto& traducao = locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.obter_idioma_atual();
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const UiStyleMode originalMode = ThemeManager::instance().uiStyleMode();
+
+    traducao.definir_idioma(QStringLiteral("pt_BR"));
+
+    MainWindow w;
+    w.setAttribute(Qt::WA_DontShowOnScreen, true);
+    w.resize(1100, 720);
+    w.show();
+    pumpEvents(60);
+
+    QMenuBar* bar = w.menuBar();
+    TEST_ASSERT(bar != nullptr && !bar->actions().isEmpty(), "Barra de menus deve existir");
+    QMenu* fileMenu = bar->actions().front()->menu();
+    TEST_ASSERT(fileMenu != nullptr, "Menu Arquivo deve existir");
+
+    QAction* quitAct = nullptr;
+    for (QAction* act : fileMenu->actions()) {
+        if (act && !act->isSeparator() && act->text() == QStringLiteral("Sair")) {
+            quitAct = act;
+            break;
+        }
+    }
+    TEST_ASSERT(quitAct != nullptr, "Acao Arquivo > Sair deve existir no menu Arquivo");
+
+    struct Combo {
+        const char* lang;
+        const char* expectedMenu;
+        const char* expectedText;
+        UiStyleMode mode;
+        UiTheme theme;
+    };
+    const Combo matrix[] = {
+        {"pt_BR", "&Arquivo", "Sair", UiStyleMode::Custom, UiTheme::Dark},
+        {"pt_BR", "&Arquivo", "Sair", UiStyleMode::Custom, UiTheme::Light},
+        {"pt_BR", "&Arquivo", "Sair", UiStyleMode::Native, UiTheme::Dark},
+        {"pt_BR", "&Arquivo", "Sair", UiStyleMode::Native, UiTheme::Light},
+        {"en_US", "&File",    "Exit", UiStyleMode::Custom, UiTheme::Dark},
+        {"en_US", "&File",    "Exit", UiStyleMode::Custom, UiTheme::Light},
+        {"en_US", "&File",    "Exit", UiStyleMode::Native, UiTheme::Dark},
+        {"en_US", "&File",    "Exit", UiStyleMode::Native, UiTheme::Light},
+    };
+
+    for (const Combo& c : matrix) {
+        traducao.definir_idioma(QString::fromUtf8(c.lang));
+        ThemeManager::instance().setUiStyleMode(c.mode);
+        ThemeManager::instance().setTheme(c.theme);
+        pumpEvents(40);
+
+        TEST_ASSERT(fileMenu->title() == QString::fromUtf8(c.expectedMenu),
+                    "Titulo do menu Arquivo/File deve traduzir dinamicamente");
+        TEST_ASSERT(quitAct->text() == QString::fromUtf8(c.expectedText),
+                    "Texto da acao Sair/Exit deve traduzir dinamicamente");
+
+        const QKeySequence expectedSeq(Qt::CTRL | Qt::Key_Q);
+        TEST_ASSERT(quitAct->shortcut() == expectedSeq,
+                    "Acao Arquivo > Sair deve possuir o atalho Ctrl+Q");
+
+        const QString shortcutNative = quitAct->shortcut().toString(QKeySequence::NativeText);
+        const QString shortcutPortable = quitAct->shortcut().toString(QKeySequence::PortableText);
+        TEST_ASSERT(shortcutNative == QStringLiteral("Ctrl+Q") &&
+                        shortcutPortable == QStringLiteral("Ctrl+Q"),
+                    "Atalho de Arquivo > Sair deve ser exibido como Ctrl+Q em ambas as traducoes/UIs/temas");
+        TEST_ASSERT(shortcutNative != quitAct->text() &&
+                        !shortcutNative.contains(QStringLiteral("Sair"), Qt::CaseInsensitive) &&
+                        !shortcutNative.contains(QStringLiteral("Exit"), Qt::CaseInsensitive),
+                    "Menu Arquivo > Sair nunca deve duplicar texto como Sair\\tSair ou Exit\\tExit");
+
+        // Garante unicidade dos atalhos no menu e ausencia de duplicacao rotulo == atalho
+        QSet<QString> seenShortcuts;
+        for (QAction* topAct : bar->actions()) {
+            if (!topAct || !topAct->menu()) continue;
+            for (QAction* itemAct : topAct->menu()->actions()) {
+                if (!itemAct || itemAct->isSeparator() || itemAct->shortcut().isEmpty()) continue;
+                const QString sc = itemAct->shortcut().toString(QKeySequence::PortableText);
+                TEST_ASSERT(sc != itemAct->text(),
+                            "Nenhum item de menu pode repetir seu proprio rotulo no atalho");
+                TEST_ASSERT(!seenShortcuts.contains(sc),
+                            "Atalho de menu nao pode colidir com outro atalho ativo");
+                seenShortcuts.insert(sc);
+            }
+        }
+    }
+
+    // Valida que acionar Arquivo > Sair (Ctrl+Q) fecha janela limpa normalmente
+    TEST_ASSERT(w.isVisible(), "Janela deve estar visivel antes de acionar Arquivo > Sair");
+    quitAct->trigger();
+    pumpEvents(50);
+    TEST_ASSERT(!w.isVisible(), "Acionar Arquivo > Sair (Ctrl+Q) deve encerrar janela limpa");
+
+    ThemeManager::instance().setUiStyleMode(originalMode);
+    ThemeManager::instance().setTheme(originalTheme);
+    traducao.definir_idioma(originalLang);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
     QApplication app(argc, argv);
 
-    std::cout << "[Test Phase 9] 1/9 Janelas UI (1-clique), resize e Z-Order...\n";
+    // Garante contrato de caminho real AppData/Local/OmniFrame/user_preferences.json antes do isolamento dos testes
+    {
+        const QString realPath = QDir::fromNativeSeparators(omniframe::MainWindow::userPreferencesFilePath());
+        TEST_ASSERT(realPath.endsWith(QStringLiteral("/OmniFrame/user_preferences.json")) &&
+                        !realPath.endsWith(QStringLiteral("/OmniFrame/OmniFrame/user_preferences.json")),
+                    "Caminho padrão real de preferências deve apontar para AppData/Local/OmniFrame/user_preferences.json");
+    }
+
+    // Isola todos os testes em diretório temporário ".../OmniFrame" para nunca corromper user_preferences.json do usuário em caso de falha
+    QTemporaryDir isolatedPrefsRoot;
+    TEST_ASSERT(isolatedPrefsRoot.isValid(), "QTemporaryDir para isolamento de preferências inválido");
+    const QString isolatedOmniFrameDir = isolatedPrefsRoot.filePath(QStringLiteral("OmniFrame"));
+    QDir().mkpath(isolatedOmniFrameDir);
+    omniframe::io::UserPreferencesStore::ScopedDirectoryOverride testPrefsIsolation(isolatedOmniFrameDir);
+
+    const QString userPrefsPath = omniframe::MainWindow::userPreferencesFilePath();
+    const QStringList legacyPaths = omniframe::io::UserPreferencesStore::legacyPreferenceFilePaths();
+    const QString legacyNestedDir = omniframe::io::UserPreferencesStore::legacyNestedPreferencesDirectory();
+
+    struct FileBackup {
+        QString path;
+        bool existed = false;
+        QByteArray bytes;
+    };
+    std::vector<FileBackup> backups;
+    auto captureBackup = [&](const QString& path) {
+        FileBackup b;
+        b.path = path;
+        b.existed = QFile::exists(path);
+        if (b.existed) {
+            QFile in(path);
+            if (in.open(QIODevice::ReadOnly)) {
+                b.bytes = in.readAll();
+            }
+        }
+        backups.push_back(std::move(b));
+    };
+    captureBackup(userPrefsPath);
+    captureBackup(omniframe::io::ProjectRecoveryStore::recoveryFilePath());
+    captureBackup(omniframe::io::ProjectRecoveryStore::recoveryMetaPath());
+    for (const QString& lp : legacyPaths) {
+        captureBackup(lp);
+    }
+    captureBackup(QDir(legacyNestedDir).filePath(QStringLiteral("user_preferences.json")));
+    for (const QString& name : omniframe::io::UserPreferencesStore::legacyPreferenceFileNames()) {
+        captureBackup(QDir(legacyNestedDir).filePath(name));
+    }
+
+    auto cleanTestPrefs = [&]() {
+        omniframe::io::AppLogger::shutdown();
+        QFile::remove(userPrefsPath);
+        QFile::remove(userPrefsPath + QStringLiteral(".corrupt.bak"));
+        omniframe::io::ProjectRecoveryStore::clearSnapshot();
+        {
+            const QDir isolatedLogDir(omniframe::io::AppLogger::logDirectory());
+            if (isolatedLogDir.exists()) {
+                for (const QString& logPath : omniframe::io::AppLogger::existingLogFiles()) {
+                    QFile::remove(logPath);
+                }
+            }
+        }
+        for (const QString& lp : legacyPaths) {
+            QFile::remove(lp);
+        }
+        if (QFileInfo::exists(legacyNestedDir)) {
+            QFile::remove(QDir(legacyNestedDir).filePath(QStringLiteral("user_preferences.json")));
+            QFile::remove(QDir(legacyNestedDir).filePath(QStringLiteral("user_preferences.json.corrupt.bak")));
+            for (const QString& name : omniframe::io::UserPreferencesStore::legacyPreferenceFileNames()) {
+                QFile::remove(QDir(legacyNestedDir).filePath(name));
+            }
+            QDir(omniframe::io::UserPreferencesStore::preferencesDirectory()).rmdir(QStringLiteral("OmniFrame"));
+        }
+    };
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 1/11 Janelas UI (1-clique), resize e Z-Order...\n";
     testSingleClickDialogsAndZOrder();
 
-    std::cout << "[Test Phase 9] 2/9 Malha 2D/3D e BoundingBox...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 2/11 Malha 2D/3D e BoundingBox...\n";
     testMeshBoundingBoxAndUiEnablement();
 
-    std::cout << "[Test Phase 9] 3/9 Casos & Combinacoes NBR e preservacao de selecao...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 3/11 Casos & Combinacoes NBR e preservacao de selecao...\n";
     testLoadCombinationsAutoCaptureAndSelection();
 
-    std::cout << "[Test Phase 9] 4/9 AnalysisSuiteDialog (Combos/Modal/Flamb/Harm/Espec/Sism/NL)...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 4/11 AnalysisSuiteDialog (Combos/Modal/Flamb/Harm/Espec/Sism/NL)...\n";
     testAnalysisSuiteEndToEnd();
 
-    std::cout << "[Test Phase 9] 5/9 PostProcess, Auditoria ABNT NBR, DCR e PDF...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 5/11 PostProcess, Auditoria ABNT NBR, DCR e PDF...\n";
     testPostProcessNbrAndPdfWorkflow();
 
-    std::cout << "[Test Phase 9] 6/9 Catalogos dos 3 Exemplos, Comboboxes do Inspetor e Reedicao Completa...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 6/11 Catalogos dos 3 Exemplos, Comboboxes do Inspetor e Reedicao Completa...\n";
     testExamplesCatalogComboAndReeditingWorkflow();
 
-    std::cout << "[Test Phase 9] 7/9 Sessao Guiada (Ajuda > Sessao Guiada) nos 3 Exemplos e Traducao Dinamica...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 7/11 Sessao Guiada (Ajuda > Sessao Guiada) nos 3 Exemplos e Traducao Dinamica...\n";
     testGuidedSessionWalkthroughAndTranslations();
 
-    std::cout << "[Test Phase 9] 8/9 Renderizacao de setas QComboBox/QSpinBox sem spin_*.png...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 8/11 Renderizacao de setas QComboBox/QSpinBox sem spin_*.png...\n";
     testThemedComboAndSpinArrowsRenderWithoutPngAssets();
 
-    std::cout << "[Test Phase 9] 9/9 Paineis dock recolhiveis com seta estilo spin button...\n";
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 9/11 Paineis dock recolhiveis com seta estilo spin button...\n";
     testCollapsibleDocksWithSpinArrowButtons();
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 10/11 Configuracao Linceu nas 4 tabelas de resultados (selecao, ordenacao, quebra, cores, exportacao)...\n";
+    testResultTablesLinceuConfigAndFeatures();
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 11/12 Interface do Usuario dupla (Nativo Qt6 <-> Customizado), persistencia e traducao dinamica...\n";
+    testDualUiModeNativeAndCustomSwitchingAndPersistence();
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 12/13 Startup vazio e preservacao integral de edicoes contra fechamento inadvertido...\n";
+    testEmptyStartupAndInadvertentCloseProjectPreservation();
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 13/14 Politicas configuraveis de inicializacao e sistema de log diario...\n";
+    testStartupPolicyConfigurationAndLogsIntegration();
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 14/15 Molduras e pontinhos de docks (Nativo) e setas unificadas das toolbars...\n";
+    testToolbarOverflowExtensionArrowsAllModes();
+
+    cleanTestPrefs();
+    std::cout << "[Test Phase 9] 15/15 Atalho Ctrl+Q em Arquivo > Sair sem duplicacao em idiomas/UIs/temas...\n";
+    testFileExitShortcutAndNoDuplicatesAllModes();
+
+    cleanTestPrefs();
+    bool restoredAny = false;
+    for (const FileBackup& b : backups) {
+        if (b.existed) {
+            QDir().mkpath(QFileInfo(b.path).absolutePath());
+            QFile out(b.path);
+            if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                out.write(b.bytes);
+                restoredAny = true;
+            }
+        }
+    }
+    if (!restoredAny && !QFile::exists(userPrefsPath)) {
+        // Nenhuma acao extra necessaria no diretorio temporario isolado
+    }
 
     std::cout << "[OK] Todos os testes de UI e workflows passaram com sucesso!\n";
     return 0;

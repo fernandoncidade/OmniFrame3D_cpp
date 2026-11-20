@@ -3,21 +3,27 @@
 #include "locale/GerenciadorTraducao.hpp"
 
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QEvent>
 #include <QFont>
+#include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPalette>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QShortcut>
 #include <QSplitter>
+#include <QStyle>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace omniframe::ui {
 
@@ -25,12 +31,12 @@ namespace {
 
 using locale::GerenciadorTraducao;
 
-QString formatRichInlineText(const QString& plainLine, bool isLight) {
+QString formatRichInlineText(const QString& plainLine, const QString& accentColor) {
     QString escaped = plainLine.toHtmlEscaped();
 
     // Destaca prefixo antes de ":" em itens de lista ou definições curtas
     const int colonIdx = escaped.indexOf(QLatin1Char(':'));
-    if (colonIdx > 0 && colonIdx <= 64 && !escaped.contains(QStringLiteral("http"))) {
+    if (colonIdx > 0 && colonIdx <= 96 && !escaped.contains(QStringLiteral("http"))) {
         const QString prefix = escaped.left(colonIdx + 1);
         const QString rest = escaped.mid(colonIdx + 1);
         return QStringLiteral("<b>%1</b>%2").arg(prefix, rest);
@@ -41,7 +47,6 @@ QString formatRichInlineText(const QString& plainLine, bool isLight) {
     if (dashIdx > 0 && dashIdx <= 56) {
         const QString keyPart = escaped.left(dashIdx);
         const QString descPart = escaped.mid(dashIdx);
-        const QString accentColor = isLight ? QStringLiteral("#1d4ed8") : QStringLiteral("#79c0ff");
         return QStringLiteral("<span style='color:%1;font-weight:600;'>%2</span>%3")
             .arg(accentColor, keyPart, descPart);
     }
@@ -67,6 +72,10 @@ ManualDialog::ManualDialog(QWidget* parent)
     loadManual();
 
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this](UiTheme) {
+        applyTheme();
+        loadManual();
+    });
+    connect(&ThemeManager::instance(), &ThemeManager::uiStyleModeChanged, this, [this](UiStyleMode) {
         applyTheme();
         loadManual();
     });
@@ -146,6 +155,7 @@ void ManualDialog::setupUi() {
     m_indexTree->setHeaderHidden(true);
     m_indexTree->setIndentation(14);
     m_indexTree->setWordWrap(true);
+    m_indexTree->setAlternatingRowColors(false);
     m_indexTree->setSelectionMode(QAbstractItemView::SingleSelection);
     leftLayout->addWidget(m_indexTree, 1);
 
@@ -187,6 +197,52 @@ void ManualDialog::setupUi() {
 }
 
 void ManualDialog::applyTheme() {
+    if (m_applyingTheme) {
+        return;
+    }
+    struct Guard {
+        bool& flag;
+        explicit Guard(bool& f) : flag(f) { flag = true; }
+        ~Guard() { flag = false; }
+    } guard(m_applyingTheme);
+
+    if (ThemeManager::instance().isNativeUi()) {
+        if (!styleSheet().isEmpty()) {
+            setStyleSheet(QString());
+        }
+        if (m_titleLabel) {
+            QFont titleFont = m_titleLabel->font();
+            titleFont.setPointSize(14);
+            titleFont.setBold(true);
+            m_titleLabel->setFont(titleFont);
+        }
+        if (m_indexHeaderLabel) {
+            QFont indexHeaderFont = m_indexHeaderLabel->font();
+            indexHeaderFont.setBold(true);
+            m_indexHeaderLabel->setFont(indexHeaderFont);
+        }
+        setPalette(QPalette());
+        setAttribute(Qt::WA_SetPalette, false);
+        for (QWidget* child : findChildren<QWidget*>()) {
+            if (!child) continue;
+            child->setPalette(QPalette());
+            child->setAttribute(Qt::WA_SetPalette, false);
+            child->update();
+        }
+        ThemeManager::instance().applyWindowChrome(this);
+        update();
+        return;
+    }
+
+    if (m_titleLabel) {
+        m_titleLabel->setFont(QFont());
+        m_titleLabel->setAttribute(Qt::WA_SetFont, false);
+    }
+    if (m_indexHeaderLabel) {
+        m_indexHeaderLabel->setFont(QFont());
+        m_indexHeaderLabel->setAttribute(Qt::WA_SetFont, false);
+    }
+
     if (ThemeManager::instance().isLight()) {
         setStyleSheet(QStringLiteral(
             "QDialog { background-color: #eef2f7; color: #0f172a; }"
@@ -238,6 +294,7 @@ void ManualDialog::applyTheme() {
             "QPushButton#CloseButton:hover { background-color: #2c7bf5; }"
             "QSplitter::handle { background-color: #262e3e; width: 4px; border-radius: 2px; }"));
     }
+    ThemeManager::instance().applyWindowChrome(this);
 }
 
 void ManualDialog::retranslateUi() {
@@ -258,7 +315,8 @@ void ManualDialog::retranslateUi() {
 
 void ManualDialog::changeEvent(QEvent* event) {
     QDialog::changeEvent(event);
-    if (event && event->type() == QEvent::LanguageChange) {
+    const QEvent::Type t = event ? event->type() : QEvent::None;
+    if (t == QEvent::LanguageChange) {
         retranslateUi();
         loadManual();
     }
@@ -305,11 +363,83 @@ void ManualDialog::loadManual() {
 
 QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* indexTree) const {
     const QStringList lines = rawText.split(QLatin1Char('\n'));
+    const bool nativeUi = ThemeManager::instance().isNativeUi();
     const bool isLight = ThemeManager::instance().isLight();
 
+    QString inlineAccentColor = isLight ? QStringLiteral("#1d4ed8") : QStringLiteral("#79c0ff");
     QString html;
     html.reserve(rawText.size() * 2 + 4096);
-    if (isLight) {
+    if (nativeUi) {
+        const QPalette pal = m_manualViewer ? m_manualViewer->palette() : QApplication::palette();
+        const QColor palBase = pal.color(QPalette::Base);
+        const QColor palText = pal.color(QPalette::Text);
+        const QColor palMuted = pal.color(QPalette::Disabled, QPalette::Text);
+        const QColor palBorder = pal.color(QPalette::Mid);
+        const QColor palLink = pal.color(QPalette::Link);
+
+        // Em estilos nativos escuros do Qt 6 no Windows (windows11/windowsvista),
+        // QPalette::AlternateBase pode permanecer claro (#f5f5f5) mesmo com Base escura.
+        // Nunca aplicamos AlternateBase atrás dos blocos de texto no modo Nativo:
+        // usamos fundo transparente (herdando a Base nativa do QTextBrowser) com cores
+        // de texto e bordas de alto contraste garantidas para Claro e Escuro.
+        const QString bodyBgCss = (!isLight && palBase.lightness() >= 120)
+            ? QStringLiteral(" background-color: #1e1e1e;")
+            : (isLight && palBase.lightness() < 120 ? QStringLiteral(" background-color: #ffffff;") : QString());
+        const QString textColor = isLight
+            ? ((palText.lightness() <= 85) ? palText.name() : QStringLiteral("#0f172a"))
+            : ((palText.lightness() >= 180) ? palText.name() : QStringLiteral("#e2e8f0"));
+        const QString mutedColor = isLight
+            ? ((palMuted.lightness() >= 45 && palMuted.lightness() <= 130) ? palMuted.name() : QStringLiteral("#475569"))
+            : ((palMuted.lightness() >= 120 && palMuted.lightness() <= 210) ? palMuted.name() : QStringLiteral("#94a3b8"));
+        const QString borderColor = isLight
+            ? ((palBorder.lightness() >= 150 && palBorder.lightness() <= 220) ? palBorder.name() : QStringLiteral("#cbd5e1"))
+            : ((palBorder.lightness() >= 45 && palBorder.lightness() <= 115) ? palBorder.name() : QStringLiteral("#3e4452"));
+        const QString linkColor = isLight
+            ? ((palLink.lightness() <= 130) ? palLink.name() : QStringLiteral("#1d4ed8"))
+            : ((palLink.lightness() >= 145) ? palLink.name() : QStringLiteral("#58a6ff"));
+        const QString bannerTitleColor = isLight ? QStringLiteral("#0f172a") : QStringLiteral("#f8fafc");
+        const QString warnTextColor    = isLight ? QStringLiteral("#92400e") : QStringLiteral("#fde68a");
+        const QString warnBorderColor  = isLight ? QStringLiteral("#d97706") : QStringLiteral("#f59e0b");
+        const QString noteTextColor    = isLight ? QStringLiteral("#075985") : QStringLiteral("#bae6fd");
+        const QString noteBorderColor  = isLight ? QStringLiteral("#0284c7") : QStringLiteral("#38bdf8");
+        const QString tipTextColor     = isLight ? QStringLiteral("#065f46") : QStringLiteral("#bbf7d0");
+        const QString tipBorderColor   = isLight ? QStringLiteral("#059669") : QStringLiteral("#34d399");
+        const QString fixedFontFamily = QFontDatabase::systemFont(QFontDatabase::FixedFont).family().toHtmlEscaped();
+        inlineAccentColor = linkColor;
+
+        html += QStringLiteral(
+                    "<html><head><style>"
+                    "body { color: %1;%2 margin: 4px 10px; }"
+                    ".banner { background-color: transparent; border: 1px solid %3; border-left: 4px solid %4; "
+                    "          border-radius: 4px; padding: 10px 14px; margin-bottom: 14px; }"
+                    ".banner-title { font-size: 12pt; font-weight: 700; color: %5; margin-bottom: 3px; }"
+                    ".banner-meta { font-size: 9pt; color: %6; margin: 2px 0; }"
+                    "h1 { font-size: 11.5pt; font-weight: 700; color: %4; margin-top: 16px; margin-bottom: 6px; "
+                    "     padding-bottom: 4px; border-bottom: 1px solid %3; }"
+                    "h2 { font-size: 10.5pt; font-weight: 700; color: %4; margin-top: 12px; margin-bottom: 4px; }"
+                    "p { margin: 4px 0 8px 0; font-size: 9.8pt; line-height: 145%; color: %1; }"
+                    "ul, ol { margin: 4px 0 8px 20px; padding-left: 8px; }"
+                    "li { margin: 3px 0; font-size: 9.8pt; line-height: 142%; color: %1; }")
+                    .arg(textColor, bodyBgCss, borderColor, linkColor, bannerTitleColor, mutedColor);
+        html += QStringLiteral(
+                    ".callout-warn { background-color: transparent; border: 1px solid %1; border-left: 4px solid %2; "
+                    "                padding: 7px 11px; margin: 7px 0; border-radius: 4px; color: %3; "
+                    "                font-size: 9.6pt; line-height: 142%; }"
+                    ".callout-note { background-color: transparent; border: 1px solid %1; border-left: 4px solid %4; "
+                    "                padding: 7px 11px; margin: 7px 0; border-radius: 4px; color: %5; "
+                    "                font-size: 9.6pt; line-height: 142%; }"
+                    ".callout-tip  { background-color: transparent; border: 1px solid %1; border-left: 4px solid %6; "
+                    "                padding: 7px 11px; margin: 7px 0; border-radius: 4px; color: %7; "
+                    "                font-size: 9.6pt; line-height: 142%; }")
+                    .arg(borderColor, warnBorderColor, warnTextColor, noteBorderColor, noteTextColor,
+                         tipBorderColor, tipTextColor);
+        html += QStringLiteral(
+                    ".cli-cmd      { background-color: transparent; border: 1px solid %1; border-left: 3px solid %2; "
+                    "                padding: 5px 10px; margin: 4px 0; border-radius: 4px; color: %3; "
+                    "                font-family: '%4', monospace; font-size: 9.2pt; }"
+                    "</style></head><body>")
+                    .arg(borderColor, linkColor, textColor, fixedFontFamily);
+    } else if (isLight) {
         html += QStringLiteral(
             "<html><head><style>"
             "body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 4px 10px; }"
@@ -458,7 +588,7 @@ QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* index
                 html += QStringLiteral("<ul>");
                 inUnorderedList = true;
             }
-            html += QStringLiteral("<li>%1</li>").arg(formatRichInlineText(line.mid(2), isLight));
+            html += QStringLiteral("<li>%1</li>").arg(formatRichInlineText(line.mid(2), inlineAccentColor));
             continue;
         }
 
@@ -472,18 +602,18 @@ QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* index
                 html += QStringLiteral("<ol>");
                 inOrderedList = true;
             }
-            html += QStringLiteral("<li>%1</li>").arg(formatRichInlineText(ordMatch.captured(2), isLight));
+            html += QStringLiteral("<li>%1</li>").arg(formatRichInlineText(ordMatch.captured(2), inlineAccentColor));
             continue;
         }
 
         closeLists();
 
         if (line.startsWith(QStringLiteral("ATENÇÃO:")) || line.startsWith(QStringLiteral("WARNING:"))) {
-            html += QStringLiteral("<div class='callout-warn'>%1</div>").arg(formatRichInlineText(line, isLight));
+            html += QStringLiteral("<div class='callout-warn'>%1</div>").arg(formatRichInlineText(line, inlineAccentColor));
         } else if (line.startsWith(QStringLiteral("NOTA:")) || line.startsWith(QStringLiteral("NOTE:"))) {
-            html += QStringLiteral("<div class='callout-note'>%1</div>").arg(formatRichInlineText(line, isLight));
+            html += QStringLiteral("<div class='callout-note'>%1</div>").arg(formatRichInlineText(line, inlineAccentColor));
         } else if (line.startsWith(QStringLiteral("DICA:")) || line.startsWith(QStringLiteral("TIP:"))) {
-            html += QStringLiteral("<div class='callout-tip'>%1</div>").arg(formatRichInlineText(line, isLight));
+            html += QStringLiteral("<div class='callout-tip'>%1</div>").arg(formatRichInlineText(line, inlineAccentColor));
         } else if (line.startsWith(QStringLiteral("CMD> ")) ||
                    line.startsWith(QStringLiteral("PS> ")) ||
                    line.startsWith(QStringLiteral("omniframe-cli ")) ||

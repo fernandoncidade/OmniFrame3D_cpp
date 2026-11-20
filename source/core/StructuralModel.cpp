@@ -838,6 +838,8 @@ void StructuralModel::clear() {
     m_rigidLinks.clear();
     m_rigidDiaphragms.clear();
     m_surfaceMesh = kernel::MeshContainer{};
+    m_metadata = ProjectMetadata{};
+    m_solverOptions = kernel::LinearSolverOptions{};
     m_preservedUnknownJson.clear();
     m_serializationWarnings.clear();
     populateStandardCatalog();
@@ -858,6 +860,7 @@ void StructuralModel::clearAll() {
     m_rigidDiaphragms.clear();
     m_surfaceMesh = kernel::MeshContainer{};
     m_metadata = ProjectMetadata{};
+    m_solverOptions = kernel::LinearSolverOptions{};
     m_preservedUnknownJson.clear();
     m_serializationWarnings.clear();
     clearUndoHistory();
@@ -1117,6 +1120,7 @@ StructuralModel::ModelState StructuralModel::captureState() const {
         m_rigidLinks,
         m_rigidDiaphragms,
         m_metadata,
+        m_solverOptions,
         m_surfaceMesh
     };
 }
@@ -1132,6 +1136,7 @@ void StructuralModel::restoreState(const ModelState& state) {
     m_rigidLinks = state.rigidLinks;
     m_rigidDiaphragms = state.rigidDiaphragms;
     m_metadata = state.metadata;
+    m_solverOptions = state.solverOptions;
     m_surfaceMesh = state.surfaceMesh;
     m_selectedNodes.clear();
     m_selectedElements.clear();

@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — MANUAL COMPLETO DE OPERAÇÃO E ENGENHARIA
-Versão: 2026.11.17.0 | Data: 17 de novembro de 2026 | Autor: Fernando Nillsson Cidade
+Versão: 2026.11.18.0 | Data: 18 de novembro de 2026 | Autor: Fernando Nillsson Cidade
 Idioma do Documento: Português (Brasil) — Correspondência rigorosa linha a linha com en-US
 ================================================================================
 
@@ -26,6 +26,7 @@ A qualquer momento você pode recolher, expandir, ocultar ou destacar cada paine
 • Recolher e Expandir "Inspetor e Entrada Rápida" (Lateral Esquerda — Seta ◀ / ▶): clique no botão de seta estilo spin button apontado para a esquerda (◀) no cabeçalho para recolher o inspetor para a lateral esquerda em uma faixa vertical compacta com o rótulo rotacionado em 90° no sentido anti-horário; clique na seta apontada para a direita (▶) no topo dessa faixa vertical para expandir o painel de volta à largura completa.
 • Recolher e Expandir "Tabelas de Resultados e Diagnóstico Estrutural" (Base — Seta ▼ / ▲): clique no botão de seta estilo spin button apontado para baixo (▼) no canto direito do cabeçalho para recolher as tabelas mantendo a barra inferior visível em toda a largura; clique na seta apontada para cima (▲) para reabrir as quatro abas de resultados.
 • Modo Flutuante, Tema, Idioma e Campos Numéricos (Spinbox): ao destacar qualquer painel, o mesmo botão permite recolher e expandir a janela flutuante mantendo dimensões compactas ao reacoplar; dicas de tela ("Recolher painel" / "Expandir painel"), rótulo rotacionado e setas adaptam-se automaticamente aos temas Claro/Escuro e aos idiomas pt-BR/en-US, os painéis recolhidos reabrem automaticamente durante a Sessão Guiada (F2), e todos os campos numéricos da interface exibem botões spin com cantos externos arredondados alinhados continuamente à moldura do campo.
+• Alças de Redimensionamento, Barras Compactas e Modo Nativo/Customizado: os divisores verticais do Inspetor e horizontais das Tabelas exibem pontinhos visuais de arraste tanto expandidos quanto recolhidos; quando uma barra de ferramentas superior possui botões ocultos pela largura da janela, o botão de extensão exibe a dica "Expandir ou recolher botões ocultos da barra", mantendo todos os controles compatíveis com os modos Customizado e Nativo em Configurações > Interface do Usuário.
 Quando um dock é destacado como janela flutuante, ele participa integralmente do gerenciamento de empilhamento visual (Z-Order), permitindo alternar livremente o foco entre o dock flutuante, a janela principal e qualquer janela filha aberta.
 
 1.4 Janelas Filhas Modeless e Gerenciamento de Z-Order
@@ -37,15 +38,16 @@ No OmniFrame 3D, todas as janelas filhas e caixas de diálogo — incluindo este
 
 CAPÍTULO 2 — GERENCIAMENTO DE PROJETOS, ARQUIVOS, INTEROPERABILIDADE E EXEMPLOS
 
-2.1 Novo Projeto, Desfazer/Refazer e Formato Aberto .omniframe
-O comando Arquivo > Novo Projeto (Ctrl+N) reinicia a área de trabalho limpando nós, barras, vínculos, cargas, malhas e resultados ativos após confirmar com segurança quando houver alteração pendente por meio de diálogo não-modal.
-O menu Editar oferece histórico multinível completo com Desfazer (Ctrl+Z) e Refazer (Ctrl+Y), permitindo experimentar modificações em nós, barras, materiais, seções, apoios e cargas com reversão segura e recálculo consistente.
+2.1 Novo Projeto, Inicialização Limpa, Recuperação de Sessão e Formato .omniframe
+Por padrão, o aplicativo inicia com a área de modelagem completamente vazia (sem modelo ou resultados prévios carregados). Ao acionar Arquivo > Novo Projeto (Ctrl+N), a área de trabalho é reiniciada após confirmação em diálogo não-modal, mantendo seu histórico completo em Editar > Desfazer (Ctrl+Z) e Refazer (Ctrl+Y).
+• Cópia Automática de Recuperação e Proteção ao Sair: a cada edição em nós, barras, apoios, cargas, combinações, opções do solver ou parâmetros de vento, uma cópia de segurança é gravada automaticamente em %LOCALAPPDATA%\OmniFrame\recovery\ (recovery_autosave.omniframe). Ao tentar fechar o aplicativo com alterações pendentes, uma caixa de confirmação não-modal oferece Salvar, Sair e Manter Recuperação ou Cancelar.
+• Política de Inicialização (Sessão Anterior): quando existir projeto salvo, exemplo ou edição da sessão anterior, o diálogo "Retomar Sessão Anterior" permite escolher Carregar Edição Anterior / Carregar Projeto Anterior / Carregar Exemplo Anterior ou Iniciar Novo Projeto. Esse comportamento pode ser configurado em Configurações > Sessão, Inicialização e Logs (Perguntar ao iniciar, Carregar automaticamente ou Sempre iniciar um novo projeto).
 O formato nativo .omniframe (Schema 2.1.0, retrocompatível com 1.0 e 2.0) utiliza estrutura JSON legível em codificação UTF-8 armazenando materiais (incluindo massa específica ρ e parâmetros J2), seções transversais, nós, elementos, combinações de carga e parâmetros normativos com validação numérica rigorosa para rejeitar valores não finitos (NaN ou infinito) na leitura.
 ATENÇÃO: mantenha cópias de backup antes de editar manualmente arquivos .omniframe em editores de texto externos, preservando identificadores inteiros únicos para nós, materiais e seções.
 
-2.2 Abrir, Salvar (.omniframe) e Intercâmbio CAD/BIM (DXF e IFC4)
-Para carregar um modelo existente, utilize Arquivo > Abrir (.omniframe)... (Ctrl+O) e escolha o arquivo desejado no seletor não-modal; após a abertura, a câmera é automaticamente enquadrada para exibir toda a geometria carregada.
-Para gravar alterações em disco, utilize Arquivo > Salvar (.omniframe)... (Ctrl+S), escolhendo o diretório de destino e o nome do arquivo; o formato grava integralmente coordenadas, propriedades mecânicas, vínculos de apoio, molas elásticas, deslocamentos prescritos, liberações de extremidade, ângulo Roll, variações térmicas ΔT e carregamentos/combinações.
+2.2 Abrir, Salvar, Salvar Como (.omniframe), Recuperar Sessão e Intercâmbio CAD/BIM
+Para carregar um modelo existente, utilize Arquivo > Abrir (.omniframe)... (Ctrl+O) e escolha o arquivo desejado no seletor não-modal (que memoriza automaticamente a última pasta utilizada); após a abertura, o título da janela exibe o nome do arquivo e a câmera enquadra toda a geometria carregada.
+Para gravar alterações no arquivo atual, utilize Arquivo > Salvar (.omniframe) (Ctrl+S), ou utilize Arquivo > Salvar Como (.omniframe)... (Ctrl+Shift+S) para gravar em um novo caminho; alterações pendentes exibem o marcador [*] no título da janela, e Arquivo > Recuperar Sessão Anterior... permite restaurar a última sessão registrada em disco a qualquer momento.
 Além do formato nativo, o menu Arquivo oferece quatro ferramentas bidirecionais de interoperabilidade CAD e BIM totalmente offline:
 • Importar DXF... e Exportar DXF...: lê linhas 3D e camadas de desenhos CAD (.dxf) fundindo nós coincidentes por tolerância, e exporta barras e faces estruturais de volta para DXF.
 • Importar BIM IFC4... e Exportar BIM IFC4...: importa modelos estruturais em padrão aberto STEP IFC4 (.ifc) reconstruindo nós, barras e superfícies, e exporta a estrutura do OmniFrame 3D como entidades IFC4 compatíveis com softwares BIM.
@@ -229,18 +231,21 @@ O controle deslizante Escala: na barra de ferramentas varia continuamente de 1 a
 • Na visualização Deformada 3D, o fator de amplificação aplicado aos deslocamentos é proporcional ao valor escolhido (variando de 1,5x no mínimo 1 até 150x no máximo 100).
 • Nos diagramas de esforços internos (N, Vy, Vz, Tx, My, Mz), a altura gráfica desenhada acompanha continuamente o ajuste do controle por fator proporcional normalizado pelo valor padrão 30.
 
-7.3 Recuperação Contínua por Polinômios de Hermite e Tabelas
+7.3 Recuperação Contínua por Polinômios de Hermite, Tabelas Interativas e Múltiplos Layouts
 Internamente, cada barra calcula seus esforços internos e deslocamentos em coordenadas adimensionais contínuas ξ pertencentes a [0, 1] via função Element::evaluateAt(xi), aplicando polinômios cúbicos de Hermite para curvatura exata sob flexão combinada com as cargas distribuídas atuantes.
 No Painel Inferior (Tabelas de Resultados e Diagnóstico Estrutural), quatro abas sincronizadas resumem os dados numéricos exatos de cada entidade:
 • Aba Deslocamentos Nodais: apresenta ID do nó e os seis componentes calculados (ux, uy, uz em mm, e rotações Rx, Ry, Rz em mrad).
 • Aba Reações de Apoio: apresenta exclusivamente nós vinculados com suas forças reativas (Rx, Ry, Rz em kN) e momentos reativos (Mx, My, Mz em kN·m).
 • Aba Esforços nas Barras: apresenta os valores mínimo e máximo de N, Vy, Vz, Tx, My, Mz e deflexão máxima registrada em cada barra.
 • Aba Esforços 2D/3D (Casca/Sólido): apresenta os elementos da malha contínua 2D/3D com Elemento, Tipo, tensão equivalente de von Mises (σ_vM (kPa)), tensões principais (σ_1 (kPa), σ_3 (kPa)) e esforços/componentes locais (Nxx / σxx, Nyy / σyy, Mxx / τxz).
+• Seleção Inteligente, Quebra de Cabeçalhos e Foco no 3D: clique no botão de canto superior esquerdo da tabela para alternar entre selecionar todas as células e limpar a seleção; clique nos cabeçalhos das colunas (com Ctrl para alternar ou Shift para intervalo) para selecionar colunas inteiras; ao estreitar uma coluna, o cabeçalho ajusta automaticamente a quebra de linha e altura; e um duplo clique em qualquer linha seleciona e destaca o nó, a barra ou o elemento 2D/3D correspondente no Viewport 3D.
+• Menu de Contexto, Ordenação, Cores e Exportação (.xlsx, .csv, .txt, .json, .xml): clique com o botão direito nas células ou cabeçalhos para Configurar colunas (ocultar/exibir, Selecionar todas colunas, Resetar colunas), ativar Ordenar linhas (ordenação numérica, de intervalos min/max e natural ao clicar no cabeçalho, mantendo sempre "Soma de Reações" fixada ao final), alterar Ordem das Linhas da Tabela (Adicionar no Fim, Adicionar no Topo ou Inverter Linhas Atuais da Tabela), Colorir colunas (Ctrl+Shift+A) e Configurar cores por categoria (Nós Estruturais/Malha, Apoios, Soma de Reações, Barras, Cascas 2D e Sólidos 3D com contraste automático de texto), Copiar Seleção (Ctrl+C), Copiar com Cabeçalhos (Ctrl+Shift+C), Copiar Tabela Inteira e configurar Opções de exportação (Exportar colunas ativas / Exportar seleção) antes de acionar Exportar Tabela.
+• Layouts Múltiplos do Painel de Resultados: em Configurações > Layouts do Painel de Tabelas de Resultados, divida o painel inferior em 1 Layout (Todas as Tabelas), 2 Layouts, 3 Layouts ou 4 Layouts lado a lado com divisores ajustáveis, escolha individualmente quais abas aparecem em Tabelas do 1º Layout até Tabelas do 4º Layout (ou Selecionar Todas as Tabelas) e utilize Restaurar Layouts Padrão quando desejar retornar à configuração inicial.
 
 7.4 Controles Avançados de Pós-Processamento 3D (Contornos, Corte e Animação)
 Acesse Estrutura > Controles 3D (Contornos / Corte / Animação)... (ou Corte/Contornos... na Barra 2) para explorar resultados avançados diretamente no Viewport OpenGL:
 • Mapas de Contorno e Malha Superficial: no seletor Contorno:, alterne entre Padrão (Cores por Seleção/Tema), Mapa Vetorial de Deslocamentos |u|, Mapa de Calor DCR (ABNT NBR) e Tensão de von Mises (Casca/Sólido), além da caixa Exibir Malha 2D/3D (Superfícies/Sólidos) para mostrar ou ocultar a malha gerada sobre o modelo.
-• Plano de Corte 3D (Clip Plane): escolha o eixo de seccionamento (Desligado, X, Y ou Z), deslize a cota do corte ao longo do modelo e utilize a opção de inversão para inspecionar o interior de sólidos, pórticos densos e armaduras conceituais.
+• Plano de Corte 3D (Clip Plane): escolha o eixo de seccionamento (Desligado, X, Y ou Z), deslize a cota do corte ao longo do modelo e utilize a opção de inversão para inspecionar o interior de sólidos, pórticos densos e armaduras conceituais sem recortar a grade dos planos de trabalho (XY, XZ, YZ) nem o marcador do cursor.
 • Animação Contínua 3D: ative a animação senoidal em tempo real da deformada estática, de modos de vibração naturais, de modos de flambagem ou de passos temporais/harmônicos com controle de velocidade e amplitude.
 
 CAPÍTULO 8 — CONFIGURAÇÕES GRÁFICAS, RESOLUÇÃO DE IMAGEM, TEMA E IDIOMA
@@ -255,9 +260,9 @@ Para eliminar serrilhado em linhas inclinadas, eixos da grade e barras finas em 
 Em Configurações > Configurações Avançadas de Resolução e Imagem... (além dos submenus rápidos Perfil de Qualidade Gráfica, Escala de Resolução Interna (SSAA), Suavização por Hardware (MSAA), Definição de Linhas e Imagem, Aparência do Plano Ativo, Sincronização Vertical (VSync) e Restaurar Padrões de Máxima Qualidade), todas as opções podem ser avaliadas em tempo real sobre a cena 3D antes mesmo de clicar em Aplicar ou OK:
 • Perfil de Qualidade Gráfica: Automático (Máxima Qualidade), Ultra (SSAA 200% + MSAA Máx), Alta (SSAA 150% + MSAA 8×), Equilibrada (Nativa 100% + MSAA 4×), Desempenho (Nativa 100% + Shader AA) e Personalizado (ajustado automaticamente ao personalizar parâmetros).
 • Controles Manuais Finos: resolução automática máxima, Escala de Resolução Interna (SSAA), Suavização por Hardware (MSAA) automática ou manual (Desligado, 2x, 4x, 8x, 16x), Suavização Analítica Subpixel de Linhas (Shader SDF), Multiplicador de Espessura de Linha, Suavização da borda (AA), Força de Nitidez, método de filtro (Catmull-Rom 16-tap + Nitidez, Bicúbico Suave ou Bilinear Padrão), VSync e exibição de telemetria de resolução no viewport.
-• Informações de Hardware da GPU e Persistência: o diálogo exibe o nome real do adaptador gráfico, fabricante, versão OpenGL ativa, limite de amostras MSAA/textura e resolução física renderizada em pixels; clicar em Cancelar restaura exatamente o estado anterior na cena, enquanto Aplicar ou OK salva as preferências localmente em graphics.json.
+• Informações de Hardware da GPU e Persistência: o diálogo exibe o nome real do adaptador gráfico, fabricante, versão OpenGL ativa, limite de amostras MSAA/textura e resolução física renderizada em pixels; clicar em Cancelar restaura exatamente o estado anterior na cena, enquanto Aplicar ou OK salva as preferências localmente na seção graphics de user_preferences.json.
 
-8.3 Temas do Plano Ativo, Tema da Interface (Claro/Escuro) e Contraste
+8.3 Temas do Plano Ativo, Tema da Interface (Claro/Escuro), Interface Nativa/Customizada e Contraste
 Em Configurações > Tema é possível alternar dinamicamente em tempo de execução entre os modos Escuro e Claro, adaptando instantaneamente janelas, diálogos não-modais, barras de título, tabelas, documentos HTML (Manual e Sobre), overlays da Sessão Guiada, viewport OpenGL, escala cromática da deformada e diagramas de esforços.
 Além disso, em Configurações > Aparência do Plano Ativo ou no diálogo avançado de resolução é possível escolher de forma independente a aparência visual do Plano de Trabalho Ativo:
 • Obsidiana Escuro (Padrão) (#07090e): fundo azul-obsidiana profundo equilibrado para longas sessões de modelagem sem fadiga visual nem ofuscamento da grade.
@@ -265,11 +270,14 @@ Além disso, em Configurações > Aparência do Plano Ativo ou no diálogo avan�
 • Grafite Escuro (#0d1116): tom grafite escuro moderado para ambientes muito iluminados.
 • Claro Técnico (#eef3f9): fundo claro de prancheta técnica em alto contraste com barras em grafite escuro, vínculos e diagramas em cores saturadas e HUD claro translúcido.
 • Contraste da Grade e Superfície do Plano: ajuste deslizante de contraste das linhas maiores/menores da grade e opção de exibir superfície translúcida e moldura do Plano Ativo.
+• Estilo de Interface do Usuário (Nativo vs. Customizado): em Configurações > Interface do Usuário, alterne ao vivo entre Customizado (visual estilizado do OmniFrame com cantos arredondados e tema Escuro/Claro completo) e Nativo (aparência padrão do sistema operacional/Qt 6), aplicando a mudança instantaneamente à janela principal, barras, painéis, tabelas, Manual, Sobre e Sessão Guiada.
 
-8.4 Troca Dinâmica de Idioma e Persistência
+8.4 Troca Dinâmica de Idioma, Persistência Universal e Logs Diários
 O sub-menu Configurações > Idioma permite alternar instantaneamente em tempo de execução entre Português (Brasil) e English (US).
 A troca dispara propagação dinâmica de QEvent::LanguageChange sem necessidade de reiniciar o aplicativo: barra de menus, barras de ferramentas, painéis acoplados, inspetor, tabelas de resultados, HUD 3D, Sessão Guiada, este Manual, diálogo Sobre e todas as janelas filhas modeless abertas no momento traduzem seus textos automaticamente.
-O idioma selecionado é salvo de forma autônoma no arquivo language.json dentro do diretório de dados locais do usuário (%LOCALAPPDATA%\OmniFrame\OmniFrame\).
+O idioma selecionado — juntamente com tema, modo de interface, configurações gráficas OpenGL, geometria da janela, posição dos painéis acopláveis, último diretório usado, estado dos controles das barras, layout e personalização de colunas/cores das tabelas de resultados e estado dos diálogos auxiliares — é salvo de forma consolidada e atômica no arquivo único %LOCALAPPDATA%\OmniFrame\user_preferences.json (Esquema v2, com migração automática de arquivos legados).
+• Menu Persistência de Configurações e Preferências: acesse Configurações > Persistência de Configurações e Preferências para executar Salvar Todas as Configurações Agora, Recarregar Configurações Salvas (lendo novamente o disco em tempo real) ou Restaurar Todas as Configurações Padrão.
+• Sessão, Inicialização e Logs Diários (10 Arquivos Máx.): acesse Configurações > Sessão, Inicialização e Logs para escolher a política ao abrir o aplicativo, ativar/desativar a confirmação de saída com alterações não salvas, abrir a pasta de logs ou abrir Configurar Inicialização, Sessão e Logs... para visualizar o arquivo diário atual omniframe_aaaa-mm-dd.log em %LOCALAPPDATA%\OmniFrame\log\ (que registra eventos Trace, Debug, Info, Warning, Critical e Fatal na GUI e na CLI mantendo no máximo 10 arquivos e excluindo automaticamente o mais antigo ao criar um novo).
 
 CAPÍTULO 9 — AJUDA, SESSÃO GUIADA (F2), ATALHOS DE TECLADO E FERRAMENTAS
 
@@ -279,8 +287,8 @@ CAPÍTULO 9 — AJUDA, SESSÃO GUIADA (F2), ATALHOS DE TECLADO E FERRAMENTAS
 
 9.2 Sessão Guiada Interativa Passo a Passo (Ajuda > Sessão Guiada..., F2)
 O recurso Ajuda > Sessão Guiada... (atalho F2) executa automaticamente uma demonstração guiada em 30 etapas de todas as funcionalidades e diálogos do OmniFrame 3D, simulando passo a passo um engenheiro operando o aplicativo a partir de um dos três exemplos pré-definidos:
-• Escolha do Exemplo e Perfis Científicos de Ritmo de Leitura (PPM): antes de iniciar, escolha qual dos três exemplos deseja acompanhar e selecione o perfil cognitivo em palavras por minuto (PPM) mais confortável para a sua leitura — Leitor Típico — Fluente (250 PPM, faixa 200–300 PPM), Leitura Técnica / Engenharia (150 PPM, padrão recomendado com margem de +10%), Leitura em Voz Alta (155 PPM) ou Dislexia / Acessível (130 PPM, faixa 100–160 PPM com fator +30% para releitura e regressões sem fadiga).
-• Sinalização Visual Unificada em Duas Fases (Sem Sobreposição): cada etapa é apresentada por um destaque luminoso ao redor do botão, menu ou painel correspondente associado a um único cartão explicativo com seta indicadora. Na primeira fase (amarelo), o aplicativo explica o que aquela ferramenta faz e para que serve em tempo proporcional ao total de palavras do texto; na segunda fase (verde), executa a ação correspondente (posicionando eventuais janelas filhas no canto inferior esquerdo enquanto mantém o cartão explicativo livre de sobreposições) pelo mesmo ritmo proporcional ao texto e ao PPM escolhido.
+• Escolha do Exemplo, Perfis Científicos de Ritmo de Leitura (PPM) e Cor do Realce por Fase: antes de iniciar (ou mesmo durante a sessão), escolha qual dos três exemplos deseja acompanhar, selecione o perfil cognitivo em palavras por minuto (PPM) mais confortável para a sua leitura — Leitor Típico — Fluente (250 PPM, faixa 200–300 PPM), Leitura Técnica / Engenharia (150 PPM, padrão recomendado com margem de +10%), Leitura em Voz Alta (155 PPM) ou Dislexia / Acessível (130 PPM, faixa 100–160 PPM com fator +30% para releitura e regressões sem fadiga) — e selecione qual fase (1, 2, 3, 4... conforme o máximo de fases entre as etapas) deseja configurar para definir sua cor de realce (aceitando tanto cores diferentes quanto cores repetidas entre fases) por meio da lista de cores predefinidas, do seletor Escolher Cor... ou do botão Cor Padrão.
+• Sinalização Visual Unificada com Cor Independente e Fundo Adaptativo ao Tema (Sem Sobreposição): cada etapa é apresentada por um destaque luminoso ao redor do botão, menu ou painel correspondente associado a um único cartão explicativo com seta indicadora. A cor definida para cada fase no realce das etapas (selo de fase, bordas do quadro da etapa e marcadores/callouts visuais) é aplicada e preservada de forma independente de Configurações > Tema (Escuro/Claro), Configurações > Interface do Usuário (Customizado/Nativo) e Configurações > Idioma (Português/Inglês), enquanto o fundo do quadro da janela e dos tooltips/callouts se ajusta dinamicamente em tempo de execução ao tema aplicado (fundo claro no tema claro e fundo escuro no tema escuro), independentemente do modo de Interface do Usuário ativo, posicionando eventuais janelas filhas no canto inferior esquerdo livres de sobreposições.
 • Controles Modeless, Visual Completo e Z-Order Durante a Sessão: a janela Sessão Guiada foi dimensionada para exibir integralmente todos os rótulos, listas suspensas e cartões de descrição em qualquer tamanho de janela, opera de forma não-modal sem exibir contornos fantasmas e oferece barra de progresso, contagem regressiva e os botões Iniciar Sessão Guiada, Pausar / Continuar, Avançar Agora, Interromper e Fechar, cobrindo ainda malha E2E 1D/2D/3D, aba Esforços 2D/3D (Casca/Sólido), contorno de von Mises, solver linear, imperfeição de flambagem e relatórios HTML/Markdown/PDF.
 • Restauração Automática ao Estado Inicial: ao concluir a etapa 30 (ou quando finalizada a demonstração), o aplicativo limpa automaticamente overlays, contornos, planos de corte, animações e diálogos auxiliares abertos e restaura o exemplo selecionado (já com plano XY (Planta) ativo) exatamente ao seu estado inicial pronto para cálculo.
 
@@ -291,6 +299,7 @@ Utilize os atalhos abaixo sempre que o viewport principal ou a barra de menus es
 • Ctrl+N — Iniciar Novo Projeto estrutural.
 • Ctrl+O — Abrir projeto existente (.omniframe).
 • Ctrl+S — Salvar projeto atual (.omniframe).
+• Ctrl+Shift+S — Salvar Como (.omniframe)...: gravar cópia do projeto com outro nome ou pasta.
 • Ctrl+Z / Ctrl+Y — Desfazer / Refazer operações de modelagem e edição.
 • Ctrl+Q — Sair do OmniFrame 3D (fechando todas as janelas filhas abertas).
 • F5 — CALCULAR ESTRUTURA: executar Solver FEM 3D completo.
@@ -304,10 +313,12 @@ Utilize os atalhos abaixo sempre que o viewport principal ou a barra de menus es
 • Botão Direito ou do Meio + Arrastar — Orbitar câmera 3D livremente.
 • Shift + Botão Direito ou do Meio + Arrastar — Panorâmica (Pan lateral/vertical) da câmera.
 • Roda do Mouse (Scroll) — Zoom de aproximação e afastamento.
+• Ctrl+C / Ctrl+Shift+C (Tabelas) — Copiar células selecionadas (ou copiar com cabeçalhos) em formato tabulado.
+• Ctrl+Shift+A / Duplo Clique (Tabelas) — Colorir todas as colunas na tabela / selecionar nó ou barra correspondente no Viewport 3D.
 
 9.4 Armazenamento Local, Portabilidade de Diretório e Privacidade Offline
 Todos os ativos textuais bilíngues (sobre, histórico, notas de lançamento, avisos legais, licenças e este manual) e traduções (.qm) são resolvidos de forma autônoma a partir do pacote de distribuição ou de recursos embutidos no próprio binário Qt, assegurando funcionamento integral independente da pasta ou unidade em que o aplicativo esteja instalado.
-O OmniFrame 3D não coleta telemetria, não abre conexões externas de rede e grava exclusivamente os projetos/relatórios (.omniframe, .dxf, .ifc, .html, .md, .pdf) salvos manualmente pelo usuário e três arquivos de preferências locais (language.json, theme.json e graphics.json) na pasta %LOCALAPPDATA%\OmniFrame\OmniFrame\.
+O OmniFrame 3D não coleta telemetria, não abre conexões externas de rede e grava exclusivamente os projetos/relatórios/tabelas (.omniframe, .dxf, .ifc, .xlsx, .csv, .txt, .json, .xml, .html, .md, .pdf) salvos manualmente pelo usuário, além do arquivo único consolidado de preferências locais (user_preferences.json), da cópia local de recuperação (recovery\) e da rotação local de logs diários (log\, máximo de 10 arquivos) na pasta %LOCALAPPDATA%\OmniFrame\.
 Em caso de desinstalação pela Loja da Microsoft ou remoção de distribuição portátil, nenhum driver de kernel ou serviço oculto em segundo plano é mantido no sistema operacional.
 
 9.5 Utilitários Complementares de Distribuição e Linha de Comando (CLI)

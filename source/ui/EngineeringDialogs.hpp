@@ -44,7 +44,8 @@ public:
         const SolverResult* lastStaticResult,
         std::function<void(const SolverResult&)> onStaticOrNonlinearCompleted,
         std::function<void(const QString&)> onStatusMsg,
-        std::function<void()> onModelMutated = {});
+        std::function<void()> onModelMutated = {},
+        std::function<void()> onMetadataUpdated = {});
 
     const kernel::ModalResult* latestModalResult() const { return m_hasModal ? &m_modalRes : nullptr; }
     const kernel::BucklingResult* latestBucklingResult() const { return m_hasBuckling ? &m_bucklingRes : nullptr; }
@@ -84,6 +85,7 @@ private:
     std::function<void(const SolverResult&)> m_onCompleted;
     std::function<void(const QString&)> m_onStatus;
     std::function<void()> m_onModelMutated;
+    std::function<void()> m_onMetadataUpdated;
 
     QTabWidget* m_tabs = nullptr;
     QProgressBar* m_progressBar = nullptr;
@@ -186,7 +188,8 @@ public:
     LoadCombinationsDialog(
         QWidget* parent,
         StructuralModel* model,
-        std::function<void()> onModelUpdated);
+        std::function<void()> onModelUpdated,
+        std::function<void()> onMetadataUpdated = {});
 
     void refreshLists();
 
@@ -215,6 +218,7 @@ private:
 
     StructuralModel* m_model = nullptr;
     std::function<void()> m_onModelUpdated;
+    std::function<void()> m_onMetadataUpdated;
     bool m_refreshingLists = false;
 
     QTabWidget* m_tabs = nullptr;

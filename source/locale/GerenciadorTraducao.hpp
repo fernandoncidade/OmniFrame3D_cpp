@@ -26,6 +26,7 @@ public:
 
     void inicializar();
     bool definir_idioma(const QString& codigo_idioma);
+    bool reloadSavedLanguage();
     void mudarIdioma(Idioma novoIdioma);
 
     QString obter_idioma_atual() const { return m_idiomaAtual; }

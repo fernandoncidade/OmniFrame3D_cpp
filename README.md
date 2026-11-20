@@ -2,7 +2,7 @@
 
 **Plataforma desktop nativa de engenharia para análise estrutural tridimensional (FEA — estática linear, modal, flambagem, harmônica, espectro de resposta e não linear geométrica/J2) em Windows, desenvolvida em C++23 moderno (`OmniFrameKernel` livre de Qt), Qt 6.11.1, Eigen 3.4.0 e OpenGL 3.3 Core Profile. Oferece elementos 1D/2D/3D, gerador de malhas (`MeshGenerator`), combinações ELU/ELS (`LoadSystem`), suíte de solvers esparsos (`LinearSolverSuite`), interpolação contínua de Hermite, viewport de alta definição (SSAA/MSAA/SDF, Clip Planes e contornos DCR), interoperabilidade `.omniframe` Schema 2.1.0 / DXF / IFC4, auditoria ABNT NBR em PDF local, relatórios PDF A4 e CLI headless `omniframe-cli.exe` (`pt-BR` / `en-US`).**
 
-[![Latest Release](https://img.shields.io/badge/Release-v2026.11.17.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.17.0)
+[![Latest Release](https://img.shields.io/badge/Release-v2026.11.18.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.18.0)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C?logo=c%2B%2B)](CMakeLists.txt)
 [![Qt 6.11.1](https://img.shields.io/badge/Qt-6.11.1-41CD52?logo=qt)](CMakeLists.txt)
 [![Eigen 3.4.0](https://img.shields.io/badge/Eigen-3.4.0-d9534f)](https://eigen.tuxfamily.org)
@@ -42,7 +42,7 @@
 <details>
 <summary><b>Clique para expandir / recolher a documentação em Português (BR)</b></summary><br>
 
-O **OmniFrame 3D** (Versão 2026.11.17.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
+O **OmniFrame 3D** (Versão 2026.11.18.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
 
 Diferente de suítes comerciais de FEA em caixa-preta que bloqueiam cálculos atrás de assinaturas caras, armazenamento obrigatório em nuvem e solvers opacos, o **OmniFrame 3D** foi concebido para entregar transparência matemática integral, soberania absoluta de dados locais (`Local-First`) e alto desempenho computacional em álgebra matricial esparsa:
 
@@ -115,11 +115,12 @@ Elemento Espacial de Viga-Coluna 3D (Nós i -> j)
 5. **Modelagem Paramétrica, Combinações, Interoperabilidade & Relatórios Técnicos:**
    - Ferramentas em plano ativo (`XY`/`XZ`/`YZ`, Snap Grid, Eixos Locais), casos e combinações ELU/ELS (`LoadSystem`) e auditoria normativa **ABNT NBR** (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explícito para normas ausentes como `NBR 8681`, `14762`, `15421`, `AISC 360` e `Eurocode 3`);
    - Editores para materiais elásticos/J2 ($E, \nu, \alpha, \gamma, \rho$), seções paramétricas (`Retangular`, `Circular`, `Perfil I/W`, `Tubular`, `Personalizada`), **3 exemplos estruturais prontos abrindo no plano padrão `XY (Planta)` e totalmente reeditáveis como exercício** (incluindo edição inline por listas suspensas limpas no Inspetor Lateral e `Desfazer`/`Refazer`), intercâmbio **DXF / IFC4 / VTK `UNSTRUCTURED_GRID` / CSV** (com caminhos UTF-8 acentuados via `Utf8Path.hpp`), formato aberto **`.omniframe` JSON Schema `2.1.0`** (com bloco `"surfaceMesh"` retrocompatível com `1.0` e `2.0`), relatórios Seção 9 (itens 1 a 20 e contínuo 2D/3D) em **HTML / Markdown / PDF executivo A4** (`PdfReportGenerator`) e CLI integrada **`omniframe-cli.exe`** (`--example`, `--nbr-audit`, `static|modal|buckling|nonlinear|pdelta|harmonic|spectrum|transient|seismic`, `--scheme newmark|hht`, `--load-factor`, `--modified-newton`, `--no-line-search`, `--imperfection`, `--install-windows-integration` para CMD/PowerShell e `20` suítes CTest).
-6. **Interface Qt 6.11.1 Adaptativa, Sessão Guiada (`F2`), Janelas Não-Modais (`Z-Order`) & Soberania 100% Offline:**
-   - Alternância dinâmica em tempo de execução de **Idioma** (`Português (BR)` / `English (US)`), **Tema Visual** (`Escuro` / `Claro`) e submenu **`Configurações > CLI Windows (CMD / PowerShell)`** propagados a todos os menus, setas vetoriais nativas de `QComboBox`/`QSpinBox` via `QProxyStyle` (sem gravação de arquivos PNG temporários, com cantos externos arredondados dos *spin buttons* acompanhando exatamente a moldura dos campos numéricos), painéis acopláveis recolhíveis com botões estilo *spin button* (`Inspetor e Entrada Rápida` recolhido para a lateral esquerda com setas `◀`/`▶` e rótulo rotacionado em `-90°`, e `Tabelas de Resultados` com setas `▼`/`▲` na base), tabelas sincronizadas (inclusive aba **`Esforços 2D/3D (Casca/Sólido)`**), gráficos do Plano Ativo, diálogos de engenharia (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), **Manual de Instruções (`F1`, com botão de acesso rápido ao Capítulo 10 da CLI)** e **Sessão Guiada (`F2` — `GuidedSessionDialog`)**;
+6. **Interface Qt 6.11.1 Adaptativa, Tabelas Multilayout, Sessão Guiada (`F2`), Recuperação & Soberania 100% Offline:**
+   - Alternância dinâmica em tempo de execução de **Idioma** (`Português (BR)` / `English (US)`), **Tema Visual** (`Escuro` / `Claro`), **Interface do Usuário** (`Customizado` / `Nativo` em tempo real) e submenu **`Configurações > CLI Windows (CMD / PowerShell)`** propagados a todos os menus, setas vetoriais nativas de `QComboBox`/`QSpinBox` via `QProxyStyle` (sem gravação de arquivos PNG temporários, com cantos externos arredondados dos *spin buttons* acompanhando exatamente a moldura dos campos numéricos), painéis acopláveis recolhíveis com pontinhos de arraste nos divisores e botões estilo *spin button* (`Inspetor e Entrada Rápida` recolhido para a lateral esquerda com setas `◀`/`▶` e rótulo rotacionado em `-90°`, e `Tabelas de Resultados` com setas `▼`/`▲` na base), **tabelas interativas configuráveis em 1–4 layouts** (`ResultTableConfigurator`: seleção inteligente, duplo clique para destacar no 3D, ordenação preservando `Soma de Reações`, coloração por coluna/categoria e exportação `.xlsx`/`.csv`/`.txt`/`.json`/`.xml`), gráficos do Plano Ativo, diálogos de engenharia (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), **Manual de Instruções (`F1`, com botão de acesso rápido ao Capítulo 10 da CLI)** e **Sessão Guiada (`F2` — `GuidedSessionDialog`)**;
    - **Sessão Guiada Passo a Passo (`Ajuda > Sessão Guiada...`, `F2`):** dimensões ampliadas para exibição integral de todos os rótulos, percorrendo **30 etapas** sobre qualquer um dos 3 exemplos pré-definidos no plano padrão `XY (Planta)` com 4 perfis científicos de ritmo de leitura (PPM — Fluente, Técnico, Voz Alta e Acessível/Dislexia), **callout e destaque visual unificados em 2 fases (sem sobreposição sobre janelas filhas)** e restauração automática do exemplo selecionado ao estado inicial ao concluir;
    - Gerenciamento central de janelas **Modeless** (`WindowZOrderManager`) com preparo prévio da alça nativa oculta para abertura em clique único sem contornos fantasmas e elevação automática na pilha de profundidade **`Z-Order`**;
-   - Operação **100% Local-First e Offline**: zero telemetria, zero sockets de rede e persistência restrita a projetos do usuário mais 3 arquivos locais de preferência (`language.json`, `theme.json` e `graphics.json`) em `%LOCALAPPDATA%\OmniFrame\OmniFrame\`.
+   - **Inicialização Limpa, Recuperação de Sessão e Logs Diários:** inicia vazio por padrão, oferece **`Salvar Como (.omniframe)...` (`Ctrl+Shift+S`)**, **`Recuperar Sessão Anterior...`**, proteção contra fechamento com alterações não salvas (`ProjectRecoveryStore`), política configurável via **`Configurações > Sessão, Inicialização e Logs`** (`StartupSessionDialog`) e rotação diária de logs (`AppLogger`: `omniframe_aaaa-mm-dd.log`, máximo de 10 arquivos em `%LOCALAPPDATA%\OmniFrame\log\`);
+   - Operação **100% Local-First e Offline**: zero telemetria, zero sockets de rede e persistência restrita a projetos/exportações do usuário mais o arquivo único consolidado de preferências (`user_preferences.json` v2 em `%LOCALAPPDATA%\OmniFrame\`, gerenciado em **`Configurações > Persistência de Configurações e Preferências`**).
 
 ---
 
@@ -164,7 +165,7 @@ Capturas reais do **OmniFrame 3D** localizado em **Português (Brasil)** no repo
 | **Site Oficial do Desenvolvedor** | [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp) *(distinto da página da Store)* |
 | **Suporte Técnico (Best-Effort)** | `linceu_lighthouse@outlook.com` · [GitHub Issues](https://github.com/fernandoncidade/OmniFrame_cpp/issues) *(sem suporte Microsoft; sem telefone/SLA)* |
 | **Licença Oficial do Pacote Store** | [EULA Oficial (PT)](source/assets/EULA/EULA_pt_BR.txt) · [CLC (PT)](source/assets/CLC/CLC_pt_BR.txt) · [GNU AGPLv3 (Código-Fonte)](LICENSE) |
-| **Base Legal de Privacidade** | Execução local solicitada pelo usuário — zero coleta de dados pessoais (LGPD Art. 7º, V e IX / GDPR; arquivos locais em `%LOCALAPPDATA%\OmniFrame\OmniFrame\`) |
+| **Base Legal de Privacidade** | Execução local solicitada pelo usuário — zero coleta de dados pessoais (LGPD Art. 7º, V e IX / GDPR; arquivos locais em `%LOCALAPPDATA%\OmniFrame\`) |
 
 ---
 
@@ -237,7 +238,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutur
 - 💻 [Referência da Linha de Comando e Utilitários (CLI)](docs/cli-reference.md#ptbr)
 - 💡 [Sugestões de Evolução e Backlog Técnico](docs/suggested-issues.md#ptbr)
 - 🔬 [Auditoria Técnica, ADRs, Matriz V&V e Roadmap](docs/technical-audit-and-roadmap.md)
-- 🚀 [Notas de Lançamento da Versão 2026.11.17.0](docs/release-v2026.11.17.0.md#ptbr)
+- 🚀 [Notas de Lançamento da Versão 2026.11.18.0](docs/release-v2026.11.18.0.md#ptbr)
 
 ---
 
@@ -259,7 +260,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutur
 <details>
 <summary><b>Click to expand / collapse English (US) documentation</b></summary><br>
 
-**OmniFrame 3D** (Version 2026.11.17.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
+**OmniFrame 3D** (Version 2026.11.18.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
 
 Unlike commercial black-box FEA suites that lock calculations behind expensive subscription paywalls, forced cloud storage, and opaque solvers, **OmniFrame 3D** is purpose-built to deliver complete mathematical transparency, strict local data sovereignty (`Local-First`), and high-speed sparse matrix computation:
 
@@ -332,11 +333,12 @@ Unlike commercial black-box FEA suites that lock calculations behind expensive s
 5. **Parametric Modeling, Load Combinations, Interoperability & Engineering Reports:**
    - Modeling tools (`Select [S]`, `Add Node [N]`, `Add Member [B]`, `Measure [M]`, `Delete [Del]`) projected onto configurable `XY`, `XZ`, or `YZ` working planes with **Snap Grid**, local triad axes display, `LoadSystem` load cases/combinations, and **ABNT NBR** code audit (`LocalPdfVerified`: `NBR 6118:2023`, `NBR 6120:2019`, `NBR 6122:2022`, `NBR 6123:2023`, `NBR 7480:2022`, `NBR 8800:2024`; `OutOfLocalPdfScope` explicitly flagged for absent standards such as `NBR 8681`, `NBR 14762`, `NBR 15421`, `AISC 360`, and `Eurocode 3`);
    - Built-in editors for linear/J2 materials ($E, \nu, \alpha, \gamma, \rho$), parametric cross-sections (`Rectangular`, `Circular`, `I-Beam`, `Tubular`, and `Custom`), **3 ready-to-solve built-in structural examples opening in the default `XY (Plan)` work plane and remaining freely re-editable** (including clean inline dropdown editing in the Side Property Inspector and `Undo`/`Redo`), **DXF / IFC4 / VTK `UNSTRUCTURED_GRID` / CSV** interoperability (supporting accented UTF-8 paths via `Utf8Path.hpp`), open **`.omniframe` JSON Schema `2.1.0`** (with `"surfaceMesh"` backward-compatible with `1.0` & `2.0`), Section-9 **HTML / Markdown / A4 PDF** (`PdfReportGenerator`, items 1–20 + 2D/3D continuum) calculation report export, and integrated CLI **`omniframe-cli.exe`** (`--example`, `--nbr-audit`, `static|modal|buckling|nonlinear|pdelta|harmonic|spectrum|transient|seismic`, `--scheme newmark|hht`, `--load-factor`, `--modified-newton`, `--no-line-search`, `--imperfection`, `--install-windows-integration` for CMD/PowerShell, and `20` modular CTest targets).
-6. **Adaptive Qt 6.11.1 Workspace, Guided Session (`F2`), Modeless Windows (`Z-Order`) & 100% Offline Privacy:**
-   - Dynamic runtime switching for **Language** (`English (US)` / `Português (BR)`), **GUI Theme** (`Dark` / `Light`), and **`Settings > Windows CLI (CMD / PowerShell)`** propagated across all menus, native vector `QComboBox`/`QSpinBox` arrows rendered via `QProxyStyle` (without emitting temporary PNG files on disk, featuring flush outer rounded spin-button corners aligned with the numeric frame), collapsible dock panels with spin-button arrow toggles (`Inspector & Quick Input` collapsing horizontally to the left edge with `◀`/`▶` arrows and a `-90°` rotated label, and `Result Tables` with bottom `▼`/`▲` arrows), synchronized result tables (including the **`2D/3D Forces (Shell/Solid)`** tab), Active Plane palettes, engineering dialogs (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), the searchable **Operations Manual (`F1`, with quick-jump button to Chapter 10 CLI reference)**, and the **Guided Session (`F2` — `GuidedSessionDialog`)**;
+6. **Adaptive Qt 6.11.1 Workspace, Multi-Layout Tables, Guided Session (`F2`), Recovery & 100% Offline Privacy:**
+   - Dynamic runtime switching for **Language** (`English (US)` / `Português (BR)`), **GUI Theme** (`Dark` / `Light`), **User Interface** (`Custom` / `Native` live mode), and **`Settings > Windows CLI (CMD / PowerShell)`** propagated across all menus, native vector `QComboBox`/`QSpinBox` arrows rendered via `QProxyStyle` (without emitting temporary PNG files on disk, featuring flush outer rounded spin-button corners aligned with the numeric frame), collapsible dock panels with splitter grip dots and spin-button arrow toggles (`Inspector & Quick Input` collapsing horizontally to the left edge with `◀`/`▶` arrows and a `-90°` rotated label, and `Result Tables` with bottom `▼`/`▲` arrows), **interactive result tables configurable across 1–4 side-by-side layouts** (`ResultTableConfigurator`: smart selection, double-click 3D highlighting, smart sorting pinning `Reaction Sum`, column/category colors, and export to `.xlsx`/`.csv`/`.txt`/`.json`/`.xml`), Active Plane palettes, engineering dialogs (`AnalysisSuiteDialog`, `LoadCombinationsDialog`, `MeshGeneratorDialog`, `PostProcessControlDialog`, `NbrComplianceDialog`, `PdfReportOptionsDialog`), the searchable **Operations Manual (`F1`, with quick-jump button to Chapter 10 CLI reference)**, and the **Guided Session (`F2` — `GuidedSessionDialog`)**;
    - **Step-by-Step Guided Session (`Help > Guided Session...`, `F2`):** enlarged layout displaying full button labels across **30 automated steps** on any chosen preset example defaulting to the `XY (Plan)` work plane across 4 scientific cognitive reading-speed profiles in WPM (Fluent, Technical, Read Aloud, and Dyslexia/Accessible), featuring a **unified two-phase spotlight & non-overlapping callout** and automatic restoration of the selected example to its initial state upon completion;
    - Centralized **Modeless** child-window stack management (`WindowZOrderManager`) preparing hidden native window handles prior to mapping to prevent transient ghost frames on single-click opening alongside managed **`Z-Order`** elevation;
-   - Strictly **100% Local-First & Offline**: zero telemetry, zero network sockets, and local persistence restricted to user-saved project files plus three preference files (`language.json`, `theme.json`, and `graphics.json`) inside `%LOCALAPPDATA%\OmniFrame\OmniFrame\`.
+   - **Clean Empty Startup, Session Recovery & Daily Logs:** starts empty by default, offers **`Save As (.omniframe)...` (`Ctrl+Shift+S`)**, **`Recover Previous Session...`**, exit protection for unsaved edits (`ProjectRecoveryStore`), configurable startup policies via **`Settings > Session, Startup and Logs`** (`StartupSessionDialog`), and daily rotating logs (`AppLogger`: `omniframe_yyyy-mm-dd.log`, capped at 10 files in `%LOCALAPPDATA%\OmniFrame\log\`);
+   - Strictly **100% Local-First & Offline**: zero telemetry, zero network sockets, and local persistence restricted to user-saved project/table files plus a single consolidated preference file (`user_preferences.json` v2 inside `%LOCALAPPDATA%\OmniFrame\`, managed via **`Settings > Settings and Preferences Persistence`**).
 
 ---
 
@@ -381,7 +383,7 @@ Actual captures of **OmniFrame 3D** localized in **English (US)** stored under [
 | **Developer Official Website** | [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp) *(distinct from Microsoft Store listing)* |
 | **Support Contact (Best-Effort)** | `linceu_lighthouse@outlook.com` · [GitHub Issues](https://github.com/fernandoncidade/OmniFrame_cpp/issues) *(no Microsoft support; no phone/SLA)* |
 | **Store Official Package License** | [Official EULA (EN)](source/assets/EULA/EULA_en_US.txt) · [CLC (EN)](source/assets/CLC/CLC_en_US.txt) · [GNU AGPLv3 (Source)](LICENSE) |
-| **Privacy Legal Basis** | User-requested local computation — zero personal data collection (LGPD Art. 7, V & IX / GDPR; local preferences in `%LOCALAPPDATA%\OmniFrame\OmniFrame\`) |
+| **Privacy Legal Basis** | User-requested local computation — zero personal data collection (LGPD Art. 7, V & IX / GDPR; local preferences in `%LOCALAPPDATA%\OmniFrame\`) |
 
 ---
 
@@ -454,7 +456,7 @@ omniframe-cli --example building --nbr-audit --json
 - 💻 [Command-Line & Utilities Reference (CLI)](docs/cli-reference.md#enus)
 - 💡 [Suggested Issues & Technical Backlog](docs/suggested-issues.md#enus)
 - 🔬 [Technical Audit, ADRs, V&V Matrix & Roadmap](docs/technical-audit-and-roadmap.md)
-- 🚀 [Release Notes for Version 2026.11.17.0](docs/release-v2026.11.17.0.md#enus)
+- 🚀 [Release Notes for Version 2026.11.18.0](docs/release-v2026.11.18.0.md#enus)
 
 ---
 

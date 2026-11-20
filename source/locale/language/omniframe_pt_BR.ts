@@ -4955,5 +4955,601 @@ Novos terminais CMD e PowerShell já podem executar 'omniframe-cli --help' diret
             <source>Verificar Status da CLI no Windows...</source>
             <translation>Verificar Status da CLI no Windows...</translation>
         </message>
+        <message>
+            <source>Nós Estruturais</source>
+            <translation>Nós Estruturais</translation>
+        </message>
+        <message>
+            <source>Nós de Malha</source>
+            <translation>Nós de Malha</translation>
+        </message>
+        <message>
+            <source>Apoios Estruturais</source>
+            <translation>Apoios Estruturais</translation>
+        </message>
+        <message>
+            <source>Apoios de Malha</source>
+            <translation>Apoios de Malha</translation>
+        </message>
+        <message>
+            <source>Soma de Reações</source>
+            <translation>Soma de Reações</translation>
+        </message>
+        <message>
+            <source>Barras</source>
+            <translation>Barras</translation>
+        </message>
+        <message>
+            <source>Cascas 2D</source>
+            <translation>Cascas 2D</translation>
+        </message>
+        <message>
+            <source>Sólidos 3D</source>
+            <translation>Sólidos 3D</translation>
+        </message>
+        <message>
+            <source>Elemento %1 (%2) — inspeção na tabela de contínuos.</source>
+            <translation>Elemento %1 (%2) — inspeção na tabela de contínuos.</translation>
+        </message>
+        <message>
+            <source>Erro ao exportar tabela.</source>
+            <translation>Erro ao exportar tabela.</translation>
+        </message>
+        <message>
+            <source>Planilha Excel (*.xlsx);;CSV UTF-8 (*.csv);;Texto Tabulado (*.txt);;JSON (*.json);;XML (*.xml)</source>
+            <translation>Planilha Excel (*.xlsx);;CSV UTF-8 (*.csv);;Texto Tabulado (*.txt);;JSON (*.json);;XML (*.xml)</translation>
+        </message>
+        <message>
+            <source>Exportar Dados da Tabela</source>
+            <translation>Exportar Dados da Tabela</translation>
+        </message>
+        <message>
+            <source>Tabela exportada com sucesso.</source>
+            <translation>Tabela exportada com sucesso.</translation>
+        </message>
+        <message>
+            <source>Selecionar Cor</source>
+            <translation>Selecionar Cor</translation>
+        </message>
+        <message>
+            <source>Configurar colunas</source>
+            <translation>Configurar colunas</translation>
+        </message>
+        <message>
+            <source>Selecionar todas colunas</source>
+            <translation>Selecionar todas colunas</translation>
+        </message>
+        <message>
+            <source>Resetar colunas</source>
+            <translation>Resetar colunas</translation>
+        </message>
+        <message>
+            <source>Ordenar linhas</source>
+            <translation>Ordenar linhas</translation>
+        </message>
+        <message>
+            <source>Ordem das Linhas da Tabela</source>
+            <translation>Ordem das Linhas da Tabela</translation>
+        </message>
+        <message>
+            <source>Adicionar no Fim</source>
+            <translation>Adicionar no Fim</translation>
+        </message>
+        <message>
+            <source>Adicionar no Topo</source>
+            <translation>Adicionar no Topo</translation>
+        </message>
+        <message>
+            <source>Inverter Linhas Atuais da Tabela</source>
+            <translation>Inverter Linhas Atuais da Tabela</translation>
+        </message>
+        <message>
+            <source>Mostrar cores nas colunas</source>
+            <translation>Mostrar cores nas colunas</translation>
+        </message>
+        <message>
+            <source>Colorir colunas</source>
+            <translation>Colorir colunas</translation>
+        </message>
+        <message>
+            <source>Resetar cores de colunas</source>
+            <translation>Resetar cores de colunas</translation>
+        </message>
+        <message>
+            <source>Configurar cores</source>
+            <translation>Configurar cores</translation>
+        </message>
+        <message>
+            <source>Resetar cores</source>
+            <translation>Resetar cores</translation>
+        </message>
+        <message>
+            <source>Copiar Seleção</source>
+            <translation>Copiar Seleção</translation>
+        </message>
+        <message>
+            <source>Copiar com Cabeçalhos</source>
+            <translation>Copiar com Cabeçalhos</translation>
+        </message>
+        <message>
+            <source>Copiar Tabela Inteira</source>
+            <translation>Copiar Tabela Inteira</translation>
+        </message>
+        <message>
+            <source>Opções de exportação</source>
+            <translation>Opções de exportação</translation>
+        </message>
+        <message>
+            <source>Exportar colunas ativas</source>
+            <translation>Exportar colunas ativas</translation>
+        </message>
+        <message>
+            <source>Exportar seleção</source>
+            <translation>Exportar seleção</translation>
+        </message>
+        <message>
+            <source>Resetar opções de exportação</source>
+            <translation>Resetar opções de exportação</translation>
+        </message>
+        <message>
+            <source>Exportar Tabela</source>
+            <translation>Exportar Tabela</translation>
+        </message>
+        <message>
+            <source>Layouts do Painel de Tabelas de Resultados</source>
+            <translation>Layouts do Painel de Tabelas de Resultados</translation>
+        </message>
+        <message>
+            <source>1 Layout (Todas as Tabelas)</source>
+            <translation>1 Layout (Todas as Tabelas)</translation>
+        </message>
+        <message>
+            <source>2 Layouts</source>
+            <translation>2 Layouts</translation>
+        </message>
+        <message>
+            <source>3 Layouts</source>
+            <translation>3 Layouts</translation>
+        </message>
+        <message>
+            <source>4 Layouts</source>
+            <translation>4 Layouts</translation>
+        </message>
+        <message>
+            <source>Tabelas do 1º Layout</source>
+            <translation>Tabelas do 1º Layout</translation>
+        </message>
+        <message>
+            <source>Tabelas do 2º Layout</source>
+            <translation>Tabelas do 2º Layout</translation>
+        </message>
+        <message>
+            <source>Tabelas do 3º Layout</source>
+            <translation>Tabelas do 3º Layout</translation>
+        </message>
+        <message>
+            <source>Tabelas do 4º Layout</source>
+            <translation>Tabelas do 4º Layout</translation>
+        </message>
+        <message>
+            <source>Selecionar Todas as Tabelas</source>
+            <translation>Selecionar Todas as Tabelas</translation>
+        </message>
+        <message>
+            <source>Restaurar Layouts Padrão</source>
+            <translation>Restaurar Layouts Padrão</translation>
+        </message>
+        <message>
+            <source>Persistência de Configurações e Preferências</source>
+            <translation>Persistência de Configurações e Preferências</translation>
+        </message>
+        <message>
+            <source>Salvar Todas as Configurações Agora</source>
+            <translation>Salvar Todas as Configurações Agora</translation>
+        </message>
+        <message>
+            <source>Recarregar Configurações Salvas</source>
+            <translation>Recarregar Configurações Salvas</translation>
+        </message>
+        <message>
+            <source>Restaurar Todas as Configurações Padrão</source>
+            <translation>Restaurar Todas as Configurações Padrão</translation>
+        </message>
+        <message>
+            <source>Todas as configurações e preferências foram salvas em AppData/Local/OmniFrame/user_preferences.json.</source>
+            <translation>Todas as configurações e preferências foram salvas em AppData/Local/OmniFrame/user_preferences.json.</translation>
+        </message>
+        <message>
+            <source>Configurações e preferências recarregadas com sucesso.</source>
+            <translation>Configurações e preferências recarregadas com sucesso.</translation>
+        </message>
+        <message>
+            <source>Todas as configurações e preferências foram restauradas para o padrão.</source>
+            <translation>Todas as configurações e preferências foram restauradas para o padrão.</translation>
+        </message>
+        <message>
+            <source>Interface do Usuário</source>
+            <translation>Interface do Usuário</translation>
+        </message>
+        <message>
+            <source>Nativo</source>
+            <translation>Nativo</translation>
+        </message>
+        <message>
+            <source>Customizado</source>
+            <translation>Customizado</translation>
+        </message>
+        <message>
+            <source>Modo de interface nativo (Qt6 padrão) aplicado.</source>
+            <translation>Modo de interface nativo (Qt6 padrão) aplicado.</translation>
+        </message>
+        <message>
+            <source>Modo de interface customizado aplicado.</source>
+            <translation>Modo de interface customizado aplicado.</translation>
+        </message>
+        <message>
+            <source>Pronto para modelar.</source>
+            <translation>Pronto para modelar.</translation>
+        </message>
+        <message>
+            <source>Salvar (.omniframe)</source>
+            <translation>Salvar (.omniframe)</translation>
+        </message>
+        <message>
+            <source>Salvar Como (.omniframe)...</source>
+            <translation>Salvar Como (.omniframe)...</translation>
+        </message>
+        <message>
+            <source>Recuperar Sessão Anterior...</source>
+            <translation>Recuperar Sessão Anterior...</translation>
+        </message>
+        <message>
+            <source>Recuperar Sessão Não Salva</source>
+            <translation>Recuperar Sessão Não Salva</translation>
+        </message>
+        <message>
+            <source>Foi encontrada uma produção estrutural não salva da sessão anterior (%1 nós, %2 barras, %3 elementos 2D/3D).
+
+Deseja recuperar todas as edições preservadas?</source>
+            <translation>Foi encontrada uma produção estrutural não salva da sessão anterior (%1 nós, %2 barras, %3 elementos 2D/3D).
+
+Deseja recuperar todas as edições preservadas?</translation>
+        </message>
+        <message>
+            <source>Recuperar Projeto</source>
+            <translation>Recuperar Projeto</translation>
+        </message>
+        <message>
+            <source>Descartar Rascunho</source>
+            <translation>Descartar Rascunho</translation>
+        </message>
+        <message>
+            <source>Alterações Não Salvas</source>
+            <translation>Alterações Não Salvas</translation>
+        </message>
+        <message>
+            <source>Existem alterações não salvas no projeto estrutural (uma cópia de recuperação automática foi gravada em disco).
+
+Deseja salvar em arquivo antes de fechar?</source>
+            <translation>Existem alterações não salvas no projeto estrutural (uma cópia de recuperação automática foi gravada em disco).
+
+Deseja salvar em arquivo antes de fechar?</translation>
+        </message>
+        <message>
+            <source>Salvar</source>
+            <translation>Salvar</translation>
+        </message>
+        <message>
+            <source>Sair e Manter Recuperação</source>
+            <translation>Sair e Manter Recuperação</translation>
+        </message>
+        <message>
+            <source>Sessão anterior recuperada: %1 nós, %2 barras.</source>
+            <translation>Sessão anterior recuperada: %1 nós, %2 barras.</translation>
+        </message>
+        <message>
+            <source>Recuperação de Sessão</source>
+            <translation>Recuperação de Sessão</translation>
+        </message>
+        <message>
+            <source>Não há sessão não salva para recuperar.</source>
+            <translation>Não há sessão não salva para recuperar.</translation>
+        </message>
+        <message>
+            <source>Projeto Sem Título</source>
+            <translation>Projeto Sem Título</translation>
+        </message>
+        <message>
+            <source>Retomar Sessão Anterior</source>
+            <translation>Retomar Sessão Anterior</translation>
+        </message>
+        <message>
+            <source>Iniciar Novo Projeto</source>
+            <translation>Iniciar Novo Projeto</translation>
+        </message>
+        <message>
+            <source>Carregar Edição Anterior</source>
+            <translation>Carregar Edição Anterior</translation>
+        </message>
+        <message>
+            <source>Carregar Exemplo Anterior</source>
+            <translation>Carregar Exemplo Anterior</translation>
+        </message>
+        <message>
+            <source>Carregar Projeto Anterior</source>
+            <translation>Carregar Projeto Anterior</translation>
+        </message>
+        <message>
+            <source>Foi encontrada uma edição não salva da sessão anterior no exemplo "%1" (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar a edição anterior ou iniciar um novo projeto?</source>
+            <translation>Foi encontrada uma edição não salva da sessão anterior no exemplo "%1" (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar a edição anterior ou iniciar um novo projeto?</translation>
+        </message>
+        <message>
+            <source>Na sessão anterior, o exemplo estrutural "%1" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar o exemplo anterior ou iniciar um novo projeto?</source>
+            <translation>Na sessão anterior, o exemplo estrutural "%1" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar o exemplo anterior ou iniciar um novo projeto?</translation>
+        </message>
+        <message>
+            <source>Foi encontrada uma edição não salva da sessão anterior no projeto "%1" (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar a edição anterior ou iniciar um novo projeto?</source>
+            <translation>Foi encontrada uma edição não salva da sessão anterior no projeto "%1" (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar a edição anterior ou iniciar um novo projeto?</translation>
+        </message>
+        <message>
+            <source>Na sessão anterior, o projeto "%1" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar o projeto anterior ou iniciar um novo projeto?</source>
+            <translation>Na sessão anterior, o projeto "%1" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar o projeto anterior ou iniciar um novo projeto?</translation>
+        </message>
+        <message>
+            <source>Não há projeto ou edição anterior disponível para carregar.</source>
+            <translation>Não há projeto ou edição anterior disponível para carregar.</translation>
+        </message>
+        <message>
+            <source>Arquivos de log no diretório: %1 / %2 máximo</source>
+            <translation>Arquivos de log no diretório: %1 / %2 máximo</translation>
+        </message>
+        <message>
+            <source>Nenhum registro gravado ainda neste arquivo de log.</source>
+            <translation>Nenhum registro gravado ainda neste arquivo de log.</translation>
+        </message>
+        <message>
+            <source>Configurações de Sessão, Inicialização e Logs</source>
+            <translation>Configurações de Sessão, Inicialização e Logs</translation>
+        </message>
+        <message>
+            <source>Comportamento ao Iniciar o Aplicativo</source>
+            <translation>Comportamento ao Iniciar o Aplicativo</translation>
+        </message>
+        <message>
+            <source>Defina se o aplicativo deve perguntar a cada inicialização ou executar automaticamente uma ação padrão quando existir projeto, exemplo ou edição da sessão anterior:</source>
+            <translation>Defina se o aplicativo deve perguntar a cada inicialização ou executar automaticamente uma ação padrão quando existir projeto, exemplo ou edição da sessão anterior:</translation>
+        </message>
+        <message>
+            <source>Perguntar a cada nova inicialização (emitir diálogo de escolha)</source>
+            <translation>Perguntar a cada nova inicialização (emitir diálogo de escolha)</translation>
+        </message>
+        <message>
+            <source>Carregar automaticamente o projeto, exemplo ou edição deixado em aberto</source>
+            <translation>Carregar automaticamente o projeto, exemplo ou edição deixado em aberto</translation>
+        </message>
+        <message>
+            <source>Sempre inicializar um novo projeto vazio</source>
+            <translation>Sempre inicializar um novo projeto vazio</translation>
+        </message>
+        <message>
+            <source>Exibir diálogo de confirmação para alterações não salvas ao sair</source>
+            <translation>Exibir diálogo de confirmação para alterações não salvas ao sair</translation>
+        </message>
+        <message>
+            <source>Registro Diário de Logs</source>
+            <translation>Registro Diário de Logs</translation>
+        </message>
+        <message>
+            <source>Diretório de Logs:</source>
+            <translation>Diretório de Logs:</translation>
+        </message>
+        <message>
+            <source>Arquivo Atual:</source>
+            <translation>Arquivo Atual:</translation>
+        </message>
+        <message>
+            <source>Registra todos os níveis de mensagens (Trace, Debug, Info, Warning, Critical e Fatal) no padrão omniframe_aaaa-mm-dd.log, mantendo no máximo 10 arquivos (o mais antigo é excluído ao gerar um mais recente).</source>
+            <translation>Registra todos os níveis de mensagens (Trace, Debug, Info, Warning, Critical e Fatal) no padrão omniframe_aaaa-mm-dd.log, mantendo no máximo 10 arquivos (o mais antigo é excluído ao gerar um mais recente).</translation>
+        </message>
+        <message>
+            <source>Abrir Pasta de Logs</source>
+            <translation>Abrir Pasta de Logs</translation>
+        </message>
+        <message>
+            <source>Atualizar Log</source>
+            <translation>Atualizar Log</translation>
+        </message>
+        <message>
+            <source>Restaurar Padrão</source>
+            <translation>Restaurar Padrão</translation>
+        </message>
+        <message>
+            <source>Sessão, Inicialização e Logs</source>
+            <translation>Sessão, Inicialização e Logs</translation>
+        </message>
+        <message>
+            <source>Perguntar ao iniciar (Exibir diálogo)</source>
+            <translation>Perguntar ao iniciar (Exibir diálogo)</translation>
+        </message>
+        <message>
+            <source>Carregar automaticamente projeto ou exemplo anterior</source>
+            <translation>Carregar automaticamente projeto ou exemplo anterior</translation>
+        </message>
+        <message>
+            <source>Sempre iniciar um novo projeto (Vazio)</source>
+            <translation>Sempre iniciar um novo projeto (Vazio)</translation>
+        </message>
+        <message>
+            <source>Exibir confirmação de alterações não salvas ao sair</source>
+            <translation>Exibir confirmação de alterações não salvas ao sair</translation>
+        </message>
+        <message>
+            <source>Configurar Inicialização, Sessão e Logs...</source>
+            <translation>Configurar Inicialização, Sessão e Logs...</translation>
+        </message>
+        <message>
+            <source>Abrir Pasta de Logs...</source>
+            <translation>Abrir Pasta de Logs...</translation>
+        </message>
+        <message>
+            <source>Novo projeto vazio iniciado automaticamente conforme configuração de inicialização.</source>
+            <translation>Novo projeto vazio iniciado automaticamente conforme configuração de inicialização.</translation>
+        </message>
+        <message>
+            <source>Não foi possível carregar automaticamente a sessão anterior; novo projeto vazio iniciado.</source>
+            <translation>Não foi possível carregar automaticamente a sessão anterior; novo projeto vazio iniciado.</translation>
+        </message>
+        <message>
+            <source>Inicialização configurada: carregar automaticamente projeto ou exemplo anterior.</source>
+            <translation>Inicialização configurada: carregar automaticamente projeto ou exemplo anterior.</translation>
+        </message>
+        <message>
+            <source>Inicialização configurada: sempre iniciar um novo projeto vazio.</source>
+            <translation>Inicialização configurada: sempre iniciar um novo projeto vazio.</translation>
+        </message>
+        <message>
+            <source>Inicialização configurada: perguntar a cada nova inicialização.</source>
+            <translation>Inicialização configurada: perguntar a cada nova inicialização.</translation>
+        </message>
+        <message>
+            <source>Confirmação de alterações não salvas ao sair ativada.</source>
+            <translation>Confirmação de alterações não salvas ao sair ativada.</translation>
+        </message>
+        <message>
+            <source>Confirmação de alterações não salvas ao sair desativada (recuperação automática mantida).</source>
+            <translation>Confirmação de alterações não salvas ao sair desativada (recuperação automática mantida).</translation>
+        </message>
+        <message>
+            <source>Preferências de inicialização restauradas para o padrão.</source>
+            <translation>Preferências de inicialização restauradas para o padrão.</translation>
+        </message>
+        <message>
+            <source>Diretório de logs: %1</source>
+            <translation>Diretório de logs: %1</translation>
+        </message>
+        <message>
+            <source>Expandir ou recolher botões ocultos da barra</source>
+            <translation>Expandir ou recolher botões ocultos da barra</translation>
+        </message>
+        <message>
+            <source>Âmbar Dourado — Padrão (#F59E0B)</source>
+            <translation>Âmbar Dourado — Padrão (#F59E0B)</translation>
+        </message>
+        <message>
+            <source>Verde Esmeralda (#10B981)</source>
+            <translation>Verde Esmeralda (#10B981)</translation>
+        </message>
+        <message>
+            <source>Azul Cobalto (#3B82F6)</source>
+            <translation>Azul Cobalto (#3B82F6)</translation>
+        </message>
+        <message>
+            <source>Ciano Técnico (#06B6D4)</source>
+            <translation>Ciano Técnico (#06B6D4)</translation>
+        </message>
+        <message>
+            <source>Violeta Intenso (#8B5CF6)</source>
+            <translation>Violeta Intenso (#8B5CF6)</translation>
+        </message>
+        <message>
+            <source>Magenta Vibrante (#EC4899)</source>
+            <translation>Magenta Vibrante (#EC4899)</translation>
+        </message>
+        <message>
+            <source>Vermelho Coral (#EF4444)</source>
+            <translation>Vermelho Coral (#EF4444)</translation>
+        </message>
+        <message>
+            <source>Cor Personalizada (%1)</source>
+            <translation>Cor Personalizada (%1)</translation>
+        </message>
+        <message>
+            <source>Selecionar Cor do Realce das Etapas</source>
+            <translation>Selecionar Cor do Realce das Etapas</translation>
+        </message>
+        <message>
+            <source>Cor do Realce das Etapas (Independente de Tema/UI/Idioma):</source>
+            <translation>Cor do Realce das Etapas (Independente de Tema/UI/Idioma):</translation>
+        </message>
+        <message>
+            <source>Define a cor aplicada no realce das etapas na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos.</source>
+            <translation>Define a cor aplicada no realce das etapas na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos.</translation>
+        </message>
+        <message>
+            <source>Prévia da cor ativa para o realce das etapas.</source>
+            <translation>Prévia da cor ativa para o realce das etapas.</translation>
+        </message>
+        <message>
+            <source>Escolher Cor...</source>
+            <translation>Escolher Cor...</translation>
+        </message>
+        <message>
+            <source>Abrir seletor de cores personalizado para o realce das etapas.</source>
+            <translation>Abrir seletor de cores personalizado para o realce das etapas.</translation>
+        </message>
+        <message>
+            <source>Cor Padrão</source>
+            <translation>Cor Padrão</translation>
+        </message>
+        <message>
+            <source>Restaurar a cor padrão Âmbar Dourado (#F59E0B) do realce das etapas.</source>
+            <translation>Restaurar a cor padrão Âmbar Dourado (#F59E0B) do realce das etapas.</translation>
+        </message>
+        <message>
+            <source>Fase %1 (%2)</source>
+            <translation>Fase %1 (%2)</translation>
+        </message>
+        <message>
+            <source>Cor do Realce por Fase (Independente de Tema/UI/Idioma):</source>
+            <translation>Cor do Realce por Fase (Independente de Tema/UI/Idioma):</translation>
+        </message>
+        <message>
+            <source>Seleciona qual fase (1, 2, 3...) terá sua cor de realce configurada.</source>
+            <translation>Seleciona qual fase (1, 2, 3...) terá sua cor de realce configurada.</translation>
+        </message>
+        <message>
+            <source>Define a cor aplicada no realce da fase selecionada na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos.</source>
+            <translation>Define a cor aplicada no realce da fase selecionada na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos.</translation>
+        </message>
+        <message>
+            <source>Prévia da cor ativa para o realce da fase.</source>
+            <translation>Prévia da cor ativa para o realce da fase.</translation>
+        </message>
+        <message>
+            <source>Restaurar a cor padrão do realce da fase selecionada.</source>
+            <translation>Restaurar a cor padrão do realce da fase selecionada.</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR (TOOLTIP + MIRA)</source>
+            <translation>FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR (TOOLTIP + MIRA)</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — EXECUTANDO NESTE CONTROLE / DIÁLOGO</source>
+            <translation>FASE %1/%2 — EXECUTANDO NESTE CONTROLE / DIÁLOGO</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR</source>
+            <translation>FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — EXECUTANDO NESTE CONTROLE</source>
+            <translation>FASE %1/%2 — EXECUTANDO NESTE CONTROLE</translation>
+        </message>
     </context>
 </TS>

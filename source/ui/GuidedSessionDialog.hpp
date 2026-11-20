@@ -1,11 +1,15 @@
 #pragma once
 
+#include <QColor>
 #include <QDialog>
 #include <QElapsedTimer>
 #include <QPointer>
 #include <QRect>
 #include <QString>
 #include <QWidget>
+
+#include <array>
+#include <vector>
 
 class QCloseEvent;
 class QComboBox;
@@ -18,6 +22,7 @@ class QPaintEvent;
 class QProgressBar;
 class QPushButton;
 class QResizeEvent;
+class QScrollArea;
 class QTimer;
 
 namespace omniframe {
@@ -43,6 +48,9 @@ public:
     bool showCalloutCard() const { return m_showCalloutCard; }
     void setShowSpotlight(bool show);
     bool showSpotlight() const { return m_showSpotlight; }
+    void setHighlightColor(const QColor& color);
+    QColor highlightColor() const { return m_highlightColor; }
+    QColor cardBackgroundColor() const { return m_lastCardBgColor; }
 
     void setHighlight(QWidget* hostWindow,
                       QWidget* targetWidget,
@@ -87,6 +95,8 @@ private:
     bool m_showSpotlight = true;
     QString m_badgeText;
     QString m_unifiedHtmlBody;
+    QColor m_highlightColor{QStringLiteral("#F59E0B")};
+    mutable QColor m_lastCardBgColor;
 };
 
 /**
@@ -120,6 +130,22 @@ public:
     void selectReadingProfile(ReadingProfile profile);
     ReadingProfile selectedReadingProfile() const;
 
+    int phasesForStep(int step) const;
+    void setPhasesForStep(int step, int phaseCount);
+    int maxPhasesCount() const;
+    void selectHighlightPhase(int phase);
+    int selectedHighlightPhase() const { return m_selectedHighlightPhase; }
+    void setPhaseHighlightColor(int phase, const QColor& color);
+    QColor phaseHighlightColor(int phase) const;
+    QColor activePhaseHighlightColor() const;
+    void resetAllPhaseHighlightColors();
+    static QColor defaultPhaseHighlightColor(int phase);
+
+    void setStepHighlightColor(const QColor& color);
+    QColor stepHighlightColor() const { return activePhaseHighlightColor(); }
+    void resetStepHighlightColor();
+    static QColor defaultStepHighlightColor() { return defaultPhaseHighlightColor(1); }
+
     int currentStepWordCount() const;
     int computePhase1ReadingMs(int step) const;
     int computePhase2ObservationMs(int step = -1) const;
@@ -146,6 +172,9 @@ public:
 
     static constexpr int kTotalSteps = 30;
 
+signals:
+    void stepHighlightColorChanged(const QColor& color);
+
 protected:
     void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
@@ -159,6 +188,8 @@ private slots:
     void onPauseResumeClicked();
     void onNextStepClicked();
     void onStopClicked();
+    void onPickHighlightColorClicked();
+    void onResetHighlightColorClicked();
 
 private:
     struct StepSpec {
@@ -186,6 +217,10 @@ private:
 
     void retranslateUi();
     void updateReadingInfoLabel();
+    void ensurePhaseColorCapacity(int minPhases);
+    void syncHighlightColorControls();
+    void loadSavedHighlightColor();
+    void saveHighlightColorPreference() const;
     void applyCardTheme();
     void updateControlsState();
     void refreshCurrentStepTexts();
@@ -213,6 +248,7 @@ private:
     QPointer<GuidedTargetOverlay> m_overlay;
     QPointer<GuidedTargetOverlay> m_childOverlay;
     QPointer<QWidget> m_currentHighlightedWidget;
+    QPointer<QDialog> m_colorPickerDialog;
     QRect m_currentHighlightRect;
 
     QLabel* m_introLabel = nullptr;
@@ -222,9 +258,19 @@ private:
     QLabel* m_readingProfileLabel = nullptr;
     QComboBox* m_readingProfileCombo = nullptr;
     QLabel* m_readingInfoLabel = nullptr;
+    QLabel* m_highlightColorLabel = nullptr;
+    QComboBox* m_highlightPhaseCombo = nullptr;
+    QLabel* m_highlightColorSwatch = nullptr;
+    QComboBox* m_highlightColorCombo = nullptr;
+    QPushButton* m_btnPickHighlightColor = nullptr;
+    QPushButton* m_btnResetHighlightColor = nullptr;
+    std::array<int, kTotalSteps> m_stepPhaseCounts{};
+    std::vector<QColor> m_phaseHighlightColors;
+    int m_selectedHighlightPhase = 1;
 
     QGroupBox* m_progressGroup = nullptr;
     QLabel* m_phaseBadgeLabel = nullptr;
+    QScrollArea* m_bannerScroll = nullptr;
     QLabel* m_targetActionBannerLabel = nullptr;
     QLabel* m_timerCountdownLabel = nullptr;
     QLabel* m_stepTitleLabel = nullptr;

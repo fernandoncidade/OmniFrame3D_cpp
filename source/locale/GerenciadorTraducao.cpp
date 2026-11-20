@@ -1,4 +1,5 @@
 #include "GerenciadorTraducao.hpp"
+#include "io/UserPreferencesStore.hpp"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -6,11 +7,9 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QLibraryInfo>
 #include <QLocale>
-#include <QStandardPaths>
 #include <QWidget>
 
 namespace omniframe::locale
@@ -349,26 +348,42 @@ namespace omniframe::locale
         return loaded || (m_idiomaAtual == m_idiomaPadrao);
     }
 
+    bool GerenciadorTraducao::reloadSavedLanguage()
+    {
+        bool exists = false;
+        const QJsonObject appObj = io::UserPreferencesStore::readSection(QStringLiteral("app"), &exists);
+        if (!exists)
+        {
+            return false;
+        }
+        const QString lang = appObj.value(QStringLiteral("language")).toString();
+        if (!m_idiomasDisponiveis.contains(lang))
+        {
+            return false;
+        }
+        if (m_idiomaAtual == lang && m_tradutorApp != nullptr)
+        {
+            return true;
+        }
+
+        m_idiomaAtual = lang;
+        const bool res = aplicar_traducao();
+        emit idioma_alterado(m_idiomaAtual);
+        emit idiomaAlterado(idiomaAtual());
+        return res;
+    }
+
     void GerenciadorTraducao::carregar_configuracao_idioma()
     {
-        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-        const QString configFile = configDir + QStringLiteral("/language.json");
-
-        if (QFile::exists(configFile))
+        bool exists = false;
+        const QJsonObject appObj = io::UserPreferencesStore::readSection(QStringLiteral("app"), &exists);
+        if (exists)
         {
-            QFile file(configFile);
-            if (file.open(QIODevice::ReadOnly))
+            const QString lang = appObj.value(QStringLiteral("language")).toString();
+            if (m_idiomasDisponiveis.contains(lang))
             {
-                const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-                if (doc.isObject())
-                {
-                    const QString lang = doc.object().value(QStringLiteral("language")).toString();
-                    if (m_idiomasDisponiveis.contains(lang))
-                    {
-                        m_idiomaAtual = lang;
-                        return;
-                    }
-                }
+                m_idiomaAtual = lang;
+                return;
             }
         }
 
@@ -385,17 +400,8 @@ namespace omniframe::locale
 
     void GerenciadorTraducao::salvar_configuracao_idioma() const
     {
-        const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-        QDir().mkpath(configDir);
-
-        const QString configFile = configDir + QStringLiteral("/language.json");
-        QFile file(configFile);
-        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        {
-            QJsonObject root;
-            root[QStringLiteral("language")] = m_idiomaAtual;
-            file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-        }
+        io::UserPreferencesStore::updateSectionKey(
+            QStringLiteral("app"), QStringLiteral("language"), m_idiomaAtual);
     }
 
 } // namespace omniframe::locale

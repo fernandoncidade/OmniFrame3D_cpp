@@ -4955,5 +4955,601 @@ New CMD and PowerShell terminals can now execute 'omniframe-cli --help' directly
             <source>Verificar Status da CLI no Windows...</source>
             <translation>Check Windows CLI Status...</translation>
         </message>
+        <message>
+            <source>Nós Estruturais</source>
+            <translation>Structural Nodes</translation>
+        </message>
+        <message>
+            <source>Nós de Malha</source>
+            <translation>Mesh Nodes</translation>
+        </message>
+        <message>
+            <source>Apoios Estruturais</source>
+            <translation>Structural Supports</translation>
+        </message>
+        <message>
+            <source>Apoios de Malha</source>
+            <translation>Mesh Supports</translation>
+        </message>
+        <message>
+            <source>Soma de Reações</source>
+            <translation>Reaction Sum</translation>
+        </message>
+        <message>
+            <source>Barras</source>
+            <translation>Frame Bars</translation>
+        </message>
+        <message>
+            <source>Cascas 2D</source>
+            <translation>2D Shells</translation>
+        </message>
+        <message>
+            <source>Sólidos 3D</source>
+            <translation>3D Solids</translation>
+        </message>
+        <message>
+            <source>Elemento %1 (%2) — inspeção na tabela de contínuos.</source>
+            <translation>Element %1 (%2) — continuum table inspection.</translation>
+        </message>
+        <message>
+            <source>Erro ao exportar tabela.</source>
+            <translation>Error exporting table.</translation>
+        </message>
+        <message>
+            <source>Planilha Excel (*.xlsx);;CSV UTF-8 (*.csv);;Texto Tabulado (*.txt);;JSON (*.json);;XML (*.xml)</source>
+            <translation>Excel Workbook (*.xlsx);;CSV UTF-8 (*.csv);;Tab-Delimited Text (*.txt);;JSON (*.json);;XML (*.xml)</translation>
+        </message>
+        <message>
+            <source>Exportar Dados da Tabela</source>
+            <translation>Export Table Data</translation>
+        </message>
+        <message>
+            <source>Tabela exportada com sucesso.</source>
+            <translation>Table exported successfully.</translation>
+        </message>
+        <message>
+            <source>Selecionar Cor</source>
+            <translation>Select Color</translation>
+        </message>
+        <message>
+            <source>Configurar colunas</source>
+            <translation>Configure Columns</translation>
+        </message>
+        <message>
+            <source>Selecionar todas colunas</source>
+            <translation>Select All Columns</translation>
+        </message>
+        <message>
+            <source>Resetar colunas</source>
+            <translation>Reset Columns</translation>
+        </message>
+        <message>
+            <source>Ordenar linhas</source>
+            <translation>Sort Rows</translation>
+        </message>
+        <message>
+            <source>Ordem das Linhas da Tabela</source>
+            <translation>Table Row Order</translation>
+        </message>
+        <message>
+            <source>Adicionar no Fim</source>
+            <translation>Append at Bottom</translation>
+        </message>
+        <message>
+            <source>Adicionar no Topo</source>
+            <translation>Prepend at Top</translation>
+        </message>
+        <message>
+            <source>Inverter Linhas Atuais da Tabela</source>
+            <translation>Reverse Current Table Rows</translation>
+        </message>
+        <message>
+            <source>Mostrar cores nas colunas</source>
+            <translation>Show Column Colors</translation>
+        </message>
+        <message>
+            <source>Colorir colunas</source>
+            <translation>Color Columns</translation>
+        </message>
+        <message>
+            <source>Resetar cores de colunas</source>
+            <translation>Reset Column Colors</translation>
+        </message>
+        <message>
+            <source>Configurar cores</source>
+            <translation>Configure Colors</translation>
+        </message>
+        <message>
+            <source>Resetar cores</source>
+            <translation>Reset Colors</translation>
+        </message>
+        <message>
+            <source>Copiar Seleção</source>
+            <translation>Copy Selection</translation>
+        </message>
+        <message>
+            <source>Copiar com Cabeçalhos</source>
+            <translation>Copy with Headers</translation>
+        </message>
+        <message>
+            <source>Copiar Tabela Inteira</source>
+            <translation>Copy Entire Table</translation>
+        </message>
+        <message>
+            <source>Opções de exportação</source>
+            <translation>Export Options</translation>
+        </message>
+        <message>
+            <source>Exportar colunas ativas</source>
+            <translation>Export Active Columns Only</translation>
+        </message>
+        <message>
+            <source>Exportar seleção</source>
+            <translation>Export Selection Only</translation>
+        </message>
+        <message>
+            <source>Resetar opções de exportação</source>
+            <translation>Reset Export Options</translation>
+        </message>
+        <message>
+            <source>Exportar Tabela</source>
+            <translation>Export Table</translation>
+        </message>
+        <message>
+            <source>Layouts do Painel de Tabelas de Resultados</source>
+            <translation>Result Tables Panel Layouts</translation>
+        </message>
+        <message>
+            <source>1 Layout (Todas as Tabelas)</source>
+            <translation>1 Layout (All Tables)</translation>
+        </message>
+        <message>
+            <source>2 Layouts</source>
+            <translation>2 Layouts</translation>
+        </message>
+        <message>
+            <source>3 Layouts</source>
+            <translation>3 Layouts</translation>
+        </message>
+        <message>
+            <source>4 Layouts</source>
+            <translation>4 Layouts</translation>
+        </message>
+        <message>
+            <source>Tabelas do 1º Layout</source>
+            <translation>1st Layout Tables</translation>
+        </message>
+        <message>
+            <source>Tabelas do 2º Layout</source>
+            <translation>2nd Layout Tables</translation>
+        </message>
+        <message>
+            <source>Tabelas do 3º Layout</source>
+            <translation>3rd Layout Tables</translation>
+        </message>
+        <message>
+            <source>Tabelas do 4º Layout</source>
+            <translation>4th Layout Tables</translation>
+        </message>
+        <message>
+            <source>Selecionar Todas as Tabelas</source>
+            <translation>Select All Tables</translation>
+        </message>
+        <message>
+            <source>Restaurar Layouts Padrão</source>
+            <translation>Restore Default Layouts</translation>
+        </message>
+        <message>
+            <source>Persistência de Configurações e Preferências</source>
+            <translation>Settings and Preferences Persistence</translation>
+        </message>
+        <message>
+            <source>Salvar Todas as Configurações Agora</source>
+            <translation>Save All Settings Now</translation>
+        </message>
+        <message>
+            <source>Recarregar Configurações Salvas</source>
+            <translation>Reload Saved Settings</translation>
+        </message>
+        <message>
+            <source>Restaurar Todas as Configurações Padrão</source>
+            <translation>Restore All Default Settings</translation>
+        </message>
+        <message>
+            <source>Todas as configurações e preferências foram salvas em AppData/Local/OmniFrame/user_preferences.json.</source>
+            <translation>All settings and preferences have been saved to AppData/Local/OmniFrame/user_preferences.json.</translation>
+        </message>
+        <message>
+            <source>Configurações e preferências recarregadas com sucesso.</source>
+            <translation>Settings and preferences reloaded successfully.</translation>
+        </message>
+        <message>
+            <source>Todas as configurações e preferências foram restauradas para o padrão.</source>
+            <translation>All settings and preferences have been restored to default.</translation>
+        </message>
+        <message>
+            <source>Interface do Usuário</source>
+            <translation>User Interface</translation>
+        </message>
+        <message>
+            <source>Nativo</source>
+            <translation>Native</translation>
+        </message>
+        <message>
+            <source>Customizado</source>
+            <translation>Custom</translation>
+        </message>
+        <message>
+            <source>Modo de interface nativo (Qt6 padrão) aplicado.</source>
+            <translation>Native (standard Qt6) user interface mode applied.</translation>
+        </message>
+        <message>
+            <source>Modo de interface customizado aplicado.</source>
+            <translation>Custom user interface mode applied.</translation>
+        </message>
+        <message>
+            <source>Pronto para modelar.</source>
+            <translation>Ready to model.</translation>
+        </message>
+        <message>
+            <source>Salvar (.omniframe)</source>
+            <translation>Save (.omniframe)</translation>
+        </message>
+        <message>
+            <source>Salvar Como (.omniframe)...</source>
+            <translation>Save As (.omniframe)...</translation>
+        </message>
+        <message>
+            <source>Recuperar Sessão Anterior...</source>
+            <translation>Recover Previous Session...</translation>
+        </message>
+        <message>
+            <source>Recuperar Sessão Não Salva</source>
+            <translation>Recover Unsaved Session</translation>
+        </message>
+        <message>
+            <source>Foi encontrada uma produção estrutural não salva da sessão anterior (%1 nós, %2 barras, %3 elementos 2D/3D).
+
+Deseja recuperar todas as edições preservadas?</source>
+            <translation>Unsaved structural work from a previous session was found (%1 nodes, %2 bars, %3 2D/3D elements).
+
+Would you like to recover all preserved edits?</translation>
+        </message>
+        <message>
+            <source>Recuperar Projeto</source>
+            <translation>Recover Project</translation>
+        </message>
+        <message>
+            <source>Descartar Rascunho</source>
+            <translation>Discard Draft</translation>
+        </message>
+        <message>
+            <source>Alterações Não Salvas</source>
+            <translation>Unsaved Changes</translation>
+        </message>
+        <message>
+            <source>Existem alterações não salvas no projeto estrutural (uma cópia de recuperação automática foi gravada em disco).
+
+Deseja salvar em arquivo antes de fechar?</source>
+            <translation>There are unsaved changes in the structural project (an automatic recovery copy has been written to disk).
+
+Would you like to save to a file before closing?</translation>
+        </message>
+        <message>
+            <source>Salvar</source>
+            <translation>Save</translation>
+        </message>
+        <message>
+            <source>Sair e Manter Recuperação</source>
+            <translation>Exit and Keep Recovery</translation>
+        </message>
+        <message>
+            <source>Sessão anterior recuperada: %1 nós, %2 barras.</source>
+            <translation>Previous session recovered: %1 nodes, %2 bars.</translation>
+        </message>
+        <message>
+            <source>Recuperação de Sessão</source>
+            <translation>Session Recovery</translation>
+        </message>
+        <message>
+            <source>Não há sessão não salva para recuperar.</source>
+            <translation>There is no unsaved session to recover.</translation>
+        </message>
+        <message>
+            <source>Projeto Sem Título</source>
+            <translation>Untitled Project</translation>
+        </message>
+        <message>
+            <source>Retomar Sessão Anterior</source>
+            <translation>Resume Previous Session</translation>
+        </message>
+        <message>
+            <source>Iniciar Novo Projeto</source>
+            <translation>Start New Project</translation>
+        </message>
+        <message>
+            <source>Carregar Edição Anterior</source>
+            <translation>Load Previous Edit</translation>
+        </message>
+        <message>
+            <source>Carregar Exemplo Anterior</source>
+            <translation>Load Previous Example</translation>
+        </message>
+        <message>
+            <source>Carregar Projeto Anterior</source>
+            <translation>Load Previous Project</translation>
+        </message>
+        <message>
+            <source>Foi encontrada uma edição não salva da sessão anterior no exemplo "%1" (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar a edição anterior ou iniciar um novo projeto?</source>
+            <translation>Unsaved edits from the previous session were found on example "%1" (%2 nodes, %3 bars, %4 2D/3D elements).
+
+Would you like to load the previous edit or start a new project?</translation>
+        </message>
+        <message>
+            <source>Na sessão anterior, o exemplo estrutural "%1" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar o exemplo anterior ou iniciar um novo projeto?</source>
+            <translation>In the previous session, structural example "%1" was open (%2 nodes, %3 bars, %4 2D/3D elements).
+
+Would you like to load the previous example or start a new project?</translation>
+        </message>
+        <message>
+            <source>Foi encontrada uma edição não salva da sessão anterior no projeto "%1" (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar a edição anterior ou iniciar um novo projeto?</source>
+            <translation>Unsaved edits from the previous session were found in project "%1" (%2 nodes, %3 bars, %4 2D/3D elements).
+
+Would you like to load the previous edit or start a new project?</translation>
+        </message>
+        <message>
+            <source>Na sessão anterior, o projeto "%1" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).
+
+Deseja carregar o projeto anterior ou iniciar um novo projeto?</source>
+            <translation>In the previous session, project "%1" was open (%2 nodes, %3 bars, %4 2D/3D elements).
+
+Would you like to load the previous project or start a new project?</translation>
+        </message>
+        <message>
+            <source>Não há projeto ou edição anterior disponível para carregar.</source>
+            <translation>There is no previous project or edit available to load.</translation>
+        </message>
+        <message>
+            <source>Arquivos de log no diretório: %1 / %2 máximo</source>
+            <translation>Log files in directory: %1 / %2 max</translation>
+        </message>
+        <message>
+            <source>Nenhum registro gravado ainda neste arquivo de log.</source>
+            <translation>No entries recorded yet in this log file.</translation>
+        </message>
+        <message>
+            <source>Configurações de Sessão, Inicialização e Logs</source>
+            <translation>Session, Startup and Log Settings</translation>
+        </message>
+        <message>
+            <source>Comportamento ao Iniciar o Aplicativo</source>
+            <translation>Application Startup Behavior</translation>
+        </message>
+        <message>
+            <source>Defina se o aplicativo deve perguntar a cada inicialização ou executar automaticamente uma ação padrão quando existir projeto, exemplo ou edição da sessão anterior:</source>
+            <translation>Choose whether the application should prompt at every startup or automatically run a default action when a project, example, or edit from the previous session exists:</translation>
+        </message>
+        <message>
+            <source>Perguntar a cada nova inicialização (emitir diálogo de escolha)</source>
+            <translation>Ask on every new startup (show choice dialog)</translation>
+        </message>
+        <message>
+            <source>Carregar automaticamente o projeto, exemplo ou edição deixado em aberto</source>
+            <translation>Automatically load the project, example, or edit left open</translation>
+        </message>
+        <message>
+            <source>Sempre inicializar um novo projeto vazio</source>
+            <translation>Always start a new empty project</translation>
+        </message>
+        <message>
+            <source>Exibir diálogo de confirmação para alterações não salvas ao sair</source>
+            <translation>Show confirmation dialog for unsaved changes on exit</translation>
+        </message>
+        <message>
+            <source>Registro Diário de Logs</source>
+            <translation>Daily Log Recording</translation>
+        </message>
+        <message>
+            <source>Diretório de Logs:</source>
+            <translation>Log Directory:</translation>
+        </message>
+        <message>
+            <source>Arquivo Atual:</source>
+            <translation>Current File:</translation>
+        </message>
+        <message>
+            <source>Registra todos os níveis de mensagens (Trace, Debug, Info, Warning, Critical e Fatal) no padrão omniframe_aaaa-mm-dd.log, mantendo no máximo 10 arquivos (o mais antigo é excluído ao gerar um mais recente).</source>
+            <translation>Records all message levels (Trace, Debug, Info, Warning, Critical, and Fatal) following the omniframe_yyyy-mm-dd.log pattern, keeping at most 10 files (the oldest file is deleted when a newer one is created).</translation>
+        </message>
+        <message>
+            <source>Abrir Pasta de Logs</source>
+            <translation>Open Logs Folder</translation>
+        </message>
+        <message>
+            <source>Atualizar Log</source>
+            <translation>Refresh Log</translation>
+        </message>
+        <message>
+            <source>Restaurar Padrão</source>
+            <translation>Restore Defaults</translation>
+        </message>
+        <message>
+            <source>Sessão, Inicialização e Logs</source>
+            <translation>Session, Startup and Logs</translation>
+        </message>
+        <message>
+            <source>Perguntar ao iniciar (Exibir diálogo)</source>
+            <translation>Ask on startup (Show dialog)</translation>
+        </message>
+        <message>
+            <source>Carregar automaticamente projeto ou exemplo anterior</source>
+            <translation>Automatically load previous project or example</translation>
+        </message>
+        <message>
+            <source>Sempre iniciar um novo projeto (Vazio)</source>
+            <translation>Always start a new project (Empty)</translation>
+        </message>
+        <message>
+            <source>Exibir confirmação de alterações não salvas ao sair</source>
+            <translation>Show unsaved changes confirmation on exit</translation>
+        </message>
+        <message>
+            <source>Configurar Inicialização, Sessão e Logs...</source>
+            <translation>Configure Startup, Session and Logs...</translation>
+        </message>
+        <message>
+            <source>Abrir Pasta de Logs...</source>
+            <translation>Open Logs Folder...</translation>
+        </message>
+        <message>
+            <source>Novo projeto vazio iniciado automaticamente conforme configuração de inicialização.</source>
+            <translation>New empty project started automatically according to startup settings.</translation>
+        </message>
+        <message>
+            <source>Não foi possível carregar automaticamente a sessão anterior; novo projeto vazio iniciado.</source>
+            <translation>Could not automatically load the previous session; started a new empty project.</translation>
+        </message>
+        <message>
+            <source>Inicialização configurada: carregar automaticamente projeto ou exemplo anterior.</source>
+            <translation>Startup configured: automatically load previous project or example.</translation>
+        </message>
+        <message>
+            <source>Inicialização configurada: sempre iniciar um novo projeto vazio.</source>
+            <translation>Startup configured: always start a new empty project.</translation>
+        </message>
+        <message>
+            <source>Inicialização configurada: perguntar a cada nova inicialização.</source>
+            <translation>Startup configured: ask at every new startup.</translation>
+        </message>
+        <message>
+            <source>Confirmação de alterações não salvas ao sair ativada.</source>
+            <translation>Unsaved changes confirmation on exit enabled.</translation>
+        </message>
+        <message>
+            <source>Confirmação de alterações não salvas ao sair desativada (recuperação automática mantida).</source>
+            <translation>Unsaved changes confirmation on exit disabled (automatic recovery preserved).</translation>
+        </message>
+        <message>
+            <source>Preferências de inicialização restauradas para o padrão.</source>
+            <translation>Startup preferences restored to defaults.</translation>
+        </message>
+        <message>
+            <source>Diretório de logs: %1</source>
+            <translation>Log directory: %1</translation>
+        </message>
+        <message>
+            <source>Expandir ou recolher botões ocultos da barra</source>
+            <translation>Expand or collapse hidden toolbar buttons</translation>
+        </message>
+        <message>
+            <source>Âmbar Dourado — Padrão (#F59E0B)</source>
+            <translation>Golden Amber — Default (#F59E0B)</translation>
+        </message>
+        <message>
+            <source>Verde Esmeralda (#10B981)</source>
+            <translation>Emerald Green (#10B981)</translation>
+        </message>
+        <message>
+            <source>Azul Cobalto (#3B82F6)</source>
+            <translation>Cobalt Blue (#3B82F6)</translation>
+        </message>
+        <message>
+            <source>Ciano Técnico (#06B6D4)</source>
+            <translation>Technical Cyan (#06B6D4)</translation>
+        </message>
+        <message>
+            <source>Violeta Intenso (#8B5CF6)</source>
+            <translation>Deep Violet (#8B5CF6)</translation>
+        </message>
+        <message>
+            <source>Magenta Vibrante (#EC4899)</source>
+            <translation>Vibrant Magenta (#EC4899)</translation>
+        </message>
+        <message>
+            <source>Vermelho Coral (#EF4444)</source>
+            <translation>Coral Red (#EF4444)</translation>
+        </message>
+        <message>
+            <source>Cor Personalizada (%1)</source>
+            <translation>Custom Color (%1)</translation>
+        </message>
+        <message>
+            <source>Selecionar Cor do Realce das Etapas</source>
+            <translation>Select Step Highlight Color</translation>
+        </message>
+        <message>
+            <source>Cor do Realce das Etapas (Independente de Tema/UI/Idioma):</source>
+            <translation>Step Highlight Color (Independent of Theme/UI/Language):</translation>
+        </message>
+        <message>
+            <source>Define a cor aplicada no realce das etapas na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos.</source>
+            <translation>Defines the color applied to step highlights in this window and visual spotlights, independently of the active Theme, User Interface, and Language.</translation>
+        </message>
+        <message>
+            <source>Prévia da cor ativa para o realce das etapas.</source>
+            <translation>Preview of the active color for step highlights.</translation>
+        </message>
+        <message>
+            <source>Escolher Cor...</source>
+            <translation>Choose Color...</translation>
+        </message>
+        <message>
+            <source>Abrir seletor de cores personalizado para o realce das etapas.</source>
+            <translation>Open custom color picker for step highlights.</translation>
+        </message>
+        <message>
+            <source>Cor Padrão</source>
+            <translation>Default Color</translation>
+        </message>
+        <message>
+            <source>Restaurar a cor padrão Âmbar Dourado (#F59E0B) do realce das etapas.</source>
+            <translation>Restore the default Golden Amber (#F59E0B) color for step highlights.</translation>
+        </message>
+        <message>
+            <source>Fase %1 (%2)</source>
+            <translation>Phase %1 (%2)</translation>
+        </message>
+        <message>
+            <source>Cor do Realce por Fase (Independente de Tema/UI/Idioma):</source>
+            <translation>Phase Highlight Color (Independent of Theme/UI/Language):</translation>
+        </message>
+        <message>
+            <source>Seleciona qual fase (1, 2, 3...) terá sua cor de realce configurada.</source>
+            <translation>Selects which phase (1, 2, 3...) will have its highlight color configured.</translation>
+        </message>
+        <message>
+            <source>Define a cor aplicada no realce da fase selecionada na janela e nos marcadores visuais, independentemente do Tema, Interface do Usuário e Idioma ativos.</source>
+            <translation>Defines the color applied to the selected phase highlight in this window and visual spotlights, independently of the active Theme, User Interface, and Language.</translation>
+        </message>
+        <message>
+            <source>Prévia da cor ativa para o realce da fase.</source>
+            <translation>Preview of the active color for the phase highlight.</translation>
+        </message>
+        <message>
+            <source>Restaurar a cor padrão do realce da fase selecionada.</source>
+            <translation>Restore the default highlight color for the selected phase.</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR (TOOLTIP + MIRA)</source>
+            <translation>PHASE %1/%2 — NEXT CONTROL TO TRIGGER (TOOLTIP + TARGET)</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — EXECUTANDO NESTE CONTROLE / DIÁLOGO</source>
+            <translation>PHASE %1/%2 — EXECUTING IN THIS CONTROL / DIALOG</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — PRÓXIMO CONTROLE A ACIONAR</source>
+            <translation>PHASE %1/%2 — NEXT CONTROL TO TRIGGER</translation>
+        </message>
+        <message>
+            <source>FASE %1/%2 — EXECUTANDO NESTE CONTROLE</source>
+            <translation>PHASE %1/%2 — EXECUTING IN THIS CONTROL</translation>
+        </message>
     </context>
 </TS>

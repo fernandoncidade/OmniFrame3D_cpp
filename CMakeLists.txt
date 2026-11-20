@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(OmniFrame
-    VERSION 2026.11.17.0
+    VERSION 2026.11.18.0
     DESCRIPTION "OmniFrame 3D - Porticos e Trelicas Espaciais 3D via FEM (C++23 / Qt6 / OpenGL / Eigen3)"
     LANGUAGES CXX
 )
@@ -183,14 +183,20 @@ if(BUILD_APP OR BUILD_TESTS)
         source/core/StructuralModel.cpp
         source/solver/FemSolver3D.hpp
         source/solver/FemSolver3D.cpp
+        source/io/AppLogger.hpp
+        source/io/AppLogger.cpp
         source/io/ProjectSerializer.hpp
         source/io/ProjectSerializer.cpp
+        source/io/ProjectRecoveryStore.hpp
+        source/io/ProjectRecoveryStore.cpp
         source/io/DxfInterop.hpp
         source/io/DxfInterop.cpp
         source/io/IfcInterop.hpp
         source/io/IfcInterop.cpp
         source/io/PdfReportGenerator.hpp
         source/io/PdfReportGenerator.cpp
+        source/io/UserPreferencesStore.hpp
+        source/io/UserPreferencesStore.cpp
         source/io/Utf8Path.hpp
         source/os/WindowsCliIntegration.hpp
         source/os/WindowsCliIntegration.cpp
@@ -275,6 +281,10 @@ if(BUILD_APP OR BUILD_TESTS)
         source/ui/ManualDialog.cpp
         source/ui/RenderSettingsDialog.hpp
         source/ui/RenderSettingsDialog.cpp
+        source/ui/ResultTableConfigurator.hpp
+        source/ui/ResultTableConfigurator.cpp
+        source/ui/StartupSessionDialog.hpp
+        source/ui/StartupSessionDialog.cpp
         source/ui/ThemeManager.hpp
         source/ui/ThemeManager.cpp
         source/ui/WindowZOrderManager.hpp

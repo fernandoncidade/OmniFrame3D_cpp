@@ -34,6 +34,9 @@ WindowZOrderManager::WindowZOrderManager(QWidget* rootWindow, QObject* parent)
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [](UiTheme) {
         ThemeManager::instance().applyAllTopLevelWindowChrome();
     });
+    connect(&ThemeManager::instance(), &ThemeManager::uiStyleModeChanged, this, [](UiStyleMode) {
+        ThemeManager::instance().applyAllTopLevelWindowChrome();
+    });
 }
 
 WindowZOrderManager::~WindowZOrderManager() {

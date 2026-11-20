@@ -1,4 +1,4 @@
-# Release Notes — OmniFrame 3D v2026.11.17.0
+# Release Notes — OmniFrame 3D v2026.11.18.0
 
 <p align="center">
   <b>Selecione o idioma / Select language:</b><br>
@@ -12,9 +12,9 @@
 <details>
 <summary>Clique para expandir / recolher notas de lançamento em português</summary><br>
 
-# OmniFrame 3D — Versão 2026.11.17.0 (Release Inicial)
+# OmniFrame 3D — Versão 2026.11.18.0 (Release Inicial)
 
-**Data de Lançamento:** 17 de novembro de 2026  
+**Data de Lançamento:** 18 de novembro de 2026  
 **Autor:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
 **Repositório:** `fernandoncidade/OmniFrame_cpp`  
 **Licenciamento:** GNU AGPLv3 (Código Aberto) / EULA (Microsoft Store)  
@@ -32,7 +32,7 @@
 
 ### 2. Viewport 3D OpenGL 3.3 Core, Pós-Processamento Contínuo & Tabela 2D/3D
 - **Contornos 3D de von Mises & Tabulação Contínua (`PostProcessControlDialog`, Dock Inferior):** Novo modo **`Tensão de von Mises (Casca/Sólido)`** em `Corte/Contornos...` projetado diretamente sobre cascas 2D e faces 3D, somado à 4ª aba **`Esforços 2D/3D (Casca/Sólido)`** sincronizada no dock inferior, além dos diagramas cúbicos de Hermite (`N`, `Vy`, `Vz`, `Tx`, `My`, `Mz`), reações nodais, deformada (`1`–`100`, padrão `30`), planos de corte X/Y/Z, mapa de calor DCR e animações 3D.
-- **Renderização HD & Plano Padrão `XY (Planta)`:** Shaders GLSL 330 com SSAA (`2.00×`), MSAA (`16×`) e Shader SDF (`graphics.json`), temas Claro/Escuro/Alto Contraste (`theme.json`), além de `MainWindow::applyDefaultExampleWorkPlane()` mantendo os 3 exemplos inicializados no plano **`XY (Planta)`** por padrão.
+- **Renderização HD & Plano Padrão `XY (Planta)`:** Shaders GLSL 330 com SSAA (`2.00×`), MSAA (`16×`) e Shader SDF, temas Claro/Escuro/Alto Contraste (consolidados em `user_preferences.json`), além de `MainWindow::applyDefaultExampleWorkPlane()` mantendo os 3 exemplos inicializados no plano **`XY (Planta)`** por padrão.
 
 ### 3. Interface Qt 6.11.1 Polida, Sessão Guiada (`F2`), Janelas sem Flash & Vetores Nativos
 - **Eliminação Total de Janelas Fantasmas em Cliques de Diálogos Filhos:** `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes do primeiro mapeamento em tela, removendo flashes rápidos de moldura vazia ao abrir qualquer diálogo filho e preservando operação **modeless** com **Z-Order** gerenciado e abertura por clique único.
@@ -44,6 +44,12 @@
 - **Interoperabilidade & Relatórios:** JSON `.omniframe` Schema `2.1.0` (com bloco `"surfaceMesh"` retrocompatível com `1.0` e `2.0`), **DXF / IFC4**, exportação **VTK `UNSTRUCTURED_GRID`** 1D/2D/3D com `von_mises_kPa` / $\sigma_1$ / $\sigma_3$, **CSV** com tabelas contínuas 2D/3D e relatórios em **HTML**, **Markdown** e **PDF Executivo A4** (Seção 9 itens 1–20 + esforços no contínuo).
 - **CLI Integrada & Ecossistema Windows 10/11 (CMD / PowerShell):** `omniframe-cli.exe` totalmente integrado a `OmniFrame.exe` (`source/os/WindowsCliIntegration`), suportando `--version`/`-v`, `--help`/`-h`, `--list-examples`, `--example <1|2|3|building|cantilever|truss>`, `--nbr-audit`/`--audit-nbr`, `--analysis static|modal|buckling|nonlinear|pdelta|harmonic|spectrum|transient|seismic`, `--solver`, `--case`, `--combo`, `--modes`, `--steps`, `--dt 0.02`, `--scheme <newmark|hht>`, `--method <nr|arclength>`, `--load-factor`, `--full-tangent`/`--modified-newton`, `--line-search`/`--no-line-search`, `--imperfection`/`--imperfection-mode`, `--export`, `--report`, `--output`, `--json` e `--check|install|uninstall-windows-integration`, além de caminhos UTF-8 com acentos (`Utf8Path.hpp`), abertura direta de arquivos `.omniframe`/`.dxf`/`.ifc` via `OmniFrame.exe`, submenu **`Configurações > CLI Windows (CMD / PowerShell)`**, script portátil `register_cli_windows.ps1`, instalador `OmniFrame.iss`, aliases MSIX `AppxManifest.xml`, Capítulo 10 no Manual (`F1`, com botão de acesso rápido) e verificação nas **20 suítes CTest**.
 
+### 5. Tabelas Interativas Multilayout, Modo Nativo/Customizado, Recuperação de Sessão & Logs Diários
+- **Tabelas de Resultados Interativas (`ResultTableConfigurator`) & Layouts Múltiplos (1–4):** Seleção inteligente via botão de canto superior esquerdo, cabeçalhos clicáveis (`Ctrl`/`Shift`) com quebra dinâmica de linha e duplo clique para destacar nós/barras no Viewport 3D; menu de contexto persistente com visibilidade de colunas, ordenação numérica/intervalos mantendo `Soma de Reações` fixada ao fim, inversão e ordem de linhas, coloração semântica sRGB por categoria/coluna (`Ctrl+Shift+A`), cópia (`Ctrl+C`, `Ctrl+Shift+C`, tabela inteira) e exportação direta para **`.xlsx`**, **`.csv`**, **`.txt`**, **`.json`** e **`.xml`**, além de divisão em **`1` a `4` layouts lado a lado** via **`Configurações > Layouts do Painel de Tabelas de Resultados`**.
+- **Modos de Interface (`Customizado` / `Nativo`) & Refinamentos Visuais:** Submenu **`Configurações > Interface do Usuário`** com alternância ao vivo entre **`Customizado`** e **`Nativo`** (Qt 6 / sistema operacional) em todas as janelas e diálogos; pontinhos visuais de arraste mantidos nos divisores vertical/horizontal dos painéis expandidos ou recolhidos; tooltip traduzida no botão de extensão de barra de ferramentas; e *Clip Plane* 3D restrito à estrutura para nunca recortar as grades de trabalho `XY`/`XZ`/`YZ` nem o cursor 3D.
+- **Inicialização Limpa, `Salvar Como`, Recuperação Automática & Preferências Consolidadas (`UserPreferencesStore` v2):** O aplicativo abre vazio por padrão, oferece **`Salvar Como (.omniframe)...` (`Ctrl+Shift+S`)**, **`Recuperar Sessão Anterior...`**, marcador `[*]` de alterações não salvas, cópia automática em `%LOCALAPPDATA%\OmniFrame\recovery\` (`ProjectRecoveryStore`), diálogo não-modal ao sair/retomar e arquivo único atômico `user_preferences.json` v2 (com migração de legados, backup `.corrupt.bak` e submenu **`Configurações > Persistência de Configurações e Preferências`**).
+- **Política de Inicialização & Logs Diários (`StartupSessionDialog`, `AppLogger`):** Submenu **`Configurações > Sessão, Inicialização e Logs`** permitindo configurar a ação de abertura, confirmação de saída e visualização em tempo real dos logs diários `omniframe_aaaa-mm-dd.log` em `%LOCALAPPDATA%\OmniFrame\log\` (GUI e CLI com rotação automática mantendo no máximo **10 arquivos**).
+
 </details>
 
 ---
@@ -53,9 +59,9 @@
 <details>
 <summary>Click to expand / collapse release notes in English</summary><br>
 
-# OmniFrame 3D — Version 2026.11.17.0 (Initial Release)
+# OmniFrame 3D — Version 2026.11.18.0 (Initial Release)
 
-**Release Date:** November 17, 2026  
+**Release Date:** November 18, 2026  
 **Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
 **Repository:** `fernandoncidade/OmniFrame_cpp`  
 **Licensing:** GNU AGPLv3 (Open Source) / EULA (Microsoft Store)  
@@ -73,7 +79,7 @@
 
 ### 2. OpenGL 3.3 Core 3D Viewport, Continuum Post-Processing & 2D/3D Tab
 - **3D von Mises Contours & Continuum Table (`PostProcessControlDialog`, Bottom Dock):** New **`von Mises Stress (Shell/Solid)`** contour mode under `Clip/Contours...` rendered over 2D shells and 3D solid faces alongside the synchronized 4th bottom tab **`2D/3D Forces (Shell/Solid)`**, Hermite continuous bar diagrams (`N`, `Vy`, `Vz`, `Tx`, `My`, `Mz`), support reaction arrows, amplified 3D deformation (`1`–`100`, default `30`), X/Y/Z clip planes, DCR heatmap, and 3D animations.
-- **HD Rendering & Default `XY (Plan)` Work Plane:** GLSL 330 pipeline with SSAA (`2.00×`), MSAA (`16×`), and Shader SDF (`graphics.json`), Light/Dark/High Contrast themes (`theme.json`), and `MainWindow::applyDefaultExampleWorkPlane()` keeping all 3 built-in examples initialized in **`XY (Plan)`** by default.
+- **HD Rendering & Default `XY (Plan)` Work Plane:** GLSL 330 pipeline with SSAA (`2.00×`), MSAA (`16×`), and Shader SDF, Light/Dark/High Contrast themes (consolidated in `user_preferences.json`), and `MainWindow::applyDefaultExampleWorkPlane()` keeping all 3 built-in examples initialized in **`XY (Plan)`** by default.
 
 ### 3. Refined Qt 6.11.1 Workspace, Enlarged Guided Session (`F2`), Zero-Ghost Dialogs & Vector Styling
 - **Zero-Ghost-Flash Child Window Creation:** `WindowZOrderManager` prepares hidden native window handles (`Qt::WA_DontShowOnScreen`) prior to first on-screen mapping, eliminating brief blank frame flashes when launching any child dialog while keeping **modeless** workflow, single-click launch, and managed **Z-Order**.
@@ -84,5 +90,11 @@
 ### 4. `.omniframe` 2.1.0, 1D/2D/3D Exports, Headless CLI (`omniframe-cli.exe`) & 20 CTest Suites
 - **Interoperability & Engineering Reports:** Open `.omniframe` JSON Schema `2.1.0` (`"surfaceMesh"` backward-compatible with `1.0` & `2.0`), **DXF / IFC4** import/export, 1D/2D/3D **VTK `UNSTRUCTURED_GRID`** with `von_mises_kPa` / $\sigma_1$ / $\sigma_3$ scalar fields, continuum **CSV** stress tables, and **HTML**, **Markdown**, and **Executive A4 PDF** calculation reports (Section-9 items 1–20 plus 2D/3D continuum tables).
 - **Integrated CLI & Windows 10/11 Ecosystem (CMD / PowerShell):** `omniframe-cli.exe` deeply integrated with `OmniFrame.exe` (`source/os/WindowsCliIntegration`), supporting `--version`/`-v`, `--help`/`-h`, `--list-examples`, `--example <1|2|3|building|cantilever|truss>`, `--nbr-audit`/`--audit-nbr`, `--analysis static|modal|buckling|nonlinear|pdelta|harmonic|spectrum|transient|seismic`, `--solver`, `--case`, `--combo`, `--modes`, `--steps`, `--dt 0.02`, `--scheme <newmark|hht>`, `--method <nr|arclength>`, `--load-factor`, `--full-tangent`/`--modified-newton`, `--line-search`/`--no-line-search`, `--imperfection`/`--imperfection-mode`, `--export`, `--report`, `--output`, `--json`, and `--check|install|uninstall-windows-integration`, full accented UTF-8 path support (`Utf8Path.hpp`), direct `.omniframe`/`.dxf`/`.ifc` opening via `OmniFrame.exe`, the **`Settings > Windows CLI (CMD / PowerShell)`** menu, `register_cli_windows.ps1`, `OmniFrame.iss` desktop installer tasks, MSIX `AppExecutionAlias` in `AppxManifest.xml`, Chapter 10 + quick jump button in the Interactive Manual (`F1`), and **20 CTest suites**.
+
+### 5. Interactive Multi-Layout Result Tables, Native/Custom UI Modes, Session Recovery & Daily Logs
+- **Interactive Result Tables (`ResultTableConfigurator`) & Multi-Layout Splitting (1–4):** Smart top-left corner select-all/clear toggle, clickable column headers (`Ctrl`/`Shift`) with dynamic word-wrap, and double-click row picking highlighting nodes/members in the 3D Viewport; persistent right-click context menu for column visibility, smart numeric/interval sorting pinning `Reaction Sum` at the bottom, row ordering/inversion, sRGB auto-contrast column/category coloring (`Ctrl+Shift+A`), clipboard copy (`Ctrl+C`, `Ctrl+Shift+C`, entire table), and direct export to **`.xlsx`**, **`.csv`**, **`.txt`**, **`.json`**, and **`.xml`**, plus **`1` to `4` side-by-side layouts** via **`Settings > Result Tables Panel Layouts`**.
+- **Dual UI Modes (`Custom` / `Native`) & Visual Refinements:** Live **`Settings > User Interface`** toggle switching between **`Custom`** and **`Native`** (Qt 6 / OS default look) across every open window and dialog; dotted drag handles kept visible on vertical/horizontal dock splitters in both expanded and collapsed states; translated toolbar overflow extension button tooltip; and 3D Clip Plane confined to structural geometry so `XY`/`XZ`/`YZ` working grids and the 3D cursor remain unclipped.
+- **Clean Empty Startup, `Save As`, Automatic Recovery & Consolidated Preferences (`UserPreferencesStore` v2):** Starts empty by default, adds **`Save As (.omniframe)...` (`Ctrl+Shift+S`)**, **`Recover Previous Session...`**, `[*]` dirty title indicator, automatic background snapshots in `%LOCALAPPDATA%\OmniFrame\recovery\` (`ProjectRecoveryStore`), modeless exit/startup session dialogs, and single atomic `user_preferences.json` v2 (with legacy migration, `.corrupt.bak` backup, and **`Settings > Settings and Preferences Persistence`**).
+- **Startup Policy & Daily Rotating Logs (`StartupSessionDialog`, `AppLogger`):** **`Settings > Session, Startup and Logs`** configures startup behavior, exit confirmation, and live log viewing for `omniframe_yyyy-mm-dd.log` inside `%LOCALAPPDATA%\OmniFrame\log\` (covering GUI and CLI with automatic **10-file maximum retention**).
 
 </details>

@@ -1,10 +1,7 @@
 #include "RenderSettings.hpp"
+#include "io/UserPreferencesStore.hpp"
 
-#include <QDir>
-#include <QFile>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QStandardPaths>
 #include <algorithm>
 #include <cmath>
 
@@ -12,9 +9,8 @@ namespace omniframe {
 
 namespace {
 
-QString renderSettingsFilePath() {
-    const QString configDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    return QDir(configDir).filePath(QStringLiteral("graphics.json"));
+double roundJsonFloat(float value) {
+    return std::round(static_cast<double>(value) * 10000.0) / 10000.0;
 }
 
 float clampf(float v, float lo, float hi) {
@@ -263,25 +259,12 @@ ActivePlanePalette activePlanePaletteForTheme(ActivePlaneTheme theme, float grid
     return p;
 }
 
-RenderQualitySettings loadRenderSettings() {
+RenderQualitySettings renderSettingsFromJson(const QJsonObject& obj) {
     RenderQualitySettings s = RenderQualitySettings::fromPreset(QualityPreset::AutoMax);
-
-    const QString path = renderSettingsFilePath();
-    if (!QFile::exists(path)) {
+    if (obj.isEmpty()) {
         return s;
     }
 
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) {
-        return s;
-    }
-
-    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-    if (!doc.isObject()) {
-        return s;
-    }
-
-    const QJsonObject obj = doc.object();
     const int presetInt = obj.value(QStringLiteral("preset")).toInt(static_cast<int>(QualityPreset::AutoMax));
     if (presetInt >= 0 && presetInt <= static_cast<int>(QualityPreset::Custom)) {
         s.preset = static_cast<QualityPreset>(presetInt);
@@ -325,31 +308,37 @@ RenderQualitySettings loadRenderSettings() {
     return s;
 }
 
-void saveRenderSettings(const RenderQualitySettings& settings) {
-    const QString path = renderSettingsFilePath();
-    QDir().mkpath(QFileInfo(path).absolutePath());
-
+QJsonObject renderSettingsToJson(const RenderQualitySettings& settings) {
     QJsonObject obj;
     obj[QStringLiteral("preset")] = static_cast<int>(settings.preset);
     obj[QStringLiteral("autoMaxResolution")] = settings.autoMaxResolution;
-    obj[QStringLiteral("resolutionScale")] = static_cast<double>(settings.resolutionScale);
+    obj[QStringLiteral("resolutionScale")] = roundJsonFloat(settings.resolutionScale);
     obj[QStringLiteral("autoMsaa")] = settings.autoMsaa;
     obj[QStringLiteral("requestedMsaa")] = settings.requestedMsaa;
     obj[QStringLiteral("shaderLineAA")] = settings.shaderLineAA;
-    obj[QStringLiteral("lineWidthMultiplier")] = static_cast<double>(settings.lineWidthMultiplier);
-    obj[QStringLiteral("lineSoftness")] = static_cast<double>(settings.lineSoftness);
-    obj[QStringLiteral("sharpenStrength")] = static_cast<double>(settings.sharpenStrength);
+    obj[QStringLiteral("lineWidthMultiplier")] = roundJsonFloat(settings.lineWidthMultiplier);
+    obj[QStringLiteral("lineSoftness")] = roundJsonFloat(settings.lineSoftness);
+    obj[QStringLiteral("sharpenStrength")] = roundJsonFloat(settings.sharpenStrength);
     obj[QStringLiteral("downsampleFilter")] = static_cast<int>(settings.downsampleFilter);
     obj[QStringLiteral("planeTheme")] = static_cast<int>(settings.planeTheme);
-    obj[QStringLiteral("planeGridContrast")] = static_cast<double>(settings.planeGridContrast);
+    obj[QStringLiteral("planeGridContrast")] = roundJsonFloat(settings.planeGridContrast);
     obj[QStringLiteral("showActivePlaneSurface")] = settings.showActivePlaneSurface;
     obj[QStringLiteral("vsyncEnabled")] = settings.vsyncEnabled;
     obj[QStringLiteral("showResolutionHud")] = settings.showResolutionHud;
+    return obj;
+}
 
-    QFile f(path);
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+RenderQualitySettings loadRenderSettings() {
+    bool exists = false;
+    const QJsonObject obj = io::UserPreferencesStore::readSection(QStringLiteral("graphics"), &exists);
+    if (!exists) {
+        return RenderQualitySettings::fromPreset(QualityPreset::AutoMax);
     }
+    return renderSettingsFromJson(obj);
+}
+
+void saveRenderSettings(const RenderQualitySettings& settings) {
+    io::UserPreferencesStore::updateSection(QStringLiteral("graphics"), renderSettingsToJson(settings));
 }
 
 QSurfaceFormat buildPreferredSurfaceFormat(const RenderQualitySettings& settings) {

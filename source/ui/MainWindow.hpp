@@ -1,7 +1,9 @@
 #pragma once
 
+#include "ResultTableConfigurator.hpp"
 #include "ThemeManager.hpp"
 #include "core/StructuralModel.hpp"
+#include "io/ProjectRecoveryStore.hpp"
 #include "solver/FemSolver3D.hpp"
 #include "render/Viewport3D.hpp"
 
@@ -10,7 +12,9 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
+#include <QMessageBox>
 #include <QSlider>
+#include <QSplitter>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QLabel>
@@ -18,11 +22,14 @@
 #include <QDockWidget>
 #include <QPointer>
 #include <QThread>
+#include <QTimer>
 #include <QVBoxLayout>
+#include <array>
 #include <cstdint>
 #include <unordered_map>
 
 class QCloseEvent;
+class QDialog;
 class QEvent;
 class QGroupBox;
 class QMenu;
@@ -50,12 +57,14 @@ class RenderSettingsDialog;
 class RollAngleDialog;
 class SectionCatalogDialog;
 class SectionDialog;
+class StartupSessionDialog;
 class SupportDialog;
 class ThermalLoadDialog;
 class WindowZOrderManager;
 
 namespace ui {
 class ManualDialog;
+class ResultTableConfigurator;
 }
 
 class DockTitleBar;
@@ -74,6 +83,7 @@ public:
     bool openProjectFileFromCommandLine(const QString& filePath);
 
     WindowZOrderManager* windowZOrderManager() const { return m_windowManager; }
+    ui::ResultTableConfigurator* resultTableConfigurator() const { return m_tableConfigurator; }
     GuidedSessionDialog* guidedSessionDialog() const;
 
     Q_INVOKABLE void setInspectorDockCollapsed(bool collapsed);
@@ -81,11 +91,38 @@ public:
     bool isInspectorDockCollapsed() const { return m_inspectorCollapsed; }
     bool isResultsDockCollapsed() const { return m_resultsCollapsed; }
 
+    void setResultsLayoutCount(int count);
+    int resultsLayoutCount() const { return m_resultsLayoutCount; }
+    void setResultsLayoutTableVisible(int layoutIndex, ui::ResultTableKind kind, bool visible);
+    bool isResultsLayoutTableVisible(int layoutIndex, ui::ResultTableKind kind) const;
+    void resetResultsLayoutsToDefault();
+    void saveResultsPanelSettings() const;
+    bool loadResultsPanelSettings();
+    static QString appLocalDataDirectory();
+    static QString userPreferencesFilePath();
+    void saveUserPreferences() const;
+    bool loadUserPreferences();
+    void restoreAllDefaultSettings();
+    bool preferredStartMaximized() const { return m_preferredStartMaximized; }
+    QSplitter* resultsSplitter() const { return m_resultsSplitter; }
+    QTabWidget* resultsLayoutTabWidget(int layoutIndex) const;
+    bool hasUnsavedEdits() const { return m_hasUnsavedEdits; }
+    QString currentProjectFilePath() const { return m_currentProjectFilePath; }
+    bool saveProjectToPath(const QString& path);
+    bool recoverPreviousSession();
+    io::StartupSessionBehavior startupSessionBehavior() const { return m_startupSessionBehavior; }
+    bool confirmUnsavedOnClose() const { return m_confirmUnsavedOnClose; }
+    void setStartupSessionBehavior(io::StartupSessionBehavior behavior);
+    void setConfirmUnsavedOnClose(bool enabled);
+
 private slots:
     // Ações de Arquivo
     void onNewProject();
     void onOpenProject();
     void onSaveProject();
+    void onSaveProjectAs();
+    void onRecoverSession();
+    void onRequestQuit();
     void onImportDxf();
     void onExportDxf();
     void onImportIfc();
@@ -134,6 +171,7 @@ private slots:
     // Sincronização de UI
     void onSelectionChanged();
     void onModelModified();
+    void onProjectMetadataOrOptionsModified();
     void updateInspector();
     void updateResultsTables();
     void updateCursorCoordinates(double x, double y, double z);
@@ -144,8 +182,16 @@ private slots:
     void onApplyRenderPreset(QualityPreset preset);
     void onOpenRenderSettingsDialog();
     void onRestoreDefaultRenderSettings();
+    void onSaveAllSettingsNow();
+    void onReloadSavedSettings();
+    void onRestoreAllDefaultSettings();
     void onChangeGuiTheme(UiTheme theme);
+    void onChangeUiStyleMode(UiStyleMode mode);
     void onChangeLanguage(const QString& langCode);
+    void onChangeStartupSessionBehavior(io::StartupSessionBehavior behavior);
+    void onToggleConfirmUnsavedOnClose(bool checked);
+    void onOpenStartupSessionDialog();
+    void onOpenLogDirectory();
     void onInstallWindowsCliIntegration();
     void onUninstallWindowsCliIntegration();
     void onCheckWindowsCliIntegration();
@@ -160,6 +206,8 @@ protected:
 private:
     void applyTheme();
     void syncThemeMenuState();
+    void syncUiStyleMenuState();
+    void syncStartupSessionMenuState();
     void refreshReactionSummaryRowTheme();
     bool runSolver(bool interactive);
     bool ensureStaticSolvedSync();
@@ -173,9 +221,35 @@ private:
     void applyInspectorCollapsedState();
     void handleInspectorDockTopLevelChanged(bool floating);
     void handleResultsDockTopLevelChanged(bool floating);
+    void initDefaultResultsLayoutAssignments();
+    QJsonObject serializeResultsPanelJson() const;
+    bool deserializeResultsPanelJson(const QJsonObject& root);
+    void rebuildResultsLayoutsUi();
+    void syncResultsLayoutsMenuState();
+    void syncExtraLayoutTables();
     void setupStatusBar();
     void applyDefaultExampleWorkPlane();
     void translateComboPreservingData();
+    void bindPersistentDialog(const QString& dialogKey, QDialog* dlg, bool persistControls = true);
+    void capturePersistentDialogState(const QString& dialogKey, const QDialog* dlg, bool persistControls = true) const;
+    void restorePersistentDialogState(const QString& dialogKey, QDialog* dlg, bool persistControls = true);
+    void captureAllOpenDialogsState() const;
+    QString initialFileDialogPath(const QString& defaultFileName = QString()) const;
+    void rememberFileDialogPath(const QString& filePath) const;
+    void markProjectDirty();
+    void clearDirtyState(bool clearRecoverySnapshot = true);
+    void persistCurrentSessionState();
+    void flushRecoverySnapshotIfDirty();
+    void updateWindowTitleAndFileActions();
+    void checkAndOfferStartupRecovery();
+    void updateRecoveryPromptBoxTexts();
+    void promptUnsavedChangesBeforeClose();
+    void updateCloseConfirmBoxTexts();
+    QString formatRecoveryMessage(const io::ProjectRecoveryInfo& info,
+                                  QString& outAcceptButtonText,
+                                  QString& outRejectButtonText) const;
+    void loadPredefinedExample(io::SessionSourceKind kind, StructuralModel model, const QString& statusMsg);
+    void refreshAfterModelLoad(bool markDirty, bool fitViewport);
 
     QString translateCoreMessage(const QString& rawMsg) const;
 
@@ -227,6 +301,7 @@ private:
     QMenu* m_definitionMenu = nullptr;
     QMenu* m_activePlaneAppearanceMenu = nullptr;
     QMenu* m_themeMenu = nullptr;
+    QMenu* m_uiStyleMenu = nullptr;
     QMenu* m_langMenu = nullptr;
     QMenu* m_cliWindowsMenu = nullptr;
     QMenu* m_helpMenu = nullptr;
@@ -240,6 +315,8 @@ private:
     QAction* m_actNewProject = nullptr;
     QAction* m_actOpenProject = nullptr;
     QAction* m_actSaveProject = nullptr;
+    QAction* m_actSaveProjectAs = nullptr;
+    QAction* m_actRecoverSession = nullptr;
     QAction* m_actImportDxf = nullptr;
     QAction* m_actExportDxf = nullptr;
     QAction* m_actImportIfc = nullptr;
@@ -302,6 +379,7 @@ private:
     QPointer<PostProcessControlDialog> m_postProcessControlDialog;
     QPointer<NbrComplianceDialog> m_nbrComplianceDialog;
     QPointer<PdfReportOptionsDialog> m_pdfOptionsDialog;
+    QPointer<StartupSessionDialog> m_startupSessionDialog;
 
     // Ações do menu Configurações (Resolução, Qualidade, Plano Ativo e Idioma)
     QActionGroup* m_presetActionGroup = nullptr;
@@ -356,6 +434,10 @@ private:
     QAction* m_actGuiThemeDark = nullptr;
     QAction* m_actGuiThemeLight = nullptr;
 
+    QActionGroup* m_uiStyleActionGroup = nullptr;
+    QAction* m_actUiStyleNative = nullptr;
+    QAction* m_actUiStyleCustom = nullptr;
+
     QActionGroup* m_langActionGroup = nullptr;
     QAction* m_actLangPtBr = nullptr;
     QAction* m_actLangEnUs = nullptr;
@@ -380,7 +462,7 @@ private:
     QDoubleSpinBox* m_quickXSpin = nullptr;
     QDoubleSpinBox* m_quickYSpin = nullptr;
     QDoubleSpinBox* m_quickZSpin = nullptr;
-    QWidget* m_inspectorContent = nullptr;
+    QPointer<QWidget> m_inspectorContent;
     QVBoxLayout* m_inspectorLayout = nullptr;
 
     // Dock Inferior (Tabelas de Resultados)
@@ -394,6 +476,7 @@ private:
     QTableWidget* m_reacTable = nullptr;
     QTableWidget* m_forcesTable = nullptr;
     QTableWidget* m_continuumTable = nullptr;
+    ui::ResultTableConfigurator* m_tableConfigurator = nullptr;
 
     // Labels da Barra de Status
     QLabel* m_cursorCoordLabel = nullptr;
@@ -406,6 +489,63 @@ private:
     bool m_pendingResolve = false;
     bool m_pendingResolveInteractive = false;
     QPointer<QThread> m_activeSolverThread;
+
+    // Layouts múltiplos do Painel de Tabelas de Resultados
+    QMenu* m_resultsLayoutsMenu = nullptr;
+    QActionGroup* m_resultsLayoutCountGroup = nullptr;
+    std::array<QAction*, 4> m_actResultsLayoutCount{};
+    std::array<QMenu*, 4> m_resultsLayoutConfigMenus{};
+    std::array<std::array<QAction*, 4>, 4> m_actResultsLayoutTables{};
+    std::array<QAction*, 4> m_actResultsLayoutSelectAll{};
+    QAction* m_actResetResultsLayouts = nullptr;
+    QSplitter* m_resultsSplitter = nullptr;
+    QWidget* m_hiddenTablesHost = nullptr;
+    std::array<QTabWidget*, 4> m_resultsLayoutTabWidgets{};
+    std::array<std::array<QTableWidget*, 4>, 4> m_extraLayoutTables{};
+    int m_resultsLayoutCount = 1;
+    std::array<std::array<std::array<bool, 4>, 4>, 4> m_resultsModeTableAssign{};
+    mutable std::array<QList<int>, 4> m_resultsSplitterSizesByMode{};
+    mutable std::array<std::array<int, 4>, 4> m_resultsActiveTabByMode{};
+    bool m_rebuildingOrLoadingResultsSettings = false;
+
+    // Persistência universal de preferências e janelas auxiliares
+    QMenu* m_preferencesPersistenceMenu = nullptr;
+    QAction* m_actSaveAllPreferences = nullptr;
+    QAction* m_actReloadSavedPreferences = nullptr;
+    QAction* m_actRestoreAllDefaults = nullptr;
+    QMenu* m_startupSessionMenu = nullptr;
+    QActionGroup* m_startupBehaviorGroup = nullptr;
+    QAction* m_actStartupAsk = nullptr;
+    QAction* m_actStartupAutoLoad = nullptr;
+    QAction* m_actStartupNewProject = nullptr;
+    QAction* m_actConfirmUnsavedOnClose = nullptr;
+    QAction* m_actOpenStartupSessionDialog = nullptr;
+    QAction* m_actOpenLogDirectory = nullptr;
+    io::StartupSessionBehavior m_startupSessionBehavior = io::StartupSessionBehavior::AskOnStartup;
+    bool m_confirmUnsavedOnClose = true;
+    mutable QJsonObject m_savedDialogsStateJson;
+    mutable QString m_lastFileDialogDir;
+    bool m_hasLoadedCustomDiagram = false;
+    bool m_preferredStartMaximized = true;
+
+    // Proteção de edições do projeto e recuperação contra fechamento inadvertido
+    io::SessionSourceKind m_sessionSourceKind = io::SessionSourceKind::Empty;
+    QString m_currentProjectFilePath;
+    bool m_hasUnsavedEdits = false;
+    bool m_loadingOrTemplateModel = false;
+    bool m_openedFromCli = false;
+    bool m_userRequestedQuit = false;
+    bool m_closingConfirmed = false;
+    bool m_closePendingAfterSave = false;
+    QTimer* m_autoSaveTimer = nullptr;
+    io::ProjectRecoveryInfo m_recoveryPromptInfo;
+    QPointer<QMessageBox> m_recoveryPromptBox;
+    QPointer<QPushButton> m_recoveryPromptBtnAccept;
+    QPointer<QPushButton> m_recoveryPromptBtnReject;
+    QPointer<QMessageBox> m_closeConfirmBox;
+    QPointer<QPushButton> m_closeBtnSave;
+    QPointer<QPushButton> m_closeBtnExitKeep;
+    QPointer<QPushButton> m_closeBtnCancel;
 };
 
 } // namespace omniframe

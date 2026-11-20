@@ -1,8 +1,8 @@
 # MANUAL DO USUÁRIO E GUIA DE ENGENHARIA FEA 3D — OMNIFRAME 3D
 # USER MANUAL AND 3D FEA ENGINEERING GUIDE — OMNIFRAME 3D
 
-**Versão / Version:** `2026.11.17.0`  
-**Data / Date:** `17 de novembro de 2026` / `November 17, 2026`  
+**Versão / Version:** `2026.11.18.0`  
+**Data / Date:** `18 de novembro de 2026` / `November 18, 2026`  
 **Ambiente Tecnológico / Tech Stack:** C++23 | Qt 6.11.1 | Eigen 3.4.0 Sparse Cholesky | OpenGL 3.3 Core Profile  
 **Plataforma / Platform:** Windows 11 / Windows 10 x64  
 **Autor / Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
@@ -69,7 +69,11 @@ A topologia da estrutura é definida no espaço tridimensional com histórico co
 6. **Recolhimento e Expansão dos Painéis Laterais/Inferior (`◀/▶` e `▼/▲`) e Campos Numéricos:**
    - **Painel `Inspetor e Entrada Rápida` (Lateral Esquerda):** Clique no botão de seta estilo *spin button* apontado para a **esquerda (`◀`)** no canto superior direito do cabeçalho para recolher o painel para a lateral esquerda em uma faixa vertical compacta — seu rótulo é rotacionado automaticamente **90° no sentido anti-horário** ao longo da borda e o espaço liberado amplia horizontalmente o Viewport 3D. Clique na seta apontada para a **direita (`▶`)** no topo da faixa vertical para expandi-lo de volta.
    - **Painel `Tabelas de Resultados e Diagnóstico Estrutural` (Base):** Clique na seta estilo *spin button* apontada para **baixo (`▼`)** no canto direito do cabeçalho para recolher as tabelas para a borda inferior (ampliando a altura útil do Viewport 3D); clique na seta apontada para **cima (`▲`)** para expandir as quatro abas novamente.
-   - Ambos os botões continuam funcionando quando o painel estiver destacado como janela flutuante, adaptam suas setas e dicas (*"Recolher painel"* / *"Expandir painel"*) ao tema (**Claro/Escuro**) e ao idioma (**pt-BR/en-US**), e são reabertos automaticamente sempre que a **Sessão Guiada (`F2`)** acessa seus controles ou tabelas. Todos os campos numéricos da interface exibem botões *spin* com cantos externos arredondados alinhados continuamente à moldura do campo.
+   - Ambos os botões continuam funcionando quando o painel estiver destacado como janela flutuante, adaptam suas setas e dicas (*"Recolher painel"* / *"Expandir painel"*) ao tema (**Claro/Escuro**) e ao idioma (**pt-BR/en-US**), e são reabertos automaticamente sempre que a **Sessão Guiada (`F2`)** acessa seus controles ou tabelas. Todos os campos numéricos da interface exibem botões *spin* com cantos externos arredondados alinhados continuamente à moldura do campo, os divisores dos painéis exibem pontinhos visuais de arraste expandidos ou recolhidos, e barras com botões ocultos oferecem o botão de extensão (*"Expandir ou recolher botões ocultos da barra"*).
+7. **Inicialização Limpa, Recuperação Automática de Sessão, `Salvar Como` e Modo de Interface:**
+   - **Inicialização Vazia e Proteção de Edições:** Por padrão, o programa abre com a área de modelagem vazia. Qualquer alteração grava uma cópia de segurança automática em `%LOCALAPPDATA%\OmniFrame\recovery\`. Ao fechar com edições pendentes (indicadas por `[*]` no título), o diálogo não-modal oferece **`Salvar`**, **`Sair e Manter Recuperação`** ou **`Cancelar`**.
+   - **Retomada e Menu Arquivo:** Utilize **`Arquivo > Salvar (.omniframe)` (`Ctrl+S`)**, **`Salvar Como (.omniframe)...` (`Ctrl+Shift+S`)** e **`Recuperar Sessão Anterior...`** (além da memória automática da última pasta aberta/salva). Na inicialização, **`Configurações > Sessão, Inicialização e Logs`** define entre *Perguntar ao iniciar*, *Carregar automaticamente projeto ou exemplo anterior* ou *Sempre iniciar um novo projeto (Vazio)*.
+   - **Modos de Interface (`Configurações > Interface do Usuário`):** Alterne em tempo real entre **`Customizado`** e **`Nativo`** (aparência padrão do Qt 6 / sistema operacional) em toda a interface e diálogos abertos.
 
 ---
 
@@ -130,7 +134,11 @@ A partir dos deslocamentos nodais calculados, os esforços internos em qualquer 
 - **Momento Fletor $M_z(x')$:** $E I_z \frac{d^2 v}{dx'^2}$;
 - **Esforço Cortante $V_y(x')$:** $-\frac{d M_z}{dx'}$;
 - **Momento de Torção $T(x')$:** $G J \frac{d\theta_x}{dx'}$.
-- **Controles 3D Avançados (`Corte/Contornos...`) & Aba Contínua 2D/3D:** Permite alternar mapas de contorno (`|u|`, **`Tensão de von Mises (Casca/Sólido)`**, `Axial`, `DCR`), exibir/ocultar malha superficial 2D/3D, fatiar o modelo com **Plano de Corte 3D** nos eixos `X`, `Y` ou `Z` (com inversão), reproduzir **Animação Contínua 3D** (deformada, modal, flambagem ou harmônica/transiente) e consultar tensões/resultantes na aba **`Esforços 2D/3D (Casca/Sólido)`** do painel inferior.
+- **Controles 3D Avançados (`Corte/Contornos...`) & Aba Contínua 2D/3D:** Permite alternar mapas de contorno (`|u|`, **`Tensão de von Mises (Casca/Sólido)`**, `Axial`, `DCR`), exibir/ocultar malha superficial 2D/3D, fatiar o modelo com **Plano de Corte 3D** nos eixos `X`, `Y` ou `Z` (com inversão, preservando intactos a grade dos planos `XY`/`XZ`/`YZ` e o cursor 3D), reproduzir **Animação Contínua 3D** (deformada, modal, flambagem ou harmônica/transiente) e consultar tensões/resultantes na aba **`Esforços 2D/3D (Casca/Sólido)`** do painel inferior.
+- **Tabelas de Resultados Interativas (`ResultTableConfigurator`) e Layouts Múltiplos:**
+  - **Seleção e Foco no Modelo:** Clique no canto superior esquerdo para alternar entre selecionar tudo e limpar; clique nos cabeçalhos (`Ctrl` / `Shift`) para selecionar colunas; o texto do cabeçalho quebra em múltiplas linhas automaticamente ao estreitar colunas; dê **duplo clique em uma linha** para selecionar e destacar o nó, a barra ou o elemento 2D/3D correspondente no Viewport 3D.
+  - **Menu de Contexto (Botão Direito):** Configure visibilidade de colunas (`Configurar colunas`), ative ordenação inteligente (`Ordenar linhas` mantendo `Soma de Reações` no final), altere ou inverta a ordem das linhas (`Ordem das Linhas da Tabela`: *Adicionar no Fim*, *Adicionar no Topo*, *Inverter Linhas Atuais da Tabela*), aplique cores por colunas (`Colorir colunas` / `Ctrl+Shift+A`) e por categoria semântica (`Configurar cores` com contraste automático), copie seleções (`Ctrl+C`, `Ctrl+Shift+C` com cabeçalhos ou tabela inteira) e exporte (`Opções de exportação` > `Exportar Tabela`) para **`.xlsx`**, **`.csv`**, **`.txt`**, **`.json`** e **`.xml`**.
+  - **Múltiplos Layouts Lado a Lado:** Em **`Configurações > Layouts do Painel de Tabelas de Resultados`**, divida o painel inferior entre **`1 Layout (Todas as Tabelas)`** e **`4 Layouts`**, escolhendo quais abas aparecem em cada quadro ou retornando ao padrão em **`Restaurar Layouts Padrão`**.
 
 ---
 
@@ -151,7 +159,8 @@ A viewport OpenGL 3.3 Core Profile oferece renderização de última geração:
 ## 9. Serialização (.omniframe 2.1.0), DXF/IFC4 e Relatórios (HTML/MD/PDF)
 
 - **Formato `.omniframe` (Schema `2.1.0`, retrocompatível com `1.0` e `2.0`):** Estrutura JSON auditável (UTF-8) contendo materiais (incluindo $\rho$ e plasticidade J2), seções, nós, barras, apoios, molas, deslocamentos prescritos, cargas e combinações (`LoadSystem`).
-- **Interoperabilidade & Relatórios:** Importação/exportação **DXF** e **IFC4**, auditoria normativa **ABNT NBR** (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explícito para normas ausentes como `NBR 8681`, `14762`, `15421`, `AISC 360`, `Eurocode 3`) e geração de relatórios em **Markdown**, **HTML** e **PDF executivo A4** configurável.
+- **Interoperabilidade & Relatórios:** Importação/exportação **DXF** e **IFC4**, exportação tabular direta em **`.xlsx`**, **`.csv`**, **`.txt`**, **`.json`** e **`.xml`**, auditoria normativa **ABNT NBR** (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explícito para normas ausentes como `NBR 8681`, `14762`, `15421`, `AISC 360`, `Eurocode 3`) e geração de relatórios em **Markdown**, **HTML** e **PDF executivo A4** configurável.
+- **Preferências Universais (`user_preferences.json` v2) & Logs Diários:** Todas as configurações de idioma, tema, modo de interface, gráficos, geometria da janela/painéis, última pasta, tabelas e diálogos são salvas atomicamente em `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (com migração de arquivos legados) e gerenciadas via **`Configurações > Persistência de Configurações e Preferências`** (*Salvar Todas as Configurações Agora*, *Recarregar Configurações Salvas*, *Restaurar Todas as Configurações Padrão*). O sistema de logs diários (**`Configurações > Sessão, Inicialização e Logs`**) grava eventos `omniframe_aaaa-mm-dd.log` em `%LOCALAPPDATA%\OmniFrame\log\` retendo no máximo **10 arquivos** (excluindo os mais antigos automaticamente).
 
 ---
 
@@ -160,7 +169,7 @@ A viewport OpenGL 3.3 Core Profile oferece renderização de última geração:
 ### Sessão Guiada Interativa (`Ajuda > Sessão Guiada...`, atalho `F2`):
 - Demonstra automaticamente, em **30 etapas do zero**, todos os recursos do aplicativo a partir de qualquer um dos **3 exemplos pré-definidos** escolhidos pelo usuário.
 - **4 Perfis Científicos de Ritmo de Leitura (PPM):** `Leitor Típico — Fluente (250 PPM)`, `Leitura Técnica / Engenharia (150 PPM — recomendado)`, `Leitura em Voz Alta (155 PPM)` e `Dislexia / Acessível (130 PPM + margem para regressões)`.
-- **Callout e Destaque Unificados em 2 Fases (Sem Sobreposição):** Antes de cada ação, um destaque luminoso e um único balão explicativo em **amarelo** detalham o recurso no ritmo proporcional às palavras/PPM; na execução (**verde**), o aplicativo posiciona eventuais janelas filhas no canto inferior esquerdo mantendo o balão legível e livre de sobreposição, com suporte completo a **Temas Escuro/Claro**, **Modeless/Z-Order** e **restauração automática do exemplo selecionado para o estado inicial** ao concluir.
+- **Cor Personalizável do Realce por Fase (Independente de Tema, UI e Idioma) & Fundo Adaptativo ao Tema:** permite selecionar qual fase (`1`, `2`, `3`, `4`... conforme o máximo de fases das etapas) terá a cor configurada, escolhendo cores predefinidas ou personalizadas (**`Escolher Cor...`** / **`Cor Padrão`**) — com suporte tanto a cores distintas quanto a cores repetidas entre fases — aplicada no selo de fase, no quadro da etapa e nos marcadores visuais **independentemente** de **`Configurações > Tema`** (`Escuro`/`Claro`), **`Configurações > Interface do Usuário`** (`Customizado`/`Nativo`) e **`Configurações > Idioma`** (`pt_BR`/`en_US`). Ao mesmo tempo, o fundo do quadro da janela e dos tooltips/callouts adapta-se dinamicamente em tempo de execução ao tema ativo (fundo claro no Tema Claro e fundo escuro no Tema Escuro), independentemente do modo de Interface do Usuário, com suporte completo a **Modeless/Z-Order**, prevenção de sobreposição em janelas filhas e **restauração automática do exemplo selecionado para o estado inicial** ao concluir.
 
 ### CLI Dedicada e Integração com Windows 10/11 (`omniframe-cli.exe` e `OmniFrame.exe`):
 
@@ -243,8 +252,10 @@ Consulte também [docs/cli-reference.md](docs/cli-reference.md) e o Capítulo 10
 - `Ctrl+N`: Novo Projeto
 - `Ctrl+O`: Abrir Arquivo `.omniframe`
 - `Ctrl+S`: Salvar Projeto
+- `Ctrl+Shift+S`: Salvar Como (`.omniframe`)...
 - `Ctrl+Z` / `Ctrl+Y`: Desfazer / Refazer edições e alterações no modelo
 - `Ctrl+Q`: Sair do Aplicativo
+- `Ctrl+C` / `Ctrl+Shift+C` / `Ctrl+Shift+A` (Tabelas): Copiar seleção / Copiar com cabeçalhos / Colorir todas as colunas
 - `F5`: Executar Solver FEA (`Calcular`)
 - `F`: Enquadrar Estrutura na Câmera (`Zoom All`)
 - `S` / `N` / `B` / `M`: Ferramentas `Selecionar` / `Nó` / `Barra` / `Medir` (`S` / `N` / `B` / `M`)
@@ -252,7 +263,7 @@ Consulte também [docs/cli-reference.md](docs/cli-reference.md) e o Capítulo 10
 - `Esc`: Cancelar Operação / Voltar à Ferramenta `Selecionar`
 
 ### Desinstalação Limpa (Política Microsoft Store 10.2.7):
-- A desinstalação via Configurações do Windows / Microsoft Store ou pelo desinstalador do Inno Setup remove os arquivos do programa sem deixar serviços em segundo plano. As preferências locais ficam em `%LOCALAPPDATA%\OmniFrame\OmniFrame\` (`language.json`, `theme.json`, `graphics.json`), além dos projetos `.omniframe` e relatórios salvos manualmente pelo usuário.
+- A desinstalação via Configurações do Windows / Microsoft Store ou pelo desinstalador do Inno Setup remove os arquivos do programa sem deixar serviços em segundo plano. As preferências locais ficam consolidadas no arquivo único `%LOCALAPPDATA%\OmniFrame\user_preferences.json`, além dos projetos `.omniframe` e relatórios salvos manualmente pelo usuário.
 
 ---
 
@@ -288,7 +299,11 @@ Structural topology is defined in three-dimensional space with full multi-level 
 6. **Collapsible Dock Panels (`◀/▶` and `▼/▲`) & Numeric Spin Fields:**
    - **`Inspector & Quick Input` Panel (Left Side):** Click the spin-button arrow pointing **left (`◀`)** in the panel header to collapse the inspector horizontally to the left edge as a slim vertical bar — its title label automatically rotates **90° counter-clockwise** along the edge while expanding the 3D Viewport horizontally. Click the arrow pointing **right (`▶`)** at the top of the vertical strip to expand it back.
    - **`Result Tables & Structural Diagnostics` Panel (Bottom):** Click the spin-button arrow pointing **down (`▼`)** in the header to collapse the results dock down to its bottom title bar (giving the 3D Viewport more vertical height); click the arrow pointing **up (`▲`)** to restore all four tabs.
-   - Both collapse/expand controls also operate in floating window mode, dynamically update their vector arrows and tooltips (*"Collapse panel"* / *"Expand panel"*) across **Light/Dark** themes and **pt-BR/en-US** languages, and automatically expand whenever the **Guided Session (`F2`)** accesses dock controls or result tables. All numeric input boxes render flush spin buttons whose outer corners match the rounded control frame seamlessly.
+   - Both collapse/expand controls also operate in floating window mode, dynamically update their vector arrows and tooltips (*"Collapse panel"* / *"Expand panel"*) across **Light/Dark** themes and **pt-BR/en-US** languages, and automatically expand whenever the **Guided Session (`F2`)** accesses dock controls or result tables. All numeric input boxes render flush spin buttons whose outer corners match the rounded control frame seamlessly, dock splitters show dotted drag handles whether expanded or collapsed, and overflowed top toolbars show an extension button (*"Expand or collapse hidden toolbar buttons"*).
+7. **Clean Startup, Automatic Session Recovery, `Save As` & Dual UI Mode:**
+   - **Empty Workspace Startup & Edit Protection:** By default, the application opens with an empty modeling workspace. Every edit writes an automatic recovery copy under `%LOCALAPPDATA%\OmniFrame\recovery\`. Closing with unsaved edits (marked by `[*]` in the title) opens a modeless confirmation box offering **`Save`**, **`Exit and Keep Recovery`**, or **`Cancel`**.
+   - **Resume & File Menu Actions:** Use **`File > Save (.omniframe)` (`Ctrl+S`)**, **`Save As (.omniframe)...` (`Ctrl+Shift+S`)**, and **`Recover Previous Session...`** (alongside automatic memory of the last opened/saved folder). On startup, **`Settings > Session, Startup and Logs`** selects among *Ask on startup*, *Automatically load previous project or example*, or *Always start a new project (Empty)*.
+   - **UI Style Modes (`Settings > User Interface`):** Switch live between **`Custom`** and **`Native`** (standard Qt 6 / OS appearance) across the main window and all open dialogs.
 
 ---
 
@@ -349,7 +364,11 @@ From calculated nodal displacements, internal forces at any cross-section $x'$ a
 - **Bending Moment $M_z(x')$:** $E I_z \frac{d^2 v}{dx'^2}$;
 - **Shear Force $V_y(x')$:** $-\frac{d M_z}{dx'}$;
 - **Torsional Moment $T(x')$:** $G J \frac{d\theta_x}{dx'}$.
-- **Advanced 3D Controls (`Clip/Contours...`) & 2D/3D Continuum Tab:** Toggles surface/element contour maps (`|u|`, **`von Mises Stress (Shell/Solid)`**, `Axial`, `DCR`), shows/hides 2D/3D meshes, slices the model with interactive **3D Clip Planes (`X`, `Y`, `Z` with invert)**, plays real-time **Continuous 3D Animations** (deformed, modal, buckling, harmonic, or transient responses), and lists continuum stresses/resultants inside the **`2D/3D Forces (Shell/Solid)`** bottom results tab.
+- **Advanced 3D Controls (`Clip/Contours...`) & 2D/3D Continuum Tab:** Toggles surface/element contour maps (`|u|`, **`von Mises Stress (Shell/Solid)`**, `Axial`, `DCR`), shows/hides 2D/3D meshes, slices the model with interactive **3D Clip Planes (`X`, `Y`, `Z` with invert, keeping the `XY`/`XZ`/`YZ` working plane grid and 3D cursor unclipped)**, plays real-time **Continuous 3D Animations** (deformed, modal, buckling, harmonic, or transient responses), and lists continuum stresses/resultants inside the **`2D/3D Forces (Shell/Solid)`** bottom results tab.
+- **Interactive Result Tables (`ResultTableConfigurator`) & Multiple Layouts:**
+  - **Selection & 3D Picking:** Click the top-left corner button to toggle select-all vs. clear selection; click column headers (`Ctrl` / `Shift`) to select entire columns; headers wrap dynamically onto multiple lines when columns narrow; **double-click any row** to select and highlight the corresponding node, member, or 2D/3D element in the 3D Viewport.
+  - **Right-Click Context Menu:** Configure column visibility (`Configure Columns`), enable smart header sorting (`Sort Rows` keeping `Reaction Sum` pinned at the bottom), customize or flip row ordering (`Table Row Order`: *Append at Bottom*, *Prepend at Top*, *Reverse Current Table Rows*), color columns (`Color Columns` / `Ctrl+Shift+A`) and semantic row categories (`Configure Colors` with automatic text contrast), copy selections (`Ctrl+C`, `Ctrl+Shift+C` with headers, or entire table), and export (`Export Options` > `Export Table`) to **`.xlsx`**, **`.csv`**, **`.txt`**, **`.json`**, and **`.xml`**.
+  - **Multi-Layout Splitting:** Under **`Settings > Result Tables Panel Layouts`**, split the bottom panel across **`1 Layout (All Tables)`** to **`4 Layouts`**, pick which tables appear in each pane, or reset via **`Restore Default Layouts`**.
 
 ---
 
@@ -370,7 +389,8 @@ The OpenGL 3.3 Core Profile viewport delivers state-of-the-art rendering:
 ## 9. Model Persistence (.omniframe 2.1.0), DXF/IFC4 & Reports (HTML/MD/PDF)
 
 - **`.omniframe` Format (Schema `2.1.0`, backward-compatible with `1.0` and `2.0`):** Auditable UTF-8 JSON structure storing materials (including $\rho$ and J2 plasticity), sections, nodes, members, supports, springs, prescribed displacements, loads, and combinations (`LoadSystem`).
-- **Interoperability & Reports:** Bidirectional **DXF** and **IFC4** exchange, **ABNT NBR** code checks (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; explicit `OutOfLocalPdfScope` flag for absent standards such as `NBR 8681`, `14762`, `15421`, `AISC 360`, `Eurocode 3`), and configurable native **Markdown**, **HTML**, and **A4 executive PDF** report generation.
+- **Interoperability & Reports:** Bidirectional **DXF** and **IFC4** exchange, direct table export to **`.xlsx`**, **`.csv`**, **`.txt`**, **`.json`**, and **`.xml`**, **ABNT NBR** code checks (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; explicit `OutOfLocalPdfScope` flag for absent standards such as `NBR 8681`, `14762`, `15421`, `AISC 360`, `Eurocode 3`), and configurable native **Markdown**, **HTML**, and **A4 executive PDF** report generation.
+- **Universal Preferences (`user_preferences.json` v2) & Daily Logs:** Language, theme, UI mode, OpenGL settings, window/dock geometry, last directory, table layouts/colors, and dialog states persist atomically in `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (with automatic migration of legacy preference files) and are managed under **`Settings > Settings and Preferences Persistence`** (*Save All Settings Now*, *Reload Saved Settings*, *Restore All Default Settings*). Daily logs (**`Settings > Session, Startup and Logs`**) write `omniframe_yyyy-mm-dd.log` inside `%LOCALAPPDATA%\OmniFrame\log\` retaining at most **10 files** (deleting older logs automatically).
 
 ---
 
@@ -379,7 +399,7 @@ The OpenGL 3.3 Core Profile viewport delivers state-of-the-art rendering:
 ### Interactive Guided Session (`Help > Guided Session...`, shortcut `F2`):
 - Automatically walks through **30 steps from scratch**, demonstrating every tool, inspector control, and engineering dialog starting from any user-selected **built-in structural example** (`Example 1`, `2`, or `3`).
 - **4 Scientific Cognitive Reading Speed Profiles (WPM):** `Fluent Typical Reader (250 WPM)`, `Technical / Engineering Reading (150 WPM — recommended)`, `Read Aloud Pace (155 WPM)`, and `Dyslexia / Accessible (130 WPM + regression margin)`.
-- **Unified Two-Phase Spotlight & Callout (Zero Overlap):** Before executing an action, a unified highlight and **yellow** explanatory callout balloon introduce the control proportionally to word count and WPM; during execution (**green**), auxiliary child windows dock neatly at the lower-left without overlapping the callout balloon, supporting **Dark/Light themes**, **Modeless/Z-Order**, and **automatic restoration of the chosen example to its initial state** when finished.
+- **Customizable Per-Phase Highlight Color (Independent of Theme, UI Mode & Language) & Theme-Adaptive Backgrounds:** choose which phase (`1`, `2`, `3`, `4`... up to the maximum phase count across steps) to configure using preset colors or the custom picker (**`Choose Color...`** / **`Default Color`**)—supporting both distinct and repeated colors across phases—applied to phase badges, step banners, and spotlight/callout overlays **independently** of **`Settings > Theme`** (`Dark`/`Light`), **`Settings > User Interface`** (`Custom`/`Native`), and **`Settings > Language`** (`pt_BR`/`en_US`). Meanwhile, the dialog step frame background and tooltip/callout background adapt dynamically at runtime to the active theme (light background in Light theme and dark background in Dark theme), regardless of UI style mode, with full **Modeless/Z-Order** support, zero child-window overlap, and **automatic restoration of the chosen example to its initial state** when finished.
 
 ### Dedicated CLI & Windows 10/11 Integration (`omniframe-cli.exe` and `OmniFrame.exe`):
 
@@ -462,8 +482,10 @@ See also [docs/cli-reference.md](docs/cli-reference.md) and Chapter 10 of the bu
 - `Ctrl+N`: New Project
 - `Ctrl+O`: Open `.omniframe` File
 - `Ctrl+S`: Save Project
+- `Ctrl+Shift+S`: Save As (`.omniframe`)...
 - `Ctrl+Z` / `Ctrl+Y`: Undo / Redo model edits and property assignments
 - `Ctrl+Q`: Exit Application
+- `Ctrl+C` / `Ctrl+Shift+C` / `Ctrl+Shift+A` (Tables): Copy selection / Copy with headers / Color all columns
 - `F5`: Solve FEA Model (`Solve`)
 - `F`: Frame Structure in Camera (`Fit All`)
 - `S` / `N` / `B` / `M`: `Select` / `Node` / `Member` / `Measure` tools (`S` / `N` / `B` / `M`)
@@ -471,4 +493,4 @@ See also [docs/cli-reference.md](docs/cli-reference.md) and Chapter 10 of the bu
 - `Esc`: Cancel Operation / Return to `Select` Tool
 
 ### Clean Uninstallation (Microsoft Store Policy 10.2.7):
-- Uninstalling via Windows Settings / Microsoft Store or the Inno Setup uninstaller removes program files cleanly without leaving background services. Local preferences are stored under `%LOCALAPPDATA%\OmniFrame\OmniFrame\` (`language.json`, `theme.json`, `graphics.json`), alongside `.omniframe` projects and exported reports saved manually by the user.
+- Uninstalling via Windows Settings / Microsoft Store or the Inno Setup uninstaller removes program files cleanly without leaving background services. Local preferences are consolidated inside `%LOCALAPPDATA%\OmniFrame\user_preferences.json`, alongside `.omniframe` projects and exported reports saved manually by the user.

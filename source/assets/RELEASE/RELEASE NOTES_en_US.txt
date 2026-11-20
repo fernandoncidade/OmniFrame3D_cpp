@@ -1,4 +1,44 @@
 RELEASE NOTES — OMNIFRAME 3D
+Version: 2026.11.18.0
+Date: November 18, 2026
+
+Highlights of Version 2026.11.18.0:
+
+1. Interactive Result Tables, Smart Sorting, Category Colors, and Complete Export
+- All four tables in the results panel (Nodal Displacements, Support Reactions, Member Forces, and 2D/3D Shell/Solid Forces) now support full click, keyboard, and context-menu interaction.
+- Clicking the top-left corner button toggles between selecting the entire table and clearing the selection; clicking column headers selects whole columns (including Ctrl and Shift selection), and header labels automatically wrap across multiple lines and adjust height when a column is narrowed.
+- Double-clicking any result row immediately selects and highlights the corresponding node, member, or element in the 3D scene.
+- From the right-click context menu, you can hide or show individual columns, sort numeric values and intervals while keeping the Reaction Sum row pinned at the bottom, choose row insertion order (at the bottom or at the top) or reverse current rows, apply column and category colors (nodes, supports, bars, shells, and solids) with automatic high-contrast text for readability, copy selections with or without headers (Ctrl+C and Ctrl+Shift+C) or the whole table, and export data to Excel workbooks (.xlsx), CSV, tab-delimited text (.txt), JSON, and XML, filtering to active columns or selected cells when desired.
+
+2. Multiple Side-by-Side Layouts in the Result Tables Panel
+- The Settings menu now includes "Result Tables Panel Layouts," letting you split the bottom results area into 1, 2, 3, or 4 independent panes side by side with adjustable dividers.
+- You can freely choose which tables appear in each pane to view displacements, reactions, member forces, and shell/solid stresses simultaneously, or restore the original arrangement with a single click.
+
+3. "Custom" and "Native" User Interface Modes, Manual Dark Readability, Splitter Drag Dots, and Improved 3D Clip Plane
+- Under Settings > User Interface, you can now switch instantaneously between the Custom visual style (with rounded corners and dedicated styling) and the Native visual style (matching the standard operating system look) across all open windows.
+- Inside the Operations and Engineering Manual window (Help > Manual), header banners, warnings, notes, and command examples now keep a readable dark backdrop when Native mode is active with the Dark theme, eliminating bright light strips behind highlighted text lines.
+- The dividers separating the side inspector, the 3D view, and the bottom tables now display visual drag grip dots whether panels are expanded or collapsed, making resizing clearer.
+- When a top toolbar hides buttons on narrower screens, its overflow extension button displays a translated tooltip in English and Portuguese; in addition, the 3D Clip Plane now slices only the structural model and mesh while always keeping the working plane grids (Plan XY, Front XZ, and Side YZ) and the 3D cursor marker unclipped.
+
+4. Clean Empty Startup, Protection Against Lost Work, "Save As," and Session Recovery
+- On normal startup, OmniFrame 3D now opens with a clean, empty modeling workspace ready for a new project.
+- Any edits made to the structure, supports, loads, combinations, or analysis options automatically save a background recovery copy, show an unsaved changes indicator in the window title, and display a confirmation prompt when closing with pending edits (offering options to save, exit while keeping recovery, or cancel).
+- The File menu adds "Save As (.omniframe)..." (Ctrl+Shift+S) and "Recover Previous Session...," while automatically remembering the last folder used when opening or saving files and reports.
+- Through Settings > Session, Startup and Logs, you can choose whether the application asks on startup whenever a previous project, example, or edit is available, loads the previous session automatically, or always starts a new empty project.
+
+5. Unified Single-File Settings Persistence and Daily Activity Logs
+- All user preferences—including language, light or dark theme, interface style mode, graphics quality, window size and state, table customizations, layouts, and last used folder—are now safely stored in a single local preferences file, with automatic migration from earlier versions.
+- The new Settings > Settings and Preferences Persistence menu lets you save all settings immediately, reload saved settings from disk, or restore every application setting back to its initial defaults.
+- Both the desktop application and the command-line tool now record daily operational and diagnostic activity in dated log files while automatically keeping at most the 10 most recent files to avoid cluttering your drive, with live log viewing and a folder shortcut inside the Session, Startup and Log Settings window.
+
+6. Customizable Per-Phase Highlights and Theme-Adaptive Backgrounds in the Interactive Guided Session
+- The Interactive Guided Session window (Help > Guided Session...) now lets you configure highlight colors separately for each step phase (Phase 1, Phase 2, Phase 3, Phase 4, and any additional phases present across steps), supporting both distinct colors per phase and repeated colors, using the phase selector, preset color list, "Choose Color..." picker, and "Default Color" button.
+- The user-selected colors for each phase are automatically preserved independently of the application's active Theme (Dark or Light), User Interface mode (Custom or Native), and Language settings.
+- In addition, both the Guided Session window's step frame background and explanatory callout tooltips now adjust dynamically at runtime to match the active theme—appearing light in the Light theme and dark in the Dark theme—regardless of whether Custom or Native UI mode is enabled.
+
+================================================================================
+
+RELEASE NOTES — OMNIFRAME 3D
 Version: 2026.11.17.0
 Date: November 17, 2026
 

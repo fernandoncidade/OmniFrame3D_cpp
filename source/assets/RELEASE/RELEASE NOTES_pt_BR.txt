@@ -1,4 +1,44 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.18.0
+Data: 18 de novembro de 2026
+
+Destaques da Versão 2026.11.18.0:
+
+1. Tabelas de Resultados Interativas, Ordenação Inteligente, Cores e Exportação Completa
+- As quatro tabelas do painel de resultados (Deslocamentos Nodais, Reações de Apoio, Esforços nas Barras e Esforços 2D/3D de Casca/Sólido) passaram a oferecer interação completa por clique, teclado e menu de contexto.
+- Um clique no botão do canto superior esquerdo alterna entre selecionar toda a tabela e limpar a seleção; clicar nos cabeçalhos seleciona colunas inteiras (inclusive usando Ctrl ou Shift), e o texto dos cabeçalhos ajusta a quebra de linha e altura automaticamente quando uma coluna é estreitada.
+- Ao dar duplo clique em qualquer linha de resultado, o aplicativo seleciona e destaca imediatamente o nó, a barra ou o elemento correspondente na visualização 3D.
+- Pelo menu de contexto com o botão direito do mouse, é possível ocultar ou reexibir colunas individuais, ordenar valores numéricos e intervalos mantendo a linha de Soma de Reações sempre ao final, escolher a ordem de inserção das linhas (no topo ou no fim) ou invertê-las, aplicar cores por coluna e por categoria (nós, apoios, barras, cascas e sólidos) com contraste automático do texto para facilitar a leitura, copiar seleções com ou sem cabeçalhos (Ctrl+C e Ctrl+Shift+C) ou a tabela inteira e exportar os dados para planilhas Excel (.xlsx), CSV, texto tabulado (.txt), JSON e XML, filtrando apenas colunas visíveis ou células selecionadas quando desejado.
+
+2. Múltiplos Layouts Lado a Lado no Painel de Tabelas de Resultados
+- O menu Configurações recebeu a opção "Layouts do Painel de Tabelas de Resultados", permitindo dividir a área inferior em 1, 2, 3 ou 4 quadros independentes lado a lado com separadores ajustáveis.
+- É possível escolher livremente quais tabelas aparecem em cada quadro para acompanhar deslocamentos, reações, esforços em barras e tensões de casca/sólido ao mesmo tempo, ou restaurar o arranjo original com um clique.
+
+3. Modos de Interface "Customizado" e "Nativo", Leitura no Manual, Alças de Arraste e Plano de Corte 3D Aprimorado
+- Em Configurações > Interface do Usuário, agora é possível alternar instantaneamente entre o estilo visual Customizado (com cantos arredondados e paleta própria) e o estilo Nativo (seguindo a aparência padrão do sistema operacional) em todas as janelas abertas.
+- Na janela do Manual de Operação e Engenharia (Ajuda > Manual), blocos de destaque, avisos, notas e exemplos de comando passaram a manter fundo escuro legível quando o modo Nativo está ativo no tema Escuro, eliminando trechos com fundo claro por trás dos textos.
+- As divisórias entre o inspetor lateral, a cena 3D e as tabelas inferiores passaram a exibir pontinhos visuais de arraste tanto com os painéis expandidos quanto recolhidos, facilitando o redimensionamento.
+- Quando uma barra de ferramentas superior oculta botões em telas menores, o botão de extensão exibe uma dica traduzida em Português e Inglês; além disso, o Plano de Corte 3D passou a recortar apenas a estrutura e a malha, preservando sempre visíveis as grades dos planos de trabalho (Planta XY, Frontal XZ e Lateral YZ) e o marcador do cursor.
+
+4. Inicialização Limpa, Proteção contra Perda de Trabalho, "Salvar Como" e Retomada de Sessão
+- Ao abrir normalmente, o OmniFrame 3D inicia com a área de modelagem limpa e vazia, pronta para começar um novo projeto.
+- Qualquer edição feita na estrutura, nos apoios, nas cargas, nas combinações ou nas opções de análise passa a gerar automaticamente uma cópia de recuperação em segundo plano, além de exibir um indicador de alteração pendente no título da janela e um aviso de confirmação caso o usuário tente sair sem salvar (com opções para salvar, sair mantendo a recuperação ou cancelar).
+- O menu Arquivo ganhou os comandos "Salvar Como (.omniframe)..." (Ctrl+Shift+S) e "Recuperar Sessão Anterior...", além de lembrar automaticamente a última pasta utilizada ao abrir ou salvar arquivos e relatórios.
+- Na tela e no menu de Configurações > Sessão, Inicialização e Logs, é possível escolher se o aplicativo deve perguntar ao iniciar quando houver projeto, exemplo ou edição anterior em aberto, carregar a sessão anterior automaticamente ou sempre iniciar um novo projeto vazio.
+
+5. Preferências Unificadas em um Único Arquivo e Registro Diário de Atividades (Logs)
+- Todas as preferências do usuário — incluindo idioma, tema claro ou escuro, modo de interface, qualidade gráfica, tamanho e posição das janelas, configurações das tabelas, layouts e último diretório usado — passaram a ser salvas de forma segura em um único arquivo local de configurações, com migração automática de preferências de versões anteriores.
+- O novo submenu Configurações > Persistência de Configurações e Preferências permite salvar todas as configurações imediatamente, recarregar as preferências salvas em disco ou restaurar todos os padrões iniciais do aplicativo.
+- O aplicativo também passou a registrar diariamente as atividades de funcionamento e diagnóstico tanto da janela gráfica quanto da linha de comando em arquivos datados, mantendo automaticamente no máximo os 10 registros mais recentes para evitar acúmulo no computador, com visualização direta e atalho para abrir a pasta na janela de Configurações de Sessão, Inicialização e Logs.
+
+6. Realce Personalizável por Fase e Fundo Adaptativo ao Tema na Sessão Guiada Interativa
+- A janela da Sessão Guiada Interativa (Ajuda > Sessão Guiada...) passou a permitir a escolha separada da cor de realce para cada fase das etapas (Fase 1, Fase 2, Fase 3, Fase 4 e seguintes, caso alguma etapa possua mais fases), aceitando desde cores totalmente diferentes até cores repetidas entre fases, por meio do seletor de fase, lista de cores predefinidas, botão "Escolher Cor..." e botão "Cor Padrão".
+- As cores escolhidas pelo usuário para cada fase permanecem preservadas de maneira independente em relação ao Tema (Escuro ou Claro), ao modo de Interface do Usuário (Customizado ou Nativo) e ao Idioma escolhidos no aplicativo.
+- Além disso, o fundo do quadro da etapa na janela da Sessão Guiada e os balões explicativos (tooltips) passaram a se ajustar automaticamente em tempo real ao tema ativo — ficando claros no Tema Claro e escuros no Tema Escuro — independentemente de a interface estar no modo Customizado ou Nativo.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versão: 2026.11.17.0
 Data: 17 de novembro de 2026
 

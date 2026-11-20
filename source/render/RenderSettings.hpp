@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QJsonObject>
 #include <QString>
 #include <QSurfaceFormat>
 #include <QVector4D>
@@ -111,6 +112,8 @@ struct GraphicsCapabilitiesInfo {
 };
 
 ActivePlanePalette activePlanePaletteForTheme(ActivePlaneTheme theme, float gridContrast = 1.0f);
+QJsonObject renderSettingsToJson(const RenderQualitySettings& settings);
+RenderQualitySettings renderSettingsFromJson(const QJsonObject& obj);
 RenderQualitySettings loadRenderSettings();
 void saveRenderSettings(const RenderQualitySettings& settings);
 QSurfaceFormat buildPreferredSurfaceFormat(const RenderQualitySettings& settings);

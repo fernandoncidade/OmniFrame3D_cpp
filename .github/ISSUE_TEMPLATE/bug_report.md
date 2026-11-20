@@ -14,7 +14,7 @@ Uma descrição clara e concisa do comportamento inesperado, erro numérico ou c
 
 ## Informações do Ambiente
 - **Versão do Sistema Operacional:** Windows 11 / Windows 10 x64
-- **Versão do OmniFrame 3D:** (ex: `v2026.11.17.0`)
+- **Versão do OmniFrame 3D:** (ex: `v2026.11.18.0`)
 - **Tipo de Distribuição:** [ ] Microsoft Store  [ ] Instalador GitHub  [ ] Pacote Portátil  [ ] Compilado do Código-Fonte
 - **Compilador Utilizado (se compilado do fonte):** [ ] MSVC (Visual Studio / Build Tools)  [ ] Outro
 - **Placa de Vídeo / Driver OpenGL:** (ex: NVIDIA RTX 4070 / Intel Iris Xe / Mesa)
@@ -42,7 +42,7 @@ A clear and concise description of what the bug, numerical discrepancy, or crash
 
 ## Environment Information
 - **OS Version:** Windows 11 / Windows 10 x64
-- **OmniFrame 3D Version:** (e.g., `v2026.11.17.0`)
+- **OmniFrame 3D Version:** (e.g., `v2026.11.18.0`)
 - **Distribution:** [ ] Microsoft Store  [ ] GitHub Installer  [ ] Portable Package  [ ] Built from Source
 - **Compiler (if built from source):** [ ] MSVC (Visual Studio / Build Tools)  [ ] Other
 - **GPU / OpenGL Driver:** (e.g., NVIDIA RTX 4070 / Intel Iris Xe / Mesa)

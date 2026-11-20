@@ -3,6 +3,7 @@
 #include "ThemeManager.hpp"
 #include "locale/GerenciadorTraducao.hpp"
 
+#include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
@@ -14,9 +15,11 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QStyle>
 #include <QTabWidget>
 #include <QTextBrowser>
 #include <QTextCursor>
@@ -26,7 +29,7 @@
 namespace omniframe {
 
 namespace {
-inline constexpr const char* kFallbackAppVersion = "2026.11.17.0";
+inline constexpr const char* kFallbackAppVersion = "2026.11.18.0";
 }
 
 AboutDialog::AboutDialog(QWidget* parent)
@@ -44,6 +47,10 @@ AboutDialog::AboutDialog(QWidget* parent)
     resize(920, 680);
 
     connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this](UiTheme) {
+        applyTheme();
+        loadDocuments();
+    });
+    connect(&ThemeManager::instance(), &ThemeManager::uiStyleModeChanged, this, [this](UiStyleMode) {
         applyTheme();
         loadDocuments();
     });
@@ -147,6 +154,36 @@ void AboutDialog::setupUi() {
 }
 
 void AboutDialog::applyTheme() {
+    if (m_applyingTheme) {
+        return;
+    }
+    struct Guard {
+        bool& flag;
+        explicit Guard(bool& f) : flag(f) { flag = true; }
+        ~Guard() { flag = false; }
+    } guard(m_applyingTheme);
+
+    if (ThemeManager::instance().isNativeUi()) {
+        if (!styleSheet().isEmpty()) {
+            setStyleSheet(QString());
+        }
+        if (m_subtitleLabel && !m_subtitleLabel->styleSheet().isEmpty()) {
+            m_subtitleLabel->setStyleSheet(QString());
+        }
+        if (m_authorLabel && !m_authorLabel->styleSheet().isEmpty()) {
+            m_authorLabel->setStyleSheet(QString());
+        }
+        for (QWidget* child : findChildren<QWidget*>()) {
+            if (!child) continue;
+            child->setPalette(QPalette());
+            child->setAttribute(Qt::WA_SetPalette, false);
+            child->update();
+        }
+        ThemeManager::instance().applyWindowChrome(this);
+        update();
+        return;
+    }
+
     if (ThemeManager::instance().isLight()) {
         setStyleSheet(QStringLiteral(
             "QDialog { background-color: #eef2f7; color: #0f172a; font-family: 'Segoe UI', sans-serif; }"
@@ -176,6 +213,7 @@ void AboutDialog::applyTheme() {
         m_subtitleLabel->setStyleSheet(QStringLiteral("color: #8ea0b8;"));
         m_authorLabel->setStyleSheet(QStringLiteral("color: #9cb3cf;"));
     }
+    ThemeManager::instance().applyWindowChrome(this);
 }
 
 void AboutDialog::retranslateUi() {
@@ -212,7 +250,8 @@ void AboutDialog::retranslateUi() {
 
 void AboutDialog::changeEvent(QEvent* event) {
     QDialog::changeEvent(event);
-    if (event->type() == QEvent::LanguageChange) {
+    const QEvent::Type t = event ? event->type() : QEvent::None;
+    if (t == QEvent::LanguageChange) {
         retranslateUi();
         loadDocuments();
     }
@@ -280,9 +319,17 @@ void AboutDialog::onLicenseSelectionChanged(int index) {
 }
 
 QString AboutDialog::normalizeTextHtml(const QString& plainText) {
-    const bool isLight = ThemeManager::instance().isLight();
-    const QString textColor = isLight ? QStringLiteral("#1e293b") : QStringLiteral("#dfe7f2");
-    const QString linkColor = isLight ? QStringLiteral("#0969da") : QStringLiteral("#6cb6ff");
+    QString textColor;
+    QString linkColor;
+    if (ThemeManager::instance().isNativeUi()) {
+        const QPalette pal = QApplication::palette();
+        textColor = pal.color(QPalette::Text).name();
+        linkColor = pal.color(QPalette::Link).name();
+    } else {
+        const bool isLight = ThemeManager::instance().isLight();
+        textColor = isLight ? QStringLiteral("#1e293b") : QStringLiteral("#dfe7f2");
+        linkColor = isLight ? QStringLiteral("#0969da") : QStringLiteral("#6cb6ff");
+    }
 
     QString escaped = plainText.toHtmlEscaped();
     static const QRegularExpression rxUrl(R"((https?://[^\s<>&"]+))");

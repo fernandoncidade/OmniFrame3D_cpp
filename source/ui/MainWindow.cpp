@@ -5,29 +5,52 @@
 #include "GuidedSessionDialog.hpp"
 #include "ManualDialog.hpp"
 #include "RenderSettingsDialog.hpp"
+#include "ResultTableConfigurator.hpp"
+#include "StartupSessionDialog.hpp"
 #include "ThemeManager.hpp"
 #include "WindowZOrderManager.hpp"
+#include "io/AppLogger.hpp"
 #include "io/DxfInterop.hpp"
 #include "io/IfcInterop.hpp"
 #include "io/PdfReportGenerator.hpp"
+#include "io/ProjectRecoveryStore.hpp"
 #include "io/ProjectSerializer.hpp"
+#include "io/UserPreferencesStore.hpp"
 #include "locale/GerenciadorTraducao.hpp"
 #include "os/WindowsCliIntegration.hpp"
 
 #include <cmath>
+#include <cstring>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 #include <QAbstractItemView>
+#include <QAbstractSpinBox>
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCoreApplication>
+#include <QDesktopServices>
+#include <QDir>
 #include <QDockWidget>
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeySequence>
+#include <QMouseEvent>
+#include <QOpenGLContext>
 #include <QProgressBar>
+#include <QScreen>
+#include <QSplitter>
+#include <QStandardPaths>
 #include <QStyleFactory>
+#include <QTabBar>
 #include <QThread>
 #include <QTimer>
 #include <QMenu>
@@ -42,6 +65,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QPainter>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -50,6 +74,8 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSpinBox>
+#include <QDialog>
 #include <QStyleOptionToolButton>
 #include <QToolButton>
 
@@ -57,21 +83,130 @@ namespace omniframe {
 
 namespace {
 
-/// Botão em estilo spin button desenhado vetorialmente para recolher/expandir painéis dock.
+void updateToolbarExtensionToolTips(QToolBar* tb1, QToolBar* tb2) {
+    const QString extTip = locale::GerenciadorTraducao::trText("Expandir ou recolher botões ocultos da barra");
+    for (QToolBar* tb : {tb1, tb2}) {
+        if (!tb) continue;
+        if (auto* extBtn = tb->findChild<QToolButton*>(QStringLiteral("qt_toolbar_ext_button"))) {
+            extBtn->setToolTip(extTip);
+        }
+    }
+}
+
+QStringList resultTableHeaders(ui::ResultTableKind kind) {
+    using locale::GerenciadorTraducao;
+    switch (kind) {
+    case ui::ResultTableKind::Displacements:
+        return {
+            GerenciadorTraducao::trText("Nó"),
+            QStringLiteral("uX (mm)"),
+            QStringLiteral("uY (mm)"),
+            QStringLiteral("uZ (mm)"),
+            QStringLiteral("θX (mrad)"),
+            QStringLiteral("θY (mrad)"),
+            QStringLiteral("θZ (mrad)")
+        };
+    case ui::ResultTableKind::Reactions:
+        return {
+            GerenciadorTraducao::trText("Nó"),
+            QStringLiteral("Rx (kN)"),
+            QStringLiteral("Ry (kN)"),
+            QStringLiteral("Rz (kN)"),
+            QStringLiteral("Mx (kNm)"),
+            QStringLiteral("My (kNm)"),
+            QStringLiteral("Mz (kNm)")
+        };
+    case ui::ResultTableKind::BarForces:
+        return {
+            GerenciadorTraducao::trText("Barra"),
+            QStringLiteral("N min/max (kN)"),
+            QStringLiteral("Vy min/max (kN)"),
+            QStringLiteral("Vz min/max (kN)"),
+            QStringLiteral("Tx min/max (kNm)"),
+            QStringLiteral("My min/max (kNm)"),
+            QStringLiteral("Mz min/max (kNm)"),
+            GerenciadorTraducao::trText("Flecha (mm)")
+        };
+    case ui::ResultTableKind::ContinuumStress:
+        return {
+            GerenciadorTraducao::trText("Elemento"),
+            GerenciadorTraducao::trText("Tipo"),
+            QStringLiteral("σ_vM (kPa)"),
+            QStringLiteral("σ_1 (kPa)"),
+            QStringLiteral("σ_3 (kPa)"),
+            QStringLiteral("Nxx / σxx"),
+            QStringLiteral("Nyy / σyy"),
+            QStringLiteral("Mxx / τxz")
+        };
+    }
+    return {};
+}
+
+QString resultTableTabTitle(ui::ResultTableKind kind) {
+    using locale::GerenciadorTraducao;
+    switch (kind) {
+    case ui::ResultTableKind::Displacements:
+        return GerenciadorTraducao::trText("Deslocamentos Nodais");
+    case ui::ResultTableKind::Reactions:
+        return GerenciadorTraducao::trText("Reações de Apoio");
+    case ui::ResultTableKind::BarForces:
+        return GerenciadorTraducao::trText("Esforços nas Barras");
+    case ui::ResultTableKind::ContinuumStress:
+        return GerenciadorTraducao::trText("Esforços 2D/3D (Casca/Sólido)");
+    }
+    return {};
+}
+
+class PersistentLayoutTableMenu final : public QMenu {
+public:
+    using QMenu::QMenu;
+
+protected:
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        QAction* act = activeAction();
+        if (act != nullptr && act->isEnabled() && act->isCheckable() && act->menu() == nullptr) {
+            act->trigger();
+            event->accept();
+            return;
+        }
+        QMenu::mouseReleaseEvent(event);
+    }
+};
+
+/// Botão para recolher/expandir painéis dock (nativo Qt6 ou vetorial customizado conforme modo da UI).
 class SpinArrowButton final : public QToolButton {
 public:
     explicit SpinArrowButton(const QString& objectName, QWidget* parent = nullptr)
         : QToolButton(parent) {
         setObjectName(objectName);
-        setFixedSize(24, 20);
         setFocusPolicy(Qt::NoFocus);
         setCursor(Qt::PointingHandCursor);
-        setAttribute(Qt::WA_Hover, true);
         setArrowType(Qt::DownArrow);
+        syncUiMode();
+    }
+
+    void syncUiMode() {
+        if (ThemeManager::instance().isNativeUi()) {
+            setAutoRaise(true);
+            setToolButtonStyle(Qt::ToolButtonIconOnly);
+            setFixedSize(22, 22);
+            setAttribute(Qt::WA_Hover, false);
+        } else {
+            setAutoRaise(false);
+            setToolButtonStyle(Qt::ToolButtonIconOnly);
+            setFixedSize(24, 20);
+            setAttribute(Qt::WA_Hover, true);
+        }
+        updateGeometry();
+        update();
     }
 
 protected:
     void paintEvent(QPaintEvent* event) override {
+        if (ThemeManager::instance().isNativeUi()) {
+            QToolButton::paintEvent(event);
+            return;
+        }
         Q_UNUSED(event);
         QStyleOptionToolButton opt;
         initStyleOption(&opt);
@@ -121,11 +256,12 @@ void openManagedModelessDialog(QObject* receiver,
     wm->showAndRaise(dlg);
 }
 
-template <typename DialogT, typename FactoryFn>
+template <typename DialogT, typename FactoryFn, typename AfterCreateFn>
 void openManagedInfoDialog(WindowZOrderManager* wm,
                            QPointer<DialogT>& slot,
                            bool resizable,
-                           FactoryFn&& createFn) {
+                           FactoryFn&& createFn,
+                           AfterCreateFn&& onCreated) {
     if (slot) {
         wm->showAndRaise(slot.data());
         return;
@@ -133,6 +269,7 @@ void openManagedInfoDialog(WindowZOrderManager* wm,
     DialogT* dlg = createFn();
     slot = dlg;
     wm->prepareModelessDialog(dlg, resizable, true);
+    onCreated(dlg);
     wm->showAndRaise(dlg);
 }
 
@@ -144,6 +281,9 @@ public:
     explicit RotatableTitleLabel(const QString& text, QWidget* parent = nullptr)
         : QLabel(text, parent) {
         setObjectName(QStringLiteral("dockTitleLabel"));
+        QFont f = font();
+        f.setBold(true);
+        setFont(f);
         setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
         setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
         setAttribute(Qt::WA_TransparentForMouseEvents, true);
@@ -278,6 +418,14 @@ public:
         }
     }
 
+    void syncUiMode() {
+        if (m_collapseButton) {
+            m_collapseButton->syncUiMode();
+        }
+        updateGeometry();
+        update();
+    }
+
     QToolButton* collapseButton() const { return m_collapseButton; }
 
     int collapsedDockHeight(const QDockWidget* dock) const {
@@ -381,6 +529,37 @@ void applyCollapsedHeightClamp(QDockWidget* dock, const DockTitleBar* titleBar, 
     dock->updateGeometry();
 }
 
+void repaintMainWindowSeparatorsNow(QMainWindow* window, QSplitter* splitter) {
+    if (!window) {
+        return;
+    }
+    window->update();
+    if (splitter) {
+        splitter->update();
+        for (int i = 1; i < splitter->count(); ++i) {
+            if (QWidget* handle = splitter->handle(i)) {
+                handle->update();
+            }
+        }
+    }
+}
+
+/// Reativa o layout do QMainWindow e repinta os separadores após recolher/expandir painéis dock.
+void scheduleDockSeparatorRepaint(QMainWindow* window, QSplitter* splitter) {
+    if (!window) {
+        return;
+    }
+    if (QLayout* rootLayout = window->layout()) {
+        rootLayout->invalidate();
+        rootLayout->activate();
+    }
+    repaintMainWindowSeparatorsNow(window, splitter);
+    QTimer::singleShot(0, window, [winPtr = QPointer<QMainWindow>(window),
+                                    splitPtr = QPointer<QSplitter>(splitter)]() {
+        repaintMainWindowSeparatorsNow(winPtr.data(), splitPtr.data());
+    });
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -400,59 +579,177 @@ MainWindow::MainWindow(QWidget* parent)
         m_lastDarkPlaneTheme = m_viewport->renderQualitySettings().planeTheme;
     }
 
-    setupMenus();
-    setupToolbars();
-    setupDocks();
-    setupStatusBar();
-    retranslateUi();
-    syncRenderSettingsMenuState();
-    applyTheme();
+    m_autoSaveTimer = new QTimer(this);
+    m_autoSaveTimer->setSingleShot(true);
+    m_autoSaveTimer->setInterval(350);
+    connect(m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::flushRecoverySnapshotIfDirty);
 
-    m_windowManager->registerDockWidget(m_inspectorDock);
-    m_windowManager->registerDockWidget(m_resultsDock);
-
-    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this](UiTheme) {
+    {
+        const ScopedBoolFlag startupGuard(m_rebuildingOrLoadingResultsSettings);
+        const ScopedBoolFlag initialModelGuard(m_loadingOrTemplateModel);
+        initDefaultResultsLayoutAssignments();
+        setupMenus();
+        setupToolbars();
+        setupDocks();
+        setupStatusBar();
+        syncResultsLayoutsMenuState();
+        retranslateUi();
+        syncRenderSettingsMenuState();
         applyTheme();
-    });
 
-    // Conexões de sinais do Viewport
-    connect(m_viewport, &Viewport3D::cursorCoordinatesChanged, this, &MainWindow::updateCursorCoordinates);
-    connect(m_viewport, &Viewport3D::selectionChanged, this, &MainWindow::onSelectionChanged);
-    connect(m_viewport, &Viewport3D::modelModified, this, &MainWindow::onModelModified);
-    connect(m_viewport, &Viewport3D::statusMessage, this, &MainWindow::showStatusMessage);
+        loadResultsPanelSettings();
 
-    // Carrega o Exemplo 1 (Pórtico Espacial de Edifício) por padrão conforme diretriz do Master Prompt
-    loadExampleBuilding();
+        m_windowManager->registerDockWidget(m_inspectorDock);
+        m_windowManager->registerDockWidget(m_resultsDock);
+
+        connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this](UiTheme) {
+            applyTheme();
+        });
+        connect(&ThemeManager::instance(), &ThemeManager::uiStyleModeChanged, this, [this](UiStyleMode) {
+            applyTheme();
+        });
+
+        // Conexões de sinais do Viewport
+        connect(m_viewport, &Viewport3D::cursorCoordinatesChanged, this, &MainWindow::updateCursorCoordinates);
+        connect(m_viewport, &Viewport3D::selectionChanged, this, &MainWindow::onSelectionChanged);
+        connect(m_viewport, &Viewport3D::modelModified, this, &MainWindow::onModelModified);
+        connect(m_viewport, &Viewport3D::statusMessage, this, &MainWindow::showStatusMessage);
+
+        // Inicializa completamente vazio, sem projeto ou exemplo carregado na viewport ou área de plotagem
+        m_hasSolvedContext = false;
+        m_lastSolverResult = SolverResult();
+        m_model.clearUndoHistory();
+        m_model.pushUndo();
+        refreshAfterModelLoad(false, false);
+    }
+    const bool loadedPrefs = loadUserPreferences();
+    const bool hasAllSections = io::UserPreferencesStore::hasAllSections({
+        QStringLiteral("app"),
+        QStringLiteral("graphics"),
+        QStringLiteral("window"),
+        QStringLiteral("workspace"),
+        QStringLiteral("resultsPanel")});
+    if (!loadedPrefs || !hasAllSections) {
+        saveUserPreferences();
+    }
+    if (!io::AppLogger::isInitialized()) {
+        io::AppLogger::initialize(false, true);
+    }
+    io::AppLogger::info(
+        QStringLiteral("MainWindow"),
+        QStringLiteral("Janela principal inicializada vazia | startupBehavior=%1 | confirmUnsavedOnClose=%2")
+            .arg(io::startupSessionBehaviorToKey(m_startupSessionBehavior),
+                 m_confirmUnsavedOnClose ? QStringLiteral("true") : QStringLiteral("false")));
+    if (m_viewport) {
+        m_viewport->clearElementDcrMap();
+        m_viewport->clearPostAnimation();
+        m_viewport->fitAll();
+    }
+    updateWindowTitleAndFileActions();
+    QTimer::singleShot(0, this, &MainWindow::checkAndOfferStartupRecovery);
 }
 
 MainWindow::~MainWindow() {
+    io::AppLogger::info(QStringLiteral("MainWindow"), QStringLiteral("Encerrando MainWindow e persistindo estado da sessao."));
+    persistCurrentSessionState();
     if (m_activeSolverThread && m_activeSolverThread->isRunning()) {
         m_activeSolverThread->wait(5000);
     }
 }
 
 void MainWindow::applyTheme() {
+    const bool nativeUi = ThemeManager::instance().isNativeUi();
     const bool isLight = ThemeManager::instance().isLight();
     if (m_btnSolve) {
-        if (isLight) {
-            m_btnSolve->setStyleSheet(QStringLiteral(
-                "QPushButton { background-color: #15803d; color: #ffffff; border: 1px solid #166534; font-weight: bold; padding: 5px 12px; border-radius: 3px; font-size: 13px; }"
-                "QPushButton:hover { background-color: #166534; }"
-                "QPushButton:pressed { background-color: #14532d; }"
-            ));
+        if (nativeUi) {
+            if (!m_btnSolve->styleSheet().isEmpty()) {
+                m_btnSolve->setStyleSheet(QString());
+            }
+            QFont solveFont = m_btnSolve->font();
+            solveFont.setBold(true);
+            m_btnSolve->setFont(solveFont);
         } else {
-            m_btnSolve->setStyleSheet(QStringLiteral(
-                "QPushButton { background-color: #2e7d32; color: #ffffff; border: 1px solid #1b5e20; font-weight: bold; padding: 5px 12px; border-radius: 3px; font-size: 13px; }"
-                "QPushButton:hover { background-color: #388e3c; }"
-                "QPushButton:pressed { background-color: #1b5e20; }"
-            ));
+            m_btnSolve->setFont(QFont());
+            m_btnSolve->setAttribute(Qt::WA_SetFont, false);
+            if (isLight) {
+                m_btnSolve->setStyleSheet(QStringLiteral(
+                    "QPushButton { background-color: #15803d; color: #ffffff; border: 1px solid #166534; font-weight: bold; padding: 5px 12px; border-radius: 3px; font-size: 13px; }"
+                    "QPushButton:hover { background-color: #166534; }"
+                    "QPushButton:pressed { background-color: #14532d; }"
+                ));
+            } else {
+                m_btnSolve->setStyleSheet(QStringLiteral(
+                    "QPushButton { background-color: #2e7d32; color: #ffffff; border: 1px solid #1b5e20; font-weight: bold; padding: 5px 12px; border-radius: 3px; font-size: 13px; }"
+                    "QPushButton:hover { background-color: #388e3c; }"
+                    "QPushButton:pressed { background-color: #1b5e20; }"
+                ));
+            }
         }
     }
+
+    const QString customTabScrollerCss = QStringLiteral(
+        "QTabBar::scroller { width: 0px; height: 0px; }\n"
+        "QTabBar QToolButton { width: 0px; height: 0px; min-width: 0px; max-width: 0px;"
+        " min-height: 0px; max-height: 0px; border: none; background: transparent; padding: 0px; margin: 0px; }");
+    for (QTabWidget* tabW : m_resultsLayoutTabWidgets) {
+        if (!tabW) continue;
+        if (nativeUi) {
+            if (!tabW->styleSheet().isEmpty()) {
+                tabW->setStyleSheet(QString());
+            }
+        } else if (tabW->styleSheet() != customTabScrollerCss) {
+            tabW->setStyleSheet(customTabScrollerCss);
+        }
+    }
+
+    if (m_inspectorTitleBar) {
+        m_inspectorTitleBar->syncUiMode();
+        if (m_inspectorCollapsed && m_inspectorDock && !m_inspectorDock->isFloating()) {
+            const int collapsedW = m_inspectorTitleBar->collapsedDockWidth(m_inspectorDock);
+            m_inspectorDock->setMinimumWidth(collapsedW);
+            m_inspectorDock->setMaximumWidth(collapsedW);
+        }
+    }
+    if (m_resultsTitleBar) {
+        m_resultsTitleBar->syncUiMode();
+        if (m_resultsCollapsed && m_resultsDock) {
+            int collapsedH = 0;
+            applyCollapsedHeightClamp(m_resultsDock, m_resultsTitleBar, collapsedH);
+        }
+    }
+
+    if (m_tableConfigurator) {
+        m_tableConfigurator->applyTheme(isLight);
+    }
+    ThemeManager::instance().refreshToolbarExtensionButtons();
     refreshReactionSummaryRowTheme();
     syncThemeMenuState();
+    syncUiStyleMenuState();
+    ThemeManager::instance().applyWindowChrome(this);
+    if (m_tb1) {
+        m_tb1->updateGeometry();
+        m_tb1->update();
+    }
+    if (m_tb2) {
+        m_tb2->updateGeometry();
+        m_tb2->update();
+    }
+    if (m_inspectorContent) {
+        m_inspectorContent->updateGeometry();
+        m_inspectorContent->update();
+    }
+    if (m_resultsDock) {
+        m_resultsDock->updateGeometry();
+        m_resultsDock->update();
+    }
+    if (QLayout* rootLayout = layout()) {
+        rootLayout->invalidate();
+        rootLayout->activate();
+    }
     if (m_viewport) {
         m_viewport->update();
     }
+    update();
 }
 
 void MainWindow::syncThemeMenuState() {
@@ -467,23 +764,52 @@ void MainWindow::syncThemeMenuState() {
     }
 }
 
+void MainWindow::syncUiStyleMenuState() {
+    const bool isNative = ThemeManager::instance().isNativeUi();
+    if (m_actUiStyleNative) {
+        QSignalBlocker b(m_actUiStyleNative);
+        m_actUiStyleNative->setChecked(isNative);
+    }
+    if (m_actUiStyleCustom) {
+        QSignalBlocker b(m_actUiStyleCustom);
+        m_actUiStyleCustom->setChecked(!isNative);
+    }
+}
+
 void MainWindow::refreshReactionSummaryRowTheme() {
-    if (!m_reacTable || m_reacTable->rowCount() <= 0) {
-        return;
-    }
-    const int sumRow = m_reacTable->rowCount() - 1;
-    QTableWidgetItem* itemSum = m_reacTable->item(sumRow, 0);
-    if (!itemSum) {
-        return;
-    }
+    const bool nativeUi = ThemeManager::instance().isNativeUi();
     const bool isLight = ThemeManager::instance().isLight();
     const QColor bg = isLight ? QColor(219, 234, 254) : QColor(43, 108, 176);
     const QColor fg = isLight ? QColor(30, 58, 138) : Qt::white;
-    itemSum->setBackground(bg);
-    itemSum->setForeground(fg);
-    QFont f = itemSum->font();
-    f.setBold(true);
-    itemSum->setFont(f);
+
+    auto styleTableSummary = [&](QTableWidget* tbl) {
+        if (!tbl || tbl->rowCount() <= 0) {
+            return;
+        }
+        const int sumRow = tbl->rowCount() - 1;
+        QTableWidgetItem* itemSum = tbl->item(sumRow, 0);
+        if (!itemSum) {
+            return;
+        }
+        if (nativeUi) {
+            const QPalette pal = QApplication::palette();
+            itemSum->setBackground(pal.brush(QPalette::AlternateBase));
+            itemSum->setForeground(pal.brush(QPalette::WindowText));
+        } else {
+            itemSum->setBackground(bg);
+            itemSum->setForeground(fg);
+        }
+        QFont f = itemSum->font();
+        f.setBold(true);
+        itemSum->setFont(f);
+    };
+
+    styleTableSummary(m_reacTable);
+    for (int L = 0; L < 4; ++L) {
+        if (QTableWidget* clone = m_extraLayoutTables[static_cast<std::size_t>(L)][1]) {
+            styleTableSummary(clone);
+        }
+    }
 }
 
 void MainWindow::setupMenus() {
@@ -491,7 +817,9 @@ void MainWindow::setupMenus() {
     m_fileMenu = menuBar()->addMenu("&Arquivo");
     m_actNewProject = m_fileMenu->addAction("Novo Projeto", QKeySequence::New, this, &MainWindow::onNewProject);
     m_actOpenProject = m_fileMenu->addAction("Abrir (.omniframe)...", QKeySequence::Open, this, &MainWindow::onOpenProject);
-    m_actSaveProject = m_fileMenu->addAction("Salvar (.omniframe)...", QKeySequence::Save, this, &MainWindow::onSaveProject);
+    m_actSaveProject = m_fileMenu->addAction("Salvar (.omniframe)", QKeySequence::Save, this, &MainWindow::onSaveProject);
+    m_actSaveProjectAs = m_fileMenu->addAction("Salvar Como (.omniframe)...", QKeySequence::SaveAs, this, &MainWindow::onSaveProjectAs);
+    m_actRecoverSession = m_fileMenu->addAction("Recuperar Sessão Anterior...", this, &MainWindow::onRecoverSession);
     m_fileMenu->addSeparator();
     m_actImportDxf = m_fileMenu->addAction("Importar DXF...", this, &MainWindow::onImportDxf);
     m_actExportDxf = m_fileMenu->addAction("Exportar DXF...", this, &MainWindow::onExportDxf);
@@ -502,7 +830,7 @@ void MainWindow::setupMenus() {
     m_actExportHtml = m_fileMenu->addAction("Exportar Relatório Técnico (HTML)...", this, &MainWindow::onExportHtmlReport);
     m_actExportMd = m_fileMenu->addAction("Exportar Relatório Técnico (Markdown)...", this, &MainWindow::onExportMarkdownReport);
     m_fileMenu->addSeparator();
-    m_actQuit = m_fileMenu->addAction("Sair", QKeySequence::Quit, this, &QWidget::close);
+    m_actQuit = m_fileMenu->addAction("Sair", QKeySequence(Qt::CTRL | Qt::Key_Q), this, &MainWindow::onRequestQuit);
 
     // Menu Editar
     m_editMenu = menuBar()->addMenu("&Editar");
@@ -712,6 +1040,131 @@ void MainWindow::setupMenus() {
     m_actRestoreRenderDefaults = m_settingsMenu->addAction("Restaurar Padrões de Máxima Qualidade",
                                                            this, &MainWindow::onRestoreDefaultRenderSettings);
 
+    // Submenu Layouts do Painel de Tabelas de Resultados (Configurações > Layouts...)
+    m_settingsMenu->addSeparator();
+    m_resultsLayoutsMenu = m_settingsMenu->addMenu("Layouts do Painel de Tabelas de Resultados");
+    m_resultsLayoutsMenu->setObjectName(QStringLiteral("resultsLayoutsMenu"));
+    m_resultsLayoutCountGroup = new QActionGroup(this);
+    m_resultsLayoutCountGroup->setExclusive(true);
+
+    const char* countLabels[4] = {
+        "1 Layout (Todas as Tabelas)",
+        "2 Layouts",
+        "3 Layouts",
+        "4 Layouts"
+    };
+    for (int i = 0; i < 4; ++i) {
+        QAction* actCount = m_resultsLayoutsMenu->addAction(countLabels[i]);
+        actCount->setCheckable(true);
+        m_resultsLayoutCountGroup->addAction(actCount);
+        m_actResultsLayoutCount[static_cast<std::size_t>(i)] = actCount;
+        connect(actCount, &QAction::triggered, this, [this, layoutCnt = i + 1]() {
+            setResultsLayoutCount(layoutCnt);
+        });
+    }
+
+    m_resultsLayoutsMenu->addSeparator();
+    const char* layoutMenuTitles[4] = {
+        "Tabelas do 1º Layout",
+        "Tabelas do 2º Layout",
+        "Tabelas do 3º Layout",
+        "Tabelas do 4º Layout"
+    };
+    for (int L = 0; L < 4; ++L) {
+        auto* subMenu = new PersistentLayoutTableMenu(layoutMenuTitles[L], m_resultsLayoutsMenu);
+        m_resultsLayoutsMenu->addMenu(subMenu);
+        m_resultsLayoutConfigMenus[static_cast<std::size_t>(L)] = subMenu;
+
+        for (int k = 0; k < 4; ++k) {
+            const auto kind = static_cast<ui::ResultTableKind>(k);
+            QAction* actTbl = subMenu->addAction(resultTableTabTitle(kind));
+            actTbl->setCheckable(true);
+            m_actResultsLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)] = actTbl;
+            connect(actTbl, &QAction::toggled, this, [this, L, kind](bool checked) {
+                setResultsLayoutTableVisible(L, kind, checked);
+            });
+        }
+        subMenu->addSeparator();
+        QAction* actAll = subMenu->addAction("Selecionar Todas as Tabelas");
+        m_actResultsLayoutSelectAll[static_cast<std::size_t>(L)] = actAll;
+        connect(actAll, &QAction::triggered, this, [this, L]() {
+            for (int k = 0; k < 4; ++k) {
+                m_resultsModeTableAssign[static_cast<std::size_t>(m_resultsLayoutCount - 1)]
+                                        [static_cast<std::size_t>(L)]
+                                        [static_cast<std::size_t>(k)] = true;
+            }
+            rebuildResultsLayoutsUi();
+            syncResultsLayoutsMenuState();
+            if (!m_rebuildingOrLoadingResultsSettings) {
+                saveUserPreferences();
+            }
+        });
+    }
+
+    m_resultsLayoutsMenu->addSeparator();
+    m_actResetResultsLayouts = m_resultsLayoutsMenu->addAction(
+        "Restaurar Layouts Padrão", this, &MainWindow::resetResultsLayoutsToDefault);
+
+    // Submenu Persistência de Configurações e Preferências
+    m_settingsMenu->addSeparator();
+    m_preferencesPersistenceMenu = m_settingsMenu->addMenu("Persistência de Configurações e Preferências");
+    m_preferencesPersistenceMenu->setObjectName(QStringLiteral("preferencesPersistenceMenu"));
+    m_actSaveAllPreferences = m_preferencesPersistenceMenu->addAction(
+        "Salvar Todas as Configurações Agora", this, &MainWindow::onSaveAllSettingsNow);
+    m_actReloadSavedPreferences = m_preferencesPersistenceMenu->addAction(
+        "Recarregar Configurações Salvas", this, &MainWindow::onReloadSavedSettings);
+    m_preferencesPersistenceMenu->addSeparator();
+    m_actRestoreAllDefaults = m_preferencesPersistenceMenu->addAction(
+        "Restaurar Todas as Configurações Padrão", this, &MainWindow::onRestoreAllDefaultSettings);
+
+    // Submenu Sessão, Inicialização e Logs dentro de Configurações
+    m_startupSessionMenu = m_settingsMenu->addMenu("Sessão, Inicialização e Logs");
+    m_startupSessionMenu->setObjectName(QStringLiteral("startupSessionMenu"));
+    m_startupBehaviorGroup = new QActionGroup(this);
+    m_startupBehaviorGroup->setExclusive(true);
+
+    m_actStartupAsk = m_startupSessionMenu->addAction("Perguntar ao iniciar (Exibir diálogo)");
+    m_actStartupAsk->setObjectName(QStringLiteral("actStartupAsk"));
+    m_actStartupAsk->setCheckable(true);
+    m_startupBehaviorGroup->addAction(m_actStartupAsk);
+    connect(m_actStartupAsk, &QAction::triggered, this, [this]() {
+        onChangeStartupSessionBehavior(io::StartupSessionBehavior::AskOnStartup);
+    });
+
+    m_actStartupAutoLoad = m_startupSessionMenu->addAction("Carregar automaticamente projeto ou exemplo anterior");
+    m_actStartupAutoLoad->setObjectName(QStringLiteral("actStartupAutoLoad"));
+    m_actStartupAutoLoad->setCheckable(true);
+    m_startupBehaviorGroup->addAction(m_actStartupAutoLoad);
+    connect(m_actStartupAutoLoad, &QAction::triggered, this, [this]() {
+        onChangeStartupSessionBehavior(io::StartupSessionBehavior::AutoLoadPrevious);
+    });
+
+    m_actStartupNewProject = m_startupSessionMenu->addAction("Sempre iniciar um novo projeto (Vazio)");
+    m_actStartupNewProject->setObjectName(QStringLiteral("actStartupNewProject"));
+    m_actStartupNewProject->setCheckable(true);
+    m_startupBehaviorGroup->addAction(m_actStartupNewProject);
+    connect(m_actStartupNewProject, &QAction::triggered, this, [this]() {
+        onChangeStartupSessionBehavior(io::StartupSessionBehavior::AlwaysStartNew);
+    });
+
+    m_startupSessionMenu->addSeparator();
+    m_actConfirmUnsavedOnClose = m_startupSessionMenu->addAction("Exibir confirmação de alterações não salvas ao sair");
+    m_actConfirmUnsavedOnClose->setObjectName(QStringLiteral("actConfirmUnsavedOnClose"));
+    m_actConfirmUnsavedOnClose->setCheckable(true);
+    m_actConfirmUnsavedOnClose->setChecked(m_confirmUnsavedOnClose);
+    connect(m_actConfirmUnsavedOnClose, &QAction::toggled, this, &MainWindow::onToggleConfirmUnsavedOnClose);
+
+    m_startupSessionMenu->addSeparator();
+    m_actOpenStartupSessionDialog = m_startupSessionMenu->addAction(
+        "Configurar Inicialização, Sessão e Logs...",
+        this, &MainWindow::onOpenStartupSessionDialog);
+    m_actOpenStartupSessionDialog->setObjectName(QStringLiteral("actOpenStartupSessionDialog"));
+    m_actOpenLogDirectory = m_startupSessionMenu->addAction(
+        "Abrir Pasta de Logs...",
+        this, &MainWindow::onOpenLogDirectory);
+    m_actOpenLogDirectory->setObjectName(QStringLiteral("actOpenLogDirectory"));
+    syncStartupSessionMenuState();
+
     // Submenu Tema dentro de Configurações (Configurações > Tema)
     m_settingsMenu->addSeparator();
     m_themeMenu = m_settingsMenu->addMenu("&Tema");
@@ -726,6 +1179,23 @@ void MainWindow::setupMenus() {
     connect(m_actGuiThemeDark, &QAction::triggered, this, [this]() { onChangeGuiTheme(UiTheme::Dark); });
     connect(m_actGuiThemeLight, &QAction::triggered, this, [this]() { onChangeGuiTheme(UiTheme::Light); });
     syncThemeMenuState();
+
+    // Submenu Interface do Usuário dentro de Configurações (Configurações > Interface do Usuário)
+    m_uiStyleMenu = m_settingsMenu->addMenu("Interface do Usuário");
+    m_uiStyleMenu->setObjectName(QStringLiteral("uiStyleMenu"));
+    m_uiStyleActionGroup = new QActionGroup(this);
+    m_uiStyleActionGroup->setExclusive(true);
+    m_actUiStyleNative = m_uiStyleMenu->addAction("Nativo");
+    m_actUiStyleNative->setObjectName(QStringLiteral("actUiStyleNative"));
+    m_actUiStyleNative->setCheckable(true);
+    m_uiStyleActionGroup->addAction(m_actUiStyleNative);
+    m_actUiStyleCustom = m_uiStyleMenu->addAction("Customizado");
+    m_actUiStyleCustom->setObjectName(QStringLiteral("actUiStyleCustom"));
+    m_actUiStyleCustom->setCheckable(true);
+    m_uiStyleActionGroup->addAction(m_actUiStyleCustom);
+    connect(m_actUiStyleNative, &QAction::triggered, this, [this]() { onChangeUiStyleMode(UiStyleMode::Native); });
+    connect(m_actUiStyleCustom, &QAction::triggered, this, [this]() { onChangeUiStyleMode(UiStyleMode::Custom); });
+    syncUiStyleMenuState();
 
     // Submenu Idioma dentro de Configurações (Configurações > Idioma)
     m_langMenu = m_settingsMenu->addMenu("&Idioma");
@@ -929,6 +1399,9 @@ void MainWindow::setupToolbars() {
     m_scaleSlider->setMaximumWidth(120);
     connect(m_scaleSlider, &QSlider::valueChanged, this, &MainWindow::onDiagramScaleChanged);
     m_tb2->addWidget(m_scaleSlider);
+
+    ThemeManager::instance().refreshToolbarExtensionButtons();
+    updateToolbarExtensionToolTips(m_tb1, m_tb2);
 }
 
 void MainWindow::setupDocks() {
@@ -948,6 +1421,14 @@ void MainWindow::setupDocks() {
     m_quickXSpin = new QDoubleSpinBox(); m_quickXSpin->setRange(-1000.0, 1000.0); m_quickXSpin->setDecimals(2); m_quickXSpin->setSuffix(" m");
     m_quickYSpin = new QDoubleSpinBox(); m_quickYSpin->setRange(-1000.0, 1000.0); m_quickYSpin->setDecimals(2); m_quickYSpin->setSuffix(" m");
     m_quickZSpin = new QDoubleSpinBox(); m_quickZSpin->setRange(-1000.0, 1000.0); m_quickZSpin->setDecimals(2); m_quickZSpin->setSuffix(" m");
+    auto onQuickCoordChanged = [this](double) {
+        if (!m_rebuildingOrLoadingResultsSettings) {
+            saveUserPreferences();
+        }
+    };
+    connect(m_quickXSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, onQuickCoordChanged);
+    connect(m_quickYSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, onQuickCoordChanged);
+    connect(m_quickZSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, onQuickCoordChanged);
 
     entryLayout->addRow("X:", m_quickXSpin);
     entryLayout->addRow("Y:", m_quickYSpin);
@@ -992,50 +1473,127 @@ void MainWindow::setupDocks() {
     m_resultsDock = new QDockWidget(locale::GerenciadorTraducao::trText("Tabelas de Resultados e Diagnóstico Estrutural"), this);
     m_resultsDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
 
-    m_resultsTabs = new QTabWidget();
+    m_resultsSplitter = new QSplitter(Qt::Horizontal, m_resultsDock);
+    m_resultsSplitter->setObjectName(QStringLiteral("resultsSplitter"));
+    m_resultsSplitter->setChildrenCollapsible(false);
+    connect(m_resultsSplitter, &QSplitter::splitterMoved, this, [this](int, int) {
+        if (m_rebuildingOrLoadingResultsSettings || m_resultsSplitter == nullptr) {
+            return;
+        }
+        const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+        const QList<int> sz = m_resultsSplitter->sizes();
+        if (sz.size() == m_resultsLayoutCount) {
+            int total = 0;
+            for (int s : sz) {
+                total += s;
+            }
+            if (total > 0) {
+                m_resultsSplitterSizesByMode[static_cast<std::size_t>(modeIdx)] = sz;
+            }
+        }
+        saveUserPreferences();
+    });
+
+    m_hiddenTablesHost = new QWidget(this);
+    m_hiddenTablesHost->hide();
+
+    for (int i = 0; i < 4; ++i) {
+        auto* tabW = new QTabWidget(m_hiddenTablesHost);
+        tabW->setObjectName(QStringLiteral("resultsLayoutTabs_%1").arg(i));
+        tabW->setUsesScrollButtons(false);
+        tabW->setElideMode(Qt::ElideRight);
+        if (QTabBar* tb = tabW->tabBar()) {
+            tb->setUsesScrollButtons(false);
+            tb->setElideMode(Qt::ElideRight);
+            tb->setExpanding(false);
+            for (QToolButton* btn : tb->findChildren<QToolButton*>()) {
+                btn->hide();
+                btn->setEnabled(false);
+                btn->setFixedSize(0, 0);
+            }
+        }
+        tabW->setStyleSheet(QStringLiteral(
+            "QTabBar::scroller { width: 0px; height: 0px; }\n"
+            "QTabBar QToolButton { width: 0px; height: 0px; min-width: 0px; max-width: 0px;"
+            " min-height: 0px; max-height: 0px; border: none; background: transparent; padding: 0px; margin: 0px; }"));
+        connect(tabW, &QTabWidget::currentChanged, this, [this, i](int idx) {
+            if (m_rebuildingOrLoadingResultsSettings || i >= m_resultsLayoutCount || idx < 0) {
+                return;
+            }
+            const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+            m_resultsActiveTabByMode[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(i)] = idx;
+            saveUserPreferences();
+        });
+        m_resultsLayoutTabWidgets[static_cast<std::size_t>(i)] = tabW;
+    }
+    m_resultsTabs = m_resultsLayoutTabWidgets[0];
+
+    m_tableConfigurator = new ui::ResultTableConfigurator(m_windowManager, this);
+    connect(m_tableConfigurator, &ui::ResultTableConfigurator::nodeDoubleClicked, this, [this](unsigned int nodeId) {
+        m_model.selectNode(nodeId, true);
+        onSelectionChanged();
+        if (m_viewport) {
+            m_viewport->update();
+        }
+    });
+    connect(m_tableConfigurator, &ui::ResultTableConfigurator::elementDoubleClicked, this, [this](unsigned int elementId) {
+        m_model.selectElement(elementId, true);
+        onSelectionChanged();
+        if (m_viewport) {
+            m_viewport->update();
+        }
+    });
+    connect(m_tableConfigurator, &ui::ResultTableConfigurator::statusMessageRequested, this, [this](const QString& msg, int) {
+        showStatusMessage(msg);
+    });
+    connect(m_tableConfigurator, &ui::ResultTableConfigurator::configurationChanged, this, [this](QTableWidget*) {
+        if (!m_rebuildingOrLoadingResultsSettings) {
+            saveUserPreferences();
+        }
+    });
+
+    const bool isLight = ThemeManager::instance().isLight();
 
     // Aba 1: Deslocamentos Nodais
-    m_dispTable = new QTableWidget();
-    m_dispTable->setColumnCount(7);
-    m_dispTable->setHorizontalHeaderLabels({locale::GerenciadorTraducao::trText("Nó"), "uX (mm)", "uY (mm)", "uZ (mm)", "θX (mrad)", "θY (mrad)", "θZ (mrad)"});
-    m_dispTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_dispTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_resultsTabs->addTab(m_dispTable, locale::GerenciadorTraducao::trText("Deslocamentos Nodais"));
+    m_dispTable = new QTableWidget(m_hiddenTablesHost);
+    m_dispTable->setObjectName(QStringLiteral("dispTable"));
+    m_tableConfigurator->configureTable(
+        m_dispTable,
+        ui::ResultTableKind::Displacements,
+        resultTableHeaders(ui::ResultTableKind::Displacements),
+        isLight);
 
     // Aba 2: Reações de Apoio
-    m_reacTable = new QTableWidget();
-    m_reacTable->setColumnCount(7);
-    m_reacTable->setHorizontalHeaderLabels({locale::GerenciadorTraducao::trText("Nó"), "Rx (kN)", "Ry (kN)", "Rz (kN)", "Mx (kNm)", "My (kNm)", "Mz (kNm)"});
-    m_reacTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_reacTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_resultsTabs->addTab(m_reacTable, locale::GerenciadorTraducao::trText("Reações de Apoio"));
+    m_reacTable = new QTableWidget(m_hiddenTablesHost);
+    m_reacTable->setObjectName(QStringLiteral("reacTable"));
+    m_tableConfigurator->configureTable(
+        m_reacTable,
+        ui::ResultTableKind::Reactions,
+        resultTableHeaders(ui::ResultTableKind::Reactions),
+        isLight);
 
     // Aba 3: Esforços nas Barras
-    m_forcesTable = new QTableWidget();
-    m_forcesTable->setColumnCount(8);
-    m_forcesTable->setHorizontalHeaderLabels({locale::GerenciadorTraducao::trText("Barra"), "N min/max (kN)", "Vy min/max (kN)", "Vz min/max (kN)", "Tx min/max (kNm)", "My min/max (kNm)", "Mz min/max (kNm)", locale::GerenciadorTraducao::trText("Flecha (mm)")});
-    m_forcesTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_forcesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_resultsTabs->addTab(m_forcesTable, locale::GerenciadorTraducao::trText("Esforços nas Barras"));
+    m_forcesTable = new QTableWidget(m_hiddenTablesHost);
+    m_forcesTable->setObjectName(QStringLiteral("forcesTable"));
+    m_tableConfigurator->configureTable(
+        m_forcesTable,
+        ui::ResultTableKind::BarForces,
+        resultTableHeaders(ui::ResultTableKind::BarForces),
+        isLight);
 
     // Aba 4: Esforços e Tensões 2D/3D (Casca/Sólido)
-    m_continuumTable = new QTableWidget();
-    m_continuumTable->setColumnCount(8);
-    m_continuumTable->setHorizontalHeaderLabels({
-        locale::GerenciadorTraducao::trText("Elemento"),
-        locale::GerenciadorTraducao::trText("Tipo"),
-        QStringLiteral("σ_vM (kPa)"),
-        QStringLiteral("σ_1 (kPa)"),
-        QStringLiteral("σ_3 (kPa)"),
-        QStringLiteral("Nxx / σxx"),
-        QStringLiteral("Nyy / σyy"),
-        QStringLiteral("Mxx / τxz")
-    });
-    m_continuumTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_continuumTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_resultsTabs->addTab(m_continuumTable, locale::GerenciadorTraducao::trText("Esforços 2D/3D (Casca/Sólido)"));
+    m_continuumTable = new QTableWidget(m_hiddenTablesHost);
+    m_continuumTable->setObjectName(QStringLiteral("continuumTable"));
+    m_tableConfigurator->configureTable(
+        m_continuumTable,
+        ui::ResultTableKind::ContinuumStress,
+        resultTableHeaders(ui::ResultTableKind::ContinuumStress),
+        isLight);
 
-    m_resultsDock->setWidget(createDockContentHost(m_resultsTabs, m_resultsDock));
+    rebuildResultsLayoutsUi();
+    m_resultsSplitter->setSizes({1000});
+
+    m_resultsDock->setWidget(createDockContentHost(m_resultsSplitter, m_resultsDock));
     addDockWidget(Qt::BottomDockWidgetArea, m_resultsDock);
     m_resultsTitleBar = attachCollapsibleTitleBar(
         this,
@@ -1069,6 +1627,7 @@ void MainWindow::applyInspectorCollapsedState() {
     m_inspectorDock->setMaximumWidth(collapsedW);
     m_inspectorDock->updateGeometry();
     resizeDocks({m_inspectorDock}, {collapsedW}, Qt::Horizontal);
+    scheduleDockSeparatorRepaint(this, m_resultsSplitter);
 }
 
 void MainWindow::setInspectorDockCollapsed(bool collapsed) {
@@ -1090,14 +1649,19 @@ void MainWindow::setInspectorDockCollapsed(bool collapsed) {
             }
         }
         applyInspectorCollapsedState();
+        if (!m_rebuildingOrLoadingResultsSettings) {
+            saveUserPreferences();
+        }
         return;
     }
 
     m_inspectorTitleBar->setVertical(false);
     m_inspectorDock->setFeatures(m_inspectorDock->features() & ~QDockWidget::DockWidgetVerticalTitleBar);
+    // Restaura primeiro os limites máximos do host interno antes de aplicar minWidth(320) no dock,
+    // evitando que QDockWidgetLayout trave maximumWidth()==320 e oculte a barra vertical de arraste.
+    setDockHostCollapsed(m_inspectorDock, m_inspectorScroll, DockCollapseAxis::Horizontal, false);
     clearCollapsedDockBounds(m_inspectorDock);
     m_inspectorDock->setMinimumWidth(320);
-    setDockHostCollapsed(m_inspectorDock, m_inspectorScroll, DockCollapseAxis::Horizontal, false);
     m_inspectorDock->updateGeometry();
 
     if (m_inspectorDock->isFloating()) {
@@ -1105,10 +1669,15 @@ void MainWindow::setInspectorDockCollapsed(bool collapsed) {
     } else {
         resizeDocks({m_inspectorDock}, {qMax(320, m_inspectorSavedWidth)}, Qt::Horizontal);
     }
+    m_inspectorDock->setMaximumWidth(QWIDGETSIZE_MAX);
+    scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::setResultsDockCollapsed(bool collapsed) {
-    if (!m_resultsDock || !m_resultsTabs || !m_resultsTitleBar || m_resultsCollapsed == collapsed) {
+    if (!m_resultsDock || !m_resultsSplitter || !m_resultsTitleBar || m_resultsCollapsed == collapsed) {
         return;
     }
 
@@ -1125,7 +1694,7 @@ void MainWindow::setResultsDockCollapsed(bool collapsed) {
             }
         }
 
-        setDockHostCollapsed(m_resultsDock, m_resultsTabs, DockCollapseAxis::Vertical, true);
+        setDockHostCollapsed(m_resultsDock, m_resultsSplitter, DockCollapseAxis::Vertical, true);
         int collapsedH = 0;
         applyCollapsedHeightClamp(m_resultsDock, m_resultsTitleBar, collapsedH);
 
@@ -1134,11 +1703,20 @@ void MainWindow::setResultsDockCollapsed(bool collapsed) {
         } else {
             resizeDocks({m_resultsDock}, {collapsedH}, Qt::Vertical);
         }
+        scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+        if (!m_rebuildingOrLoadingResultsSettings) {
+            saveUserPreferences();
+        }
         return;
     }
 
+    setDockHostCollapsed(m_resultsDock, m_resultsSplitter, DockCollapseAxis::Vertical, false);
     clearCollapsedDockBounds(m_resultsDock);
-    setDockHostCollapsed(m_resultsDock, m_resultsTabs, DockCollapseAxis::Vertical, false);
+    for (int i = 0; i < 4; ++i) {
+        if (m_resultsLayoutTabWidgets[static_cast<std::size_t>(i)]) {
+            m_resultsLayoutTabWidgets[static_cast<std::size_t>(i)]->setVisible(i < m_resultsLayoutCount);
+        }
+    }
     m_resultsDock->updateGeometry();
 
     if (m_resultsDock->isFloating()) {
@@ -1146,11 +1724,17 @@ void MainWindow::setResultsDockCollapsed(bool collapsed) {
     } else {
         resizeDocks({m_resultsDock}, {qMax(140, m_resultsSavedDockedHeight)}, Qt::Vertical);
     }
+    m_resultsDock->setMaximumHeight(QWIDGETSIZE_MAX);
+    scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::handleInspectorDockTopLevelChanged(bool floating) {
     Q_UNUSED(floating);
     if (m_updatingDockCollapse || !m_inspectorCollapsed || !m_inspectorDock || !m_inspectorTitleBar) {
+        scheduleDockSeparatorRepaint(this, m_resultsSplitter);
         return;
     }
 
@@ -1160,6 +1744,7 @@ void MainWindow::handleInspectorDockTopLevelChanged(bool floating) {
 
 void MainWindow::handleResultsDockTopLevelChanged(bool floating) {
     if (m_updatingDockCollapse || !m_resultsCollapsed || !m_resultsDock || !m_resultsTitleBar) {
+        scheduleDockSeparatorRepaint(this, m_resultsSplitter);
         return;
     }
 
@@ -1172,6 +1757,7 @@ void MainWindow::handleResultsDockTopLevelChanged(bool floating) {
     } else {
         resizeDocks({m_resultsDock}, {collapsedH}, Qt::Vertical);
     }
+    scheduleDockSeparatorRepaint(this, m_resultsSplitter);
 }
 
 void MainWindow::setupStatusBar() {
@@ -1212,43 +1798,46 @@ void MainWindow::applyDefaultExampleWorkPlane() {
 }
 
 // Exemplos Prontos
-void MainWindow::loadExampleBuilding() {
-    m_hasSolvedContext = false;
-    m_model = StructuralModel::createBuildingFrameExample();
+void MainWindow::loadPredefinedExample(io::SessionSourceKind kind,
+                                       StructuralModel model,
+                                       const QString& statusMsg) {
+    m_currentProjectFilePath.clear();
+    m_sessionSourceKind = kind;
+    m_model = std::move(model);
     applyDefaultExampleWorkPlane();
-    m_viewport->setModel(&m_model);
-    onModelModified();
-    m_viewport->fitAll();
+    refreshAfterModelLoad(false, true);
     onSolveStructure();
-    showStatusMessage(locale::GerenciadorTraducao::trText("Exemplo 1 carregado: Pórtico Espacial de Edifício (2 Pavimentos)."));
+    persistCurrentSessionState();
+    updateWindowTitleAndFileActions();
+    showStatusMessage(statusMsg);
+}
+
+void MainWindow::loadExampleBuilding() {
+    loadPredefinedExample(
+        io::SessionSourceKind::ExampleBuilding,
+        StructuralModel::createBuildingFrameExample(),
+        locale::GerenciadorTraducao::trText("Exemplo 1 carregado: Pórtico Espacial de Edifício (2 Pavimentos)."));
 }
 
 void MainWindow::loadExampleCantilever() {
-    m_hasSolvedContext = false;
-    m_model = StructuralModel::createCantileverLFrameExample();
-    applyDefaultExampleWorkPlane();
-    m_viewport->setModel(&m_model);
-    onModelModified();
-    m_viewport->fitAll();
-    onSolveStructure();
-    showStatusMessage(locale::GerenciadorTraducao::trText("Exemplo 2 carregado: Balanço Espacial em L com Flexo-Torção."));
+    loadPredefinedExample(
+        io::SessionSourceKind::ExampleCantilever,
+        StructuralModel::createCantileverLFrameExample(),
+        locale::GerenciadorTraducao::trText("Exemplo 2 carregado: Balanço Espacial em L com Flexo-Torção."));
 }
 
 void MainWindow::loadExampleSpaceTruss() {
-    m_hasSolvedContext = false;
-    m_model = StructuralModel::createSpaceTrussExample();
-    applyDefaultExampleWorkPlane();
-    m_viewport->setModel(&m_model);
-    onModelModified();
-    m_viewport->fitAll();
-    onSolveStructure();
-    showStatusMessage(locale::GerenciadorTraducao::trText("Exemplo 3 carregado: Passarela Treliçada Espacial 3D."));
+    loadPredefinedExample(
+        io::SessionSourceKind::ExampleSpaceTruss,
+        StructuralModel::createSpaceTrussExample(),
+        locale::GerenciadorTraducao::trText("Exemplo 3 carregado: Passarela Treliçada Espacial 3D."));
 }
 
 bool MainWindow::openProjectFileFromCommandLine(const QString& filePath) {
     if (filePath.trimmed().isEmpty()) {
         return false;
     }
+    m_openedFromCli = true;
     const QString lower = filePath.toLower();
     if (lower.endsWith(QStringLiteral(".dxf"))) {
         StructuralModel importedModel;
@@ -1262,11 +1851,10 @@ bool MainWindow::openProjectFileFromCommandLine(const QString& filePath) {
         if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
             importedModel.surfaceMesh() = std::move(importedMesh);
         }
-        m_hasSolvedContext = false;
+        m_currentProjectFilePath.clear();
+        m_sessionSourceKind = io::SessionSourceKind::UnsavedUntitled;
         m_model = std::move(importedModel);
-        m_viewport->setModel(&m_model);
-        onModelModified();
-        m_viewport->fitAll();
+        refreshAfterModelLoad(true, true);
         showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(filePath));
         return true;
     }
@@ -1282,11 +1870,10 @@ bool MainWindow::openProjectFileFromCommandLine(const QString& filePath) {
         if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
             importedModel.surfaceMesh() = std::move(importedMesh);
         }
-        m_hasSolvedContext = false;
+        m_currentProjectFilePath.clear();
+        m_sessionSourceKind = io::SessionSourceKind::UnsavedUntitled;
         m_model = std::move(importedModel);
-        m_viewport->setModel(&m_model);
-        onModelModified();
-        m_viewport->fitAll();
+        refreshAfterModelLoad(true, true);
         showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(filePath));
         return true;
     }
@@ -1296,14 +1883,337 @@ bool MainWindow::openProjectFileFromCommandLine(const QString& filePath) {
         showStatusMessage(locale::GerenciadorTraducao::trText("Não foi possível carregar o arquivo especificado."));
         return false;
     }
-    m_hasSolvedContext = false;
     m_model = std::move(loadedModel);
-    m_viewport->setModel(&m_model);
-    m_lastSolverResult = SolverResult();
-    onModelModified();
-    m_viewport->fitAll();
+    m_currentProjectFilePath = filePath;
+    m_sessionSourceKind = io::SessionSourceKind::SavedProject;
+    clearDirtyState(false);
+    refreshAfterModelLoad(false, true);
+    persistCurrentSessionState();
+    updateWindowTitleAndFileActions();
     showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(filePath));
     return true;
+}
+
+void MainWindow::refreshAfterModelLoad(bool markDirty, bool fitViewport) {
+    if (m_recoveryPromptBox) {
+        m_recoveryPromptBtnAccept.clear();
+        m_recoveryPromptBtnReject.clear();
+        m_recoveryPromptBox->close();
+    }
+    {
+        const ScopedBoolFlag loadGuard(m_loadingOrTemplateModel);
+        m_hasSolvedContext = false;
+        m_lastSolverResult = SolverResult();
+        if (m_viewport) {
+            m_viewport->setModel(&m_model);
+            m_viewport->setClipPlane(Viewport3D::ClipAxis::None, 0.0, false);
+        }
+        if (m_postProcessControlDialog) {
+            m_postProcessControlDialog->syncFromViewport();
+        }
+        onModelModified();
+        if (fitViewport && m_viewport) {
+            m_viewport->fitAll();
+        }
+    }
+    if (markDirty) {
+        markProjectDirty();
+    } else {
+        m_hasUnsavedEdits = false;
+        if (m_autoSaveTimer) {
+            m_autoSaveTimer->stop();
+        }
+        updateWindowTitleAndFileActions();
+    }
+}
+
+void MainWindow::markProjectDirty() {
+    m_hasUnsavedEdits = true;
+    if (m_sessionSourceKind == io::SessionSourceKind::Empty) {
+        m_sessionSourceKind = m_currentProjectFilePath.trimmed().isEmpty()
+            ? io::SessionSourceKind::UnsavedUntitled
+            : io::SessionSourceKind::SavedProject;
+    }
+    if (m_autoSaveTimer) {
+        m_autoSaveTimer->start();
+    }
+    updateWindowTitleAndFileActions();
+}
+
+void MainWindow::clearDirtyState(bool clearRecoverySnapshot) {
+    m_hasUnsavedEdits = false;
+    if (m_autoSaveTimer) {
+        m_autoSaveTimer->stop();
+    }
+    if (clearRecoverySnapshot) {
+        io::ProjectRecoveryStore::clearSnapshot();
+    }
+    updateWindowTitleAndFileActions();
+}
+
+void MainWindow::persistCurrentSessionState() {
+    if (m_autoSaveTimer) {
+        m_autoSaveTimer->stop();
+    }
+    if (m_hasUnsavedEdits) {
+        const io::SessionSourceKind effectiveKind =
+            (m_sessionSourceKind == io::SessionSourceKind::Empty)
+                ? (m_currentProjectFilePath.trimmed().isEmpty()
+                       ? io::SessionSourceKind::UnsavedUntitled
+                       : io::SessionSourceKind::SavedProject)
+                : m_sessionSourceKind;
+        io::ProjectRecoveryStore::saveSnapshot(m_model, m_currentProjectFilePath, effectiveKind);
+    } else if (m_sessionSourceKind != io::SessionSourceKind::Empty) {
+        io::ProjectRecoveryStore::saveCleanSessionState(m_model, m_currentProjectFilePath, m_sessionSourceKind);
+    } else {
+        io::ProjectRecoveryStore::clearSnapshot();
+    }
+}
+
+void MainWindow::flushRecoverySnapshotIfDirty() {
+    persistCurrentSessionState();
+    if (m_actRecoverSession) {
+        m_actRecoverSession->setEnabled(io::ProjectRecoveryStore::inspectPreviousSession().available);
+    }
+}
+
+void MainWindow::updateWindowTitleAndFileActions() {
+    const QString baseTitle = locale::GerenciadorTraducao::trText("OmniFrame 3D - Análise Estrutural Espacial");
+    QString title = baseTitle;
+    if (!m_currentProjectFilePath.isEmpty()) {
+        title = QStringLiteral("%1 - %2").arg(QFileInfo(m_currentProjectFilePath).fileName(), baseTitle);
+    }
+    if (m_hasUnsavedEdits) {
+        title += QStringLiteral(" [*]");
+    }
+    setWindowModified(m_hasUnsavedEdits);
+    setWindowTitle(title);
+
+    if (m_actRecoverSession) {
+        m_actRecoverSession->setEnabled(io::ProjectRecoveryStore::inspectPreviousSession().available);
+    }
+}
+
+QString MainWindow::formatRecoveryMessage(const io::ProjectRecoveryInfo& info,
+                                          QString& outAcceptButtonText,
+                                          QString& outRejectButtonText) const {
+    using locale::GerenciadorTraducao;
+    outRejectButtonText = GerenciadorTraducao::trText("Iniciar Novo Projeto");
+
+    auto exampleDisplayName = [](io::SessionSourceKind kind) -> QString {
+        switch (kind) {
+            case io::SessionSourceKind::ExampleBuilding:
+                return GerenciadorTraducao::trText("Exemplo 1: Pórtico Espacial de Edifício");
+            case io::SessionSourceKind::ExampleCantilever:
+                return GerenciadorTraducao::trText("Exemplo 2: Balanço Espacial em L");
+            case io::SessionSourceKind::ExampleSpaceTruss:
+                return GerenciadorTraducao::trText("Exemplo 3: Treliça Espacial / Passarela Metálica 3D");
+            default:
+                return QString();
+        }
+    };
+
+    const QString fileBaseName = !info.projectFilePath.trimmed().isEmpty()
+        ? QFileInfo(info.projectFilePath).fileName()
+        : QString();
+    const bool isExample =
+        info.sourceKind == io::SessionSourceKind::ExampleBuilding ||
+        info.sourceKind == io::SessionSourceKind::ExampleCantilever ||
+        info.sourceKind == io::SessionSourceKind::ExampleSpaceTruss;
+
+    if (isExample) {
+        const QString exName = exampleDisplayName(info.sourceKind);
+        if (info.hasUnsavedChanges) {
+            outAcceptButtonText = GerenciadorTraducao::trText("Carregar Edição Anterior");
+            return GerenciadorTraducao::trText(
+                       "Foi encontrada uma edição não salva da sessão anterior no exemplo \"%1\" (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar a edição anterior ou iniciar um novo projeto?")
+                .arg(exName)
+                .arg(info.nodeCount)
+                .arg(info.elementCount)
+                .arg(info.meshElementCount);
+        }
+        outAcceptButtonText = GerenciadorTraducao::trText("Carregar Exemplo Anterior");
+        return GerenciadorTraducao::trText(
+                   "Na sessão anterior, o exemplo estrutural \"%1\" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar o exemplo anterior ou iniciar um novo projeto?")
+            .arg(exName)
+            .arg(info.nodeCount)
+            .arg(info.elementCount)
+            .arg(info.meshElementCount);
+    }
+
+    const QString projLabel = !fileBaseName.isEmpty()
+        ? fileBaseName
+        : (!info.projectName.trimmed().isEmpty()
+               ? info.projectName.trimmed()
+               : GerenciadorTraducao::trText("Projeto Sem Título"));
+
+    if (info.hasUnsavedChanges) {
+        outAcceptButtonText = GerenciadorTraducao::trText("Carregar Edição Anterior");
+        return GerenciadorTraducao::trText(
+                   "Foi encontrada uma edição não salva da sessão anterior no projeto \"%1\" (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar a edição anterior ou iniciar um novo projeto?")
+            .arg(projLabel)
+            .arg(info.nodeCount)
+            .arg(info.elementCount)
+            .arg(info.meshElementCount);
+    }
+
+    outAcceptButtonText = GerenciadorTraducao::trText("Carregar Projeto Anterior");
+    return GerenciadorTraducao::trText(
+               "Na sessão anterior, o projeto \"%1\" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar o projeto anterior ou iniciar um novo projeto?")
+        .arg(projLabel)
+        .arg(info.nodeCount)
+        .arg(info.elementCount)
+        .arg(info.meshElementCount);
+}
+
+void MainWindow::updateRecoveryPromptBoxTexts() {
+    if (!m_recoveryPromptBox) {
+        return;
+    }
+    QString acceptText;
+    QString rejectText;
+    const QString msg = formatRecoveryMessage(m_recoveryPromptInfo, acceptText, rejectText);
+    m_recoveryPromptBox->setWindowTitle(locale::GerenciadorTraducao::trText("Retomar Sessão Anterior"));
+    m_recoveryPromptBox->setText(msg);
+    if (m_recoveryPromptBtnAccept) {
+        m_recoveryPromptBtnAccept->setText(acceptText);
+    }
+    if (m_recoveryPromptBtnReject) {
+        m_recoveryPromptBtnReject->setText(rejectText);
+    }
+}
+
+void MainWindow::updateCloseConfirmBoxTexts() {
+    if (!m_closeConfirmBox) {
+        return;
+    }
+    m_closeConfirmBox->setWindowTitle(locale::GerenciadorTraducao::trText("Alterações Não Salvas"));
+    m_closeConfirmBox->setText(locale::GerenciadorTraducao::trText(
+        "Existem alterações não salvas no projeto estrutural (uma cópia de recuperação automática foi gravada em disco).\n\nDeseja salvar em arquivo antes de fechar?"));
+    if (m_closeBtnSave) {
+        m_closeBtnSave->setText(locale::GerenciadorTraducao::trText("Salvar"));
+    }
+    if (m_closeBtnExitKeep) {
+        m_closeBtnExitKeep->setText(locale::GerenciadorTraducao::trText("Sair e Manter Recuperação"));
+    }
+    if (m_closeBtnCancel) {
+        m_closeBtnCancel->setText(locale::GerenciadorTraducao::trText("Cancelar"));
+    }
+}
+
+void MainWindow::checkAndOfferStartupRecovery() {
+    if (m_openedFromCli ||
+        !m_model.getNodes().empty() ||
+        !m_model.getElements().empty() ||
+        !m_model.surfaceMesh().elements.empty()) {
+        io::AppLogger::info(
+            QStringLiteral("Startup"),
+            QStringLiteral("Inicializacao com modelo ja carregado (CLI ou manual); retomada automatica ignorada."));
+        return;
+    }
+    const io::ProjectRecoveryInfo info = io::ProjectRecoveryStore::inspectPreviousSession();
+    if (!info.available) {
+        io::AppLogger::info(
+            QStringLiteral("Startup"),
+            QStringLiteral("Nenhuma sessao anterior disponivel; aplicativo iniciado vazio."));
+        return;
+    }
+
+    if (m_startupSessionBehavior == io::StartupSessionBehavior::AlwaysStartNew) {
+        io::AppLogger::info(
+            QStringLiteral("Startup"),
+            QStringLiteral("Politica AlwaysStartNew: descartando sessao anterior e iniciando novo projeto vazio."));
+        io::ProjectRecoveryStore::clearSnapshot();
+        updateWindowTitleAndFileActions();
+        showStatusMessage(locale::GerenciadorTraducao::trText(
+            "Novo projeto vazio iniciado automaticamente conforme configuração de inicialização."));
+        return;
+    }
+
+    if (m_startupSessionBehavior == io::StartupSessionBehavior::AutoLoadPrevious) {
+        io::AppLogger::info(
+            QStringLiteral("Startup"),
+            QStringLiteral("Politica AutoLoadPrevious: carregando automaticamente sessao anterior (sourceKind=%1, unsaved=%2).")
+                .arg(static_cast<int>(info.sourceKind))
+                .arg(info.hasUnsavedChanges ? QStringLiteral("true") : QStringLiteral("false")));
+        if (!recoverPreviousSession()) {
+            io::AppLogger::warning(
+                QStringLiteral("Startup"),
+                QStringLiteral("Falha ao recarregar automaticamente sessao anterior; mantendo novo projeto vazio."));
+            io::ProjectRecoveryStore::clearSnapshot();
+            updateWindowTitleAndFileActions();
+            showStatusMessage(locale::GerenciadorTraducao::trText(
+                "Não foi possível carregar automaticamente a sessão anterior; novo projeto vazio iniciado."));
+        }
+        return;
+    }
+
+    io::AppLogger::info(
+        QStringLiteral("Startup"),
+        QStringLiteral("Politica AskOnStartup: exibindo dialogo de retomada (sourceKind=%1, unsaved=%2, file=%3).")
+            .arg(static_cast<int>(info.sourceKind))
+            .arg(info.hasUnsavedChanges ? QStringLiteral("true") : QStringLiteral("false"),
+                 info.projectFilePath));
+
+    m_recoveryPromptInfo = info;
+    if (m_recoveryPromptBox) {
+        updateRecoveryPromptBoxTexts();
+        m_windowManager->showAndRaise(m_recoveryPromptBox.data());
+        return;
+    }
+    auto* box = new QMessageBox(nullptr);
+    m_recoveryPromptBox = box;
+    box->setIcon(QMessageBox::Question);
+    QPushButton* btnAccept = box->addButton(QString(), QMessageBox::AcceptRole);
+    QPushButton* btnReject = box->addButton(QString(), QMessageBox::RejectRole);
+    m_recoveryPromptBtnAccept = btnAccept;
+    m_recoveryPromptBtnReject = btnReject;
+    updateRecoveryPromptBoxTexts();
+    box->setDefaultButton(btnAccept);
+    m_windowManager->prepareModelessDialog(box, false, true);
+    connect(box, &QMessageBox::finished, this, [this, boxPtr = QPointer<QMessageBox>(box)](int) {
+        if (!boxPtr) return;
+        QAbstractButton* clicked = boxPtr->clickedButton();
+        if (clicked != nullptr && clicked == m_recoveryPromptBtnAccept) {
+            io::AppLogger::info(QStringLiteral("Startup"), QStringLiteral("Usuario escolheu retomar a sessao anterior."));
+            recoverPreviousSession();
+        } else if (clicked != nullptr && clicked == m_recoveryPromptBtnReject) {
+            io::AppLogger::info(QStringLiteral("Startup"), QStringLiteral("Usuario escolheu iniciar um novo projeto vazio."));
+            io::ProjectRecoveryStore::clearSnapshot();
+            updateWindowTitleAndFileActions();
+        }
+    });
+    m_windowManager->showAndRaise(box);
+}
+
+void MainWindow::promptUnsavedChangesBeforeClose() {
+    if (m_closeConfirmBox) {
+        updateCloseConfirmBoxTexts();
+        m_windowManager->showAndRaise(m_closeConfirmBox.data());
+        return;
+    }
+    auto* box = new QMessageBox(nullptr);
+    m_closeConfirmBox = box;
+    box->setIcon(QMessageBox::Warning);
+    m_closeBtnSave = box->addButton(QString(), QMessageBox::AcceptRole);
+    m_closeBtnExitKeep = box->addButton(QString(), QMessageBox::DestructiveRole);
+    m_closeBtnCancel = box->addButton(QString(), QMessageBox::RejectRole);
+    updateCloseConfirmBoxTexts();
+    box->setDefaultButton(m_closeBtnSave);
+    m_windowManager->prepareModelessDialog(box, false, true);
+    connect(box, &QMessageBox::finished, this, [this, boxPtr = QPointer<QMessageBox>(box)](int) {
+        if (!boxPtr) return;
+        QAbstractButton* clicked = boxPtr->clickedButton();
+        if (clicked != nullptr && clicked == m_closeBtnSave) {
+            m_closePendingAfterSave = true;
+            onSaveProject();
+        } else if (clicked != nullptr && clicked == m_closeBtnExitKeep) {
+            persistCurrentSessionState();
+            m_closingConfirmed = true;
+            close();
+        }
+    });
+    m_windowManager->showAndRaise(box);
 }
 
 // Ações de Arquivo
@@ -1315,11 +2225,12 @@ void MainWindow::onNewProject() {
         QMessageBox::Yes | QMessageBox::No,
         [this](int reply) {
             if (reply == QMessageBox::Yes) {
-                m_hasSolvedContext = false;
+                m_currentProjectFilePath.clear();
+                m_sessionSourceKind = io::SessionSourceKind::Empty;
                 m_model.clear();
-                m_lastSolverResult = SolverResult();
-                onModelModified();
-                m_viewport->update();
+                clearDirtyState(true);
+                refreshAfterModelLoad(false, true);
+                if (m_viewport) m_viewport->update();
                 showStatusMessage(locale::GerenciadorTraducao::trText("Novo projeto iniciado."));
             }
         }
@@ -1331,17 +2242,25 @@ void MainWindow::onOpenProject() {
         QFileDialog::AcceptOpen,
         QFileDialog::ExistingFile,
         locale::GerenciadorTraducao::trText("Abrir Arquivo OmniFrame"),
-        QString(),
+        initialFileDialogPath(),
         locale::GerenciadorTraducao::trText("Arquivos OmniFrame (*.omniframe);;Todos os Arquivos (*.*)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
-            if (ProjectSerializer::loadFromFile(path, m_model)) {
-                m_hasSolvedContext = false;
-                m_lastSolverResult = SolverResult();
-                onModelModified();
-                m_viewport->fitAll();
+            rememberFileDialogPath(path);
+            StructuralModel loadedModel;
+            if (ProjectSerializer::loadFromFile(path, loadedModel)) {
+                m_model = std::move(loadedModel);
+                m_currentProjectFilePath = path;
+                m_sessionSourceKind = io::SessionSourceKind::SavedProject;
+                clearDirtyState(false);
+                refreshAfterModelLoad(false, true);
+                persistCurrentSessionState();
+                updateWindowTitleAndFileActions();
                 showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(path));
             } else {
+                io::AppLogger::critical(
+                    QStringLiteral("Project"),
+                    QStringLiteral("Falha ao abrir arquivo de projeto: %1").arg(path));
                 m_windowManager->showModelessMessage(
                     QMessageBox::Critical,
                     locale::GerenciadorTraducao::trText("Erro"),
@@ -1352,26 +2271,137 @@ void MainWindow::onOpenProject() {
     );
 }
 
+bool MainWindow::saveProjectToPath(const QString& path) {
+    if (path.isEmpty()) {
+        return false;
+    }
+    rememberFileDialogPath(path);
+    if (ProjectSerializer::saveToFile(path, m_model)) {
+        m_currentProjectFilePath = path;
+        m_sessionSourceKind = io::SessionSourceKind::SavedProject;
+        clearDirtyState(false);
+        persistCurrentSessionState();
+        updateWindowTitleAndFileActions();
+        showStatusMessage(locale::GerenciadorTraducao::trText("Projeto salvo com sucesso: %1").arg(path));
+        if (m_closePendingAfterSave) {
+            m_closePendingAfterSave = false;
+            m_closingConfirmed = true;
+            close();
+        }
+        return true;
+    }
+    m_closePendingAfterSave = false;
+    io::AppLogger::critical(
+        QStringLiteral("Project"),
+        QStringLiteral("Falha ao salvar arquivo de projeto: %1").arg(path));
+    m_windowManager->showModelessMessage(
+        QMessageBox::Critical,
+        locale::GerenciadorTraducao::trText("Erro"),
+        locale::GerenciadorTraducao::trText("Não foi possível salvar o arquivo.")
+    );
+    return false;
+}
+
 void MainWindow::onSaveProject() {
-    m_windowManager->showModelessFileDialog(
+    if (!m_currentProjectFilePath.isEmpty()) {
+        saveProjectToPath(m_currentProjectFilePath);
+        return;
+    }
+    onSaveProjectAs();
+}
+
+void MainWindow::onSaveProjectAs() {
+    const QString suggestedName = m_currentProjectFilePath.isEmpty()
+        ? QStringLiteral("modelo.omniframe")
+        : QFileInfo(m_currentProjectFilePath).fileName();
+    QFileDialog* dlg = m_windowManager->showModelessFileDialog(
         QFileDialog::AcceptSave,
         QFileDialog::AnyFile,
         locale::GerenciadorTraducao::trText("Salvar Arquivo OmniFrame"),
-        QStringLiteral("modelo.omniframe"),
+        initialFileDialogPath(suggestedName),
         locale::GerenciadorTraducao::trText("Arquivos OmniFrame (*.omniframe)"),
         [this](const QString& path) {
-            if (path.isEmpty()) return;
-            if (ProjectSerializer::saveToFile(path, m_model)) {
-                showStatusMessage(locale::GerenciadorTraducao::trText("Projeto salvo com sucesso: %1").arg(path));
-            } else {
-                m_windowManager->showModelessMessage(
-                    QMessageBox::Critical,
-                    locale::GerenciadorTraducao::trText("Erro"),
-                    locale::GerenciadorTraducao::trText("Não foi possível salvar o arquivo.")
-                );
+            if (path.isEmpty()) {
+                m_closePendingAfterSave = false;
+                return;
             }
+            saveProjectToPath(path);
         }
     );
+    if (dlg) {
+        connect(dlg, &QDialog::rejected, this, [this]() {
+            m_closePendingAfterSave = false;
+        });
+    }
+}
+
+bool MainWindow::recoverPreviousSession() {
+    const io::ProjectRecoveryInfo info = io::ProjectRecoveryStore::inspectPreviousSession();
+    if (!info.available) {
+        return false;
+    }
+
+    if (info.hasUnsavedChanges) {
+        StructuralModel recoveredModel;
+        io::ProjectRecoveryInfo loadedInfo;
+        if (!io::ProjectRecoveryStore::loadSnapshot(recoveredModel, &loadedInfo)) {
+            return false;
+        }
+        m_model = std::move(recoveredModel);
+        m_currentProjectFilePath = loadedInfo.projectFilePath;
+        m_sessionSourceKind = loadedInfo.sourceKind;
+        refreshAfterModelLoad(true, true);
+        showStatusMessage(
+            locale::GerenciadorTraducao::trText("Sessão anterior recuperada: %1 nós, %2 barras.")
+                .arg(m_model.getNodes().size())
+                .arg(m_model.getElements().size()));
+        return true;
+    }
+
+    if (info.sourceKind == io::SessionSourceKind::SavedProject && !info.projectFilePath.trimmed().isEmpty()) {
+        StructuralModel loadedModel;
+        if (!ProjectSerializer::loadFromFile(info.projectFilePath, loadedModel)) {
+            return false;
+        }
+        m_model = std::move(loadedModel);
+        m_currentProjectFilePath = info.projectFilePath;
+        m_sessionSourceKind = io::SessionSourceKind::SavedProject;
+        clearDirtyState(false);
+        refreshAfterModelLoad(false, true);
+        persistCurrentSessionState();
+        updateWindowTitleAndFileActions();
+        showStatusMessage(locale::GerenciadorTraducao::trText("Arquivo carregado com sucesso: %1").arg(info.projectFilePath));
+        return true;
+    }
+
+    switch (info.sourceKind) {
+        case io::SessionSourceKind::ExampleBuilding:
+            loadExampleBuilding();
+            return true;
+        case io::SessionSourceKind::ExampleCantilever:
+            loadExampleCantilever();
+            return true;
+        case io::SessionSourceKind::ExampleSpaceTruss:
+            loadExampleSpaceTruss();
+            return true;
+        default:
+            return false;
+    }
+}
+
+void MainWindow::onRecoverSession() {
+    if (!recoverPreviousSession()) {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Information,
+            locale::GerenciadorTraducao::trText("Recuperação de Sessão"),
+            locale::GerenciadorTraducao::trText("Não há projeto ou edição anterior disponível para carregar.")
+        );
+    }
+}
+
+void MainWindow::onRequestQuit() {
+    const ScopedBoolFlag quitGuard(m_userRequestedQuit);
+    close();
 }
 
 void MainWindow::onExportHtmlReport() {
@@ -1379,10 +2409,11 @@ void MainWindow::onExportHtmlReport() {
         QFileDialog::AcceptSave,
         QFileDialog::AnyFile,
         locale::GerenciadorTraducao::trText("Exportar Relatório HTML"),
-        QStringLiteral("Relatorio_Estrutural.html"),
+        initialFileDialogPath(QStringLiteral("Relatorio_Estrutural.html")),
         locale::GerenciadorTraducao::trText("Documento HTML (*.html)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
+            rememberFileDialogPath(path);
             if (ProjectSerializer::exportTechnicalReportHtml(path, m_model, m_lastSolverResult)) {
                 showStatusMessage(locale::GerenciadorTraducao::trText("Relatório HTML exportado com sucesso: %1").arg(path));
                 m_windowManager->showModelessMessage(
@@ -1406,10 +2437,11 @@ void MainWindow::onExportMarkdownReport() {
         QFileDialog::AcceptSave,
         QFileDialog::AnyFile,
         locale::GerenciadorTraducao::trText("Exportar Relatório Markdown"),
-        QStringLiteral("Relatorio_Estrutural.md"),
+        initialFileDialogPath(QStringLiteral("Relatorio_Estrutural.md")),
         locale::GerenciadorTraducao::trText("Documento Markdown (*.md)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
+            rememberFileDialogPath(path);
             if (ProjectSerializer::exportTechnicalReportMarkdown(path, m_model, m_lastSolverResult)) {
                 showStatusMessage(locale::GerenciadorTraducao::trText("Relatório Markdown exportado com sucesso: %1").arg(path));
                 m_windowManager->showModelessMessage(
@@ -1433,10 +2465,11 @@ void MainWindow::onImportDxf() {
         QFileDialog::AcceptOpen,
         QFileDialog::ExistingFile,
         locale::GerenciadorTraducao::trText("Importar CAD DXF"),
-        QString(),
+        initialFileDialogPath(),
         locale::GerenciadorTraducao::trText("Desenhos CAD DXF (*.dxf);;Todos (*)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
+            rememberFileDialogPath(path);
             StructuralModel importedModel;
             kernel::MeshContainer importedMesh;
             io::DxfImportOptions opts;
@@ -1453,11 +2486,10 @@ void MainWindow::onImportDxf() {
             if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
                 importedModel.surfaceMesh() = std::move(importedMesh);
             }
-            m_hasSolvedContext = false;
+            m_currentProjectFilePath.clear();
+            m_sessionSourceKind = io::SessionSourceKind::UnsavedUntitled;
             m_model = std::move(importedModel);
-            m_viewport->setModel(&m_model);
-            onModelModified();
-            m_viewport->fitAll();
+            refreshAfterModelLoad(true, true);
             showStatusMessage(
                 locale::GerenciadorTraducao::trText("DXF importado: %1 barras, %2 faces (%3 nós fundidos).")
                     .arg(rep.lineCount)
@@ -1472,10 +2504,11 @@ void MainWindow::onExportDxf() {
         QFileDialog::AcceptSave,
         QFileDialog::AnyFile,
         locale::GerenciadorTraducao::trText("Exportar CAD DXF"),
-        QStringLiteral("Modelo_OmniFrame.dxf"),
+        initialFileDialogPath(QStringLiteral("Modelo_OmniFrame.dxf")),
         locale::GerenciadorTraducao::trText("Desenhos CAD DXF (*.dxf);;Todos (*)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
+            rememberFileDialogPath(path);
             io::DxfInteropReport rep;
             const kernel::MeshContainer* meshPtr =
                 m_model.surfaceMesh().elements.empty() ? nullptr : &m_model.surfaceMesh();
@@ -1499,10 +2532,11 @@ void MainWindow::onImportIfc() {
         QFileDialog::AcceptOpen,
         QFileDialog::ExistingFile,
         locale::GerenciadorTraducao::trText("Importar Modelo BIM IFC4"),
-        QString(),
+        initialFileDialogPath(),
         locale::GerenciadorTraducao::trText("Modelos BIM IFC (*.ifc);;Todos (*)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
+            rememberFileDialogPath(path);
             StructuralModel importedModel;
             kernel::MeshContainer importedMesh;
             io::IfcGuidMap guidMap;
@@ -1517,11 +2551,10 @@ void MainWindow::onImportIfc() {
             if (!importedMesh.nodes.empty() || !importedMesh.elements.empty()) {
                 importedModel.surfaceMesh() = std::move(importedMesh);
             }
-            m_hasSolvedContext = false;
+            m_currentProjectFilePath.clear();
+            m_sessionSourceKind = io::SessionSourceKind::UnsavedUntitled;
             m_model = std::move(importedModel);
-            m_viewport->setModel(&m_model);
-            onModelModified();
-            m_viewport->fitAll();
+            refreshAfterModelLoad(true, true);
             showStatusMessage(
                 locale::GerenciadorTraducao::trText("IFC4 importado: %1 nós estruturais, %2 barras, %3 superfícies.")
                     .arg(rep.structuralNodesImported)
@@ -1536,10 +2569,11 @@ void MainWindow::onExportIfc() {
         QFileDialog::AcceptSave,
         QFileDialog::AnyFile,
         locale::GerenciadorTraducao::trText("Exportar Modelo BIM IFC4"),
-        QStringLiteral("Modelo_OmniFrame.ifc"),
+        initialFileDialogPath(QStringLiteral("Modelo_OmniFrame.ifc")),
         locale::GerenciadorTraducao::trText("Modelos BIM IFC (*.ifc);;Todos (*)"),
         [this](const QString& path) {
             if (path.isEmpty()) return;
+            rememberFileDialogPath(path);
             io::IfcGuidMap guidMap;
             io::IfcInteropReport rep;
             const kernel::MeshContainer* meshPtr =
@@ -1619,9 +2653,12 @@ void MainWindow::onExportPdfReport() {
     auto* dlg = new PdfReportOptionsDialog(nullptr, &m_model);
     m_pdfOptionsDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, false, true);
+    bindPersistentDialog(QStringLiteral("PdfReportOptionsDialog"), dlg, true);
     connect(dlg, &QDialog::accepted, this, [this, dlgPtr = QPointer<PdfReportOptionsDialog>(dlg)]() {
         if (!dlgPtr) return;
         io::PdfReportOptions opts = dlgPtr->collectOptionsAndSaveMetadata();
+        m_model.pushUndo();
+        onProjectMetadataOrOptionsModified();
         if (dlgPtr->includeViewportCapture() && m_viewport) {
             opts.viewportSnapshot = m_viewport->grabFramebuffer();
         }
@@ -1634,10 +2671,11 @@ void MainWindow::onExportPdfReport() {
             QFileDialog::AcceptSave,
             QFileDialog::AnyFile,
             locale::GerenciadorTraducao::trText("Exportar Memorial Executivo (PDF A4)"),
-            QStringLiteral("Memorial_Executivo_OmniFrame.pdf"),
+            initialFileDialogPath(QStringLiteral("Memorial_Executivo_OmniFrame.pdf")),
             locale::GerenciadorTraducao::trText("Documentos PDF (*.pdf);;Todos (*)"),
             [this, opts](const QString& path) {
                 if (path.isEmpty()) return;
+                rememberFileDialogPath(path);
                 QString errMsg;
                 QApplication::setOverrideCursor(Qt::WaitCursor);
                 const bool ok = io::PdfReportGenerator::generateExecutivePdf(
@@ -1667,11 +2705,14 @@ void MainWindow::onOpenLoadCombinations() {
         m_windowManager->showAndRaise(m_loadCombinationsDialog.data());
         return;
     }
-    auto* dlg = new LoadCombinationsDialog(nullptr, &m_model, [this]() {
-        onModelModified();
-    });
+    auto* dlg = new LoadCombinationsDialog(
+        nullptr,
+        &m_model,
+        [this]() { onModelModified(); },
+        [this]() { onProjectMetadataOrOptionsModified(); });
     m_loadCombinationsDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("LoadCombinationsDialog"), dlg, true);
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -1685,6 +2726,7 @@ void MainWindow::onOpenMeshGenerator() {
     });
     m_meshGeneratorDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("MeshGeneratorDialog"), dlg, true);
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -1711,9 +2753,11 @@ void MainWindow::onOpenAnalysisSuite() {
             if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
         },
         [this](const QString& msg) { showStatusMessage(msg); },
-        [this]() { onModelModified(); });
+        [this]() { onModelModified(); },
+        [this]() { onProjectMetadataOrOptionsModified(); });
     m_analysisSuiteDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("AnalysisSuiteDialog"), dlg, true);
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -1736,6 +2780,28 @@ void MainWindow::onOpenPostControls() {
     });
     m_postProcessControlDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("PostProcessControlDialog"), dlg, false);
+    for (auto* cb : dlg->findChildren<QComboBox*>()) {
+        connect(cb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            if (!m_rebuildingOrLoadingResultsSettings) {
+                saveUserPreferences();
+            }
+        });
+    }
+    for (auto* chk : dlg->findChildren<QCheckBox*>()) {
+        connect(chk, &QCheckBox::toggled, this, [this](bool) {
+            if (!m_rebuildingOrLoadingResultsSettings) {
+                saveUserPreferences();
+            }
+        });
+    }
+    for (auto* dsp : dlg->findChildren<QDoubleSpinBox*>()) {
+        connect(dsp, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) {
+            if (!m_rebuildingOrLoadingResultsSettings) {
+                saveUserPreferences();
+            }
+        });
+    }
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -1754,6 +2820,7 @@ void MainWindow::onOpenNbrCompliance() {
         [this]() { return ensureStaticSolvedSync(); });
     m_nbrComplianceDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("NbrComplianceDialog"), dlg, true);
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -1781,12 +2848,18 @@ void MainWindow::onRedo() {
 
 void MainWindow::onAutoRecalculateToggled(bool checked) {
     m_autoRecalculate = checked;
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
     if (m_autoRecalculate && m_hasSolvedContext) {
         onModelModified();
     }
 }
 
 void MainWindow::onSolveStructure() {
+    if (!m_rebuildingOrLoadingResultsSettings && sender() != nullptr) {
+        m_hasLoadedCustomDiagram = false;
+    }
     m_hasSolvedContext = true;
     runSolver(true);
 }
@@ -1953,7 +3026,7 @@ bool MainWindow::runSolver(bool interactive) {
             showStatusMessage(msg);
 
             // Se nenhum diagrama estiver ativo após cálculo manual, ativa a Deformada 3D
-            if (interactive && m_viewport->activeDiagram() == DiagramType::None) {
+            if (interactive && !m_hasLoadedCustomDiagram && m_viewport->activeDiagram() == DiagramType::None) {
                 m_diagramCombo->setCurrentIndex(1); // Deformada 3D
             }
 
@@ -1973,6 +3046,9 @@ bool MainWindow::runSolver(bool interactive) {
         }
 
         const QString translatedErr = translateCoreMessage(QString::fromStdString(m_lastSolverResult.errorMessage));
+        io::AppLogger::warning(
+            QStringLiteral("Solver"),
+            QStringLiteral("Erro no calculo MEF: %1").arg(translatedErr));
         m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Erro no cálculo: %1").arg(translatedErr));
         updateResultsTables();
         if (QApplication::activePopupWidget() != nullptr) {
@@ -2001,41 +3077,69 @@ void MainWindow::onInteractionModeChanged(QAction* action) {
     else if (action == m_actAddElement) m_viewport->setInteractionMode(InteractionMode::AddElement);
     else if (action == m_actMeasure) m_viewport->setInteractionMode(InteractionMode::Measure);
     else if (action == m_actDelete) m_viewport->setInteractionMode(InteractionMode::Delete);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onWorkPlaneChanged(int index) {
     auto plane = static_cast<WorkPlane>(m_planeCombo->itemData(index).toInt());
     m_viewport->setWorkPlane(plane);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onPlaneOffsetChanged(double val) {
     m_viewport->setPlaneOffset(val);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onSnapToggled(bool checked) {
     m_viewport->setSnapToGrid(checked);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onGridStepChanged(double val) {
     m_viewport->setGridStep(val);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onShowLocalAxesToggled(bool checked) {
     m_viewport->setShowLocalAxes(checked);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onShowReactionsToggled(bool checked) {
     m_viewport->setShowReactions(checked);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onDiagramChanged(int index) {
     auto diag = static_cast<DiagramType>(m_diagramCombo->itemData(index).toInt());
     m_viewport->setActiveDiagram(diag);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        m_hasLoadedCustomDiagram = true;
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onDiagramScaleChanged(int val) {
     m_viewport->setDiagramScale(val / 30.0);
     m_viewport->setDeformedScale(val * 1.5);
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 // Diálogos de Atribuição e Edição
@@ -2050,6 +3154,7 @@ void MainWindow::onAssignMaterials() {
     });
     m_materialCatalogDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("MaterialCatalogDialog"), dlg, false);
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -2064,6 +3169,7 @@ void MainWindow::onAssignSections() {
     });
     m_sectionCatalogDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("SectionCatalogDialog"), dlg, false);
     m_windowManager->showAndRaise(dlg);
 }
 
@@ -2265,6 +3371,14 @@ void MainWindow::onSelectionChanged() {
     updateInspector();
 }
 
+void MainWindow::onProjectMetadataOrOptionsModified() {
+    ++m_modelRevision;
+    updateUndoRedoActions();
+    if (!m_loadingOrTemplateModel) {
+        markProjectDirty();
+    }
+}
+
 void MainWindow::onModelModified() {
     ++m_modelRevision;
     m_model.clearResults();
@@ -2293,7 +3407,11 @@ void MainWindow::onModelModified() {
     if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
     if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
 
-    if (m_autoRecalculate && m_hasSolvedContext) {
+    const bool isEmptyModel = m_model.getNodes().empty() &&
+                              m_model.getElements().empty() &&
+                              m_model.surfaceMesh().elements.empty();
+
+    if (m_autoRecalculate && m_hasSolvedContext && !isEmptyModel) {
         if (m_solveInProgress) {
             m_pendingResolve = true;
             m_solverStatusLabel->setText(
@@ -2302,6 +3420,9 @@ void MainWindow::onModelModified() {
             const ModelValidation val = m_model.validate();
             if (val.valid) {
                 runSolver(false);
+                if (!m_loadingOrTemplateModel) {
+                    markProjectDirty();
+                }
                 return;
             }
             const QString err = val.errors.empty()
@@ -2313,18 +3434,25 @@ void MainWindow::onModelModified() {
     } else if (m_hasSolvedContext) {
         m_solverStatusLabel->setText(
             locale::GerenciadorTraducao::trText("Modelo modificado — clique em CALCULAR ESTRUTURA (F5) para atualizar os resultados."));
+    } else if (isEmptyModel) {
+        m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Pronto para modelar."));
     } else {
         m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Pronto para calcular."));
     }
 
+    if (!m_loadingOrTemplateModel) {
+        markProjectDirty();
+    }
+
     updateResultsTables();
     updateInspector();
-    m_viewport->update();
+    if (m_viewport) m_viewport->update();
 }
 
 void MainWindow::updateInspector() {
     using locale::GerenciadorTraducao;
     // Limpa conteúdo anterior do inspetor de forma segura para sinais em execução
+    m_inspectorContent.clear();
     QLayoutItem* item = nullptr;
     while ((item = m_inspectorLayout->takeAt(0)) != nullptr) {
         if (QWidget* w = item->widget()) {
@@ -2335,6 +3463,7 @@ void MainWindow::updateInspector() {
     }
 
     auto* contentWidget = new QWidget(m_inspectorLayout ? m_inspectorLayout->parentWidget() : nullptr);
+    m_inspectorContent = contentWidget;
     auto* formLayout = new QFormLayout(contentWidget);
     formLayout->setContentsMargins(2, 2, 2, 2);
 
@@ -2872,6 +4001,7 @@ void MainWindow::updateResultsTables() {
     }
 
     if (!m_lastSolverResult.success) {
+        syncExtraLayoutTables();
         return;
     }
 
@@ -2902,7 +4032,10 @@ void MainWindow::updateResultsTables() {
 
     for (int r = 0; r < static_cast<int>(nodes.size()); ++r) {
         const auto& n = nodes[r];
-        m_dispTable->setItem(r, 0, new QTableWidgetItem(QString::number(n.id)));
+        auto* idItem = new QTableWidgetItem(QString::number(n.id));
+        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(n.id));
+        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("node"));
+        m_dispTable->setItem(r, 0, idItem);
         m_dispTable->setItem(r, 1, new QTableWidgetItem(QString::number(n.displacement[0] * 1000.0, 'f', 3)));
         m_dispTable->setItem(r, 2, new QTableWidgetItem(QString::number(n.displacement[1] * 1000.0, 'f', 3)));
         m_dispTable->setItem(r, 3, new QTableWidgetItem(QString::number(n.displacement[2] * 1000.0, 'f', 3)));
@@ -2914,10 +4047,15 @@ void MainWindow::updateResultsTables() {
         const int r = static_cast<int>(nodes.size()) + m;
         const auto* mn = uniqueMeshNodes[static_cast<std::size_t>(m)];
         const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
-        m_dispTable->setItem(r, 0, new QTableWidgetItem(idLabel));
+        auto* idItem = new QTableWidgetItem(idLabel);
+        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("mesh_node"));
+        m_dispTable->setItem(r, 0, idItem);
         for (int d = 0; d < 6; ++d) {
             m_dispTable->setItem(r, d + 1, new QTableWidgetItem(QString::number(mn->displacement[d] * 1000.0, 'f', 3)));
         }
+    }
+    if (m_tableConfigurator) {
+        m_tableConfigurator->afterTablePopulated(m_dispTable);
     }
 
     // 2. Tabela de Reações de Apoio
@@ -2934,7 +4072,10 @@ void MainWindow::updateResultsTables() {
     int row = 0;
     for (const auto& n : nodes) {
         if (!n.isSupported()) continue;
-        m_reacTable->setItem(row, 0, new QTableWidgetItem(QString::number(n.id)));
+        auto* idItem = new QTableWidgetItem(QString::number(n.id));
+        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(n.id));
+        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("support"));
+        m_reacTable->setItem(row, 0, idItem);
         m_reacTable->setItem(row, 1, new QTableWidgetItem(QString::number(n.reaction[0], 'f', 2)));
         m_reacTable->setItem(row, 2, new QTableWidgetItem(QString::number(n.reaction[1], 'f', 2)));
         m_reacTable->setItem(row, 3, new QTableWidgetItem(QString::number(n.reaction[2], 'f', 2)));
@@ -2946,7 +4087,9 @@ void MainWindow::updateResultsTables() {
     for (const auto* mn : uniqueMeshNodes) {
         if (!mn->isSupported()) continue;
         const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
-        m_reacTable->setItem(row, 0, new QTableWidgetItem(idLabel));
+        auto* idItem = new QTableWidgetItem(idLabel);
+        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("mesh_support"));
+        m_reacTable->setItem(row, 0, idItem);
         for (int d = 0; d < 6; ++d) {
             m_reacTable->setItem(row, d + 1, new QTableWidgetItem(QString::number(mn->reaction[d], 'f', 2)));
         }
@@ -2955,6 +4098,8 @@ void MainWindow::updateResultsTables() {
 
     // Linha de Soma Total
     auto* itemSum = new QTableWidgetItem(locale::GerenciadorTraducao::trText("Σ Reações"));
+    itemSum->setData(ui::kResultTableSummaryRowRole, true);
+    itemSum->setData(ui::kResultTableRowCategoryRole, QStringLiteral("reaction_sum"));
     m_reacTable->setItem(row, 0, itemSum);
     m_reacTable->setItem(row, 1, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactions.x, 'f', 2)));
     m_reacTable->setItem(row, 2, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactions.y, 'f', 2)));
@@ -2963,13 +4108,20 @@ void MainWindow::updateResultsTables() {
     m_reacTable->setItem(row, 5, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.y, 'f', 2)));
     m_reacTable->setItem(row, 6, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.z, 'f', 2)));
     refreshReactionSummaryRowTheme();
+    if (m_tableConfigurator) {
+        m_tableConfigurator->afterTablePopulated(m_reacTable);
+        refreshReactionSummaryRowTheme();
+    }
 
     // 3. Tabela de Esforços nas Barras
     m_forcesTable->setRowCount(0);
     m_forcesTable->setRowCount(static_cast<int>(m_lastSolverResult.elementExtremes.size()));
     for (int r = 0; r < static_cast<int>(m_lastSolverResult.elementExtremes.size()); ++r) {
         const auto& ext = m_lastSolverResult.elementExtremes[r];
-        m_forcesTable->setItem(r, 0, new QTableWidgetItem(QString::number(ext.elementId)));
+        auto* idItem = new QTableWidgetItem(QString::number(ext.elementId));
+        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(ext.elementId));
+        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("bar"));
+        m_forcesTable->setItem(r, 0, idItem);
         m_forcesTable->setItem(r, 1, new QTableWidgetItem(QString("[%1; %2]").arg(ext.N_min, 0, 'f', 1).arg(ext.N_max, 0, 'f', 1)));
         m_forcesTable->setItem(r, 2, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Vy_min, 0, 'f', 1).arg(ext.Vy_max, 0, 'f', 1)));
         m_forcesTable->setItem(r, 3, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Vz_min, 0, 'f', 1).arg(ext.Vz_max, 0, 'f', 1)));
@@ -2978,6 +4130,9 @@ void MainWindow::updateResultsTables() {
         m_forcesTable->setItem(r, 6, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Mz_min, 0, 'f', 1).arg(ext.Mz_max, 0, 'f', 1)));
         m_forcesTable->setItem(r, 7, new QTableWidgetItem(QString::number(ext.maxDeflection * 1000.0, 'f', 2)));
     }
+    if (m_tableConfigurator) {
+        m_tableConfigurator->afterTablePopulated(m_forcesTable);
+    }
 
     // 4. Tabela de Esforços e Tensões 2D/3D (Casca / Sólido)
     if (m_continuumTable) {
@@ -2985,7 +4140,10 @@ void MainWindow::updateResultsTables() {
         m_continuumTable->setRowCount(static_cast<int>(cont.size()));
         for (int r = 0; r < static_cast<int>(cont.size()); ++r) {
             const auto& ce = cont[static_cast<std::size_t>(r)];
-            m_continuumTable->setItem(r, 0, new QTableWidgetItem(QString::number(ce.elementId)));
+            auto* idItem = new QTableWidgetItem(QString::number(ce.elementId));
+            idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(ce.elementId));
+            idItem->setData(ui::kResultTableRowCategoryRole, ce.isShell ? QStringLiteral("shell") : QStringLiteral("solid"));
+            m_continuumTable->setItem(r, 0, idItem);
             m_continuumTable->setItem(r, 1, new QTableWidgetItem(QString::fromStdString(ce.cellTypeName)));
             m_continuumTable->setItem(r, 2, new QTableWidgetItem(QString::number(ce.vonMisesStress, 'f', 2)));
             m_continuumTable->setItem(r, 3, new QTableWidgetItem(QString::number(ce.maxPrincipalStress, 'f', 2)));
@@ -3000,7 +4158,1411 @@ void MainWindow::updateResultsTables() {
                 m_continuumTable->setItem(r, 7, new QTableWidgetItem(QString::number(ce.stressVoigt[4], 'f', 2) + QStringLiteral(" kPa")));
             }
         }
+        if (m_tableConfigurator) {
+            m_tableConfigurator->afterTablePopulated(m_continuumTable);
+        }
     }
+
+    syncExtraLayoutTables();
+}
+
+void MainWindow::initDefaultResultsLayoutAssignments() {
+    m_resultsModeTableAssign = {};
+    // 1 Layout: all 4 tables in Layout 1
+    m_resultsModeTableAssign[0][0] = {true, true, true, true};
+    // 2 Layouts: Layout 1 (Displacements, Reactions), Layout 2 (BarForces, ContinuumStress)
+    m_resultsModeTableAssign[1][0] = {true, true, false, false};
+    m_resultsModeTableAssign[1][1] = {false, false, true, true};
+    // 3 Layouts: Layout 1 (Displacements), Layout 2 (Reactions), Layout 3 (BarForces, ContinuumStress)
+    m_resultsModeTableAssign[2][0] = {true, false, false, false};
+    m_resultsModeTableAssign[2][1] = {false, true, false, false};
+    m_resultsModeTableAssign[2][2] = {false, false, true, true};
+    // 4 Layouts: one table per layout
+    m_resultsModeTableAssign[3][0] = {true, false, false, false};
+    m_resultsModeTableAssign[3][1] = {false, true, false, false};
+    m_resultsModeTableAssign[3][2] = {false, false, true, false};
+    m_resultsModeTableAssign[3][3] = {false, false, false, true};
+
+    m_resultsSplitterSizesByMode[0] = {1000};
+    m_resultsSplitterSizesByMode[1] = {1000, 1000};
+    m_resultsSplitterSizesByMode[2] = {1000, 1000, 1000};
+    m_resultsSplitterSizesByMode[3] = {1000, 1000, 1000, 1000};
+    m_resultsActiveTabByMode = {};
+}
+
+QString MainWindow::appLocalDataDirectory() {
+    return io::UserPreferencesStore::preferencesDirectory();
+}
+
+QString MainWindow::userPreferencesFilePath() {
+    return io::UserPreferencesStore::userPreferencesFilePath();
+}
+
+QString MainWindow::initialFileDialogPath(const QString& defaultFileName) const {
+    const bool hasDir = !m_lastFileDialogDir.isEmpty() && QDir(m_lastFileDialogDir).exists();
+    if (!hasDir) {
+        return defaultFileName;
+    }
+    return defaultFileName.isEmpty()
+               ? m_lastFileDialogDir
+               : QDir(m_lastFileDialogDir).filePath(defaultFileName);
+}
+
+void MainWindow::rememberFileDialogPath(const QString& filePath) const {
+    if (filePath.isEmpty()) {
+        return;
+    }
+    const QString dirPath = QFileInfo(filePath).absolutePath();
+    if (dirPath.isEmpty() || m_lastFileDialogDir == dirPath) {
+        return;
+    }
+    m_lastFileDialogDir = dirPath;
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+QJsonObject MainWindow::serializeResultsPanelJson() const {
+    const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+    if (m_resultsSplitter != nullptr && m_resultsSplitter->isVisible()) {
+        const QList<int> curSizes = m_resultsSplitter->sizes();
+        if (curSizes.size() == m_resultsLayoutCount) {
+            int total = 0;
+            for (int s : curSizes) {
+                total += s;
+            }
+            if (total > 0) {
+                m_resultsSplitterSizesByMode[static_cast<std::size_t>(modeIdx)] = curSizes;
+            }
+        }
+    }
+    for (int L = 0; L < m_resultsLayoutCount; ++L) {
+        const QTabWidget* tabW = m_resultsLayoutTabWidgets[static_cast<std::size_t>(L)];
+        if (tabW != nullptr && tabW->count() > 0 && tabW->currentIndex() >= 0) {
+            m_resultsActiveTabByMode[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(L)] =
+                tabW->currentIndex();
+        }
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("version"), 1);
+    root.insert(QStringLiteral("layoutCount"), m_resultsLayoutCount);
+
+    QJsonArray modesArr;
+    for (int m = 0; m < 4; ++m) {
+        QJsonArray layoutsArr;
+        for (int L = 0; L < 4; ++L) {
+            QJsonArray tablesArr;
+            for (int k = 0; k < 4; ++k) {
+                tablesArr.append(m_resultsModeTableAssign[static_cast<std::size_t>(m)]
+                                                         [static_cast<std::size_t>(L)]
+                                                         [static_cast<std::size_t>(k)]);
+            }
+            layoutsArr.append(tablesArr);
+        }
+        modesArr.append(layoutsArr);
+    }
+    root.insert(QStringLiteral("modeTableAssignments"), modesArr);
+
+    QJsonArray sizesByModeArr;
+    for (int m = 0; m < 4; ++m) {
+        QJsonArray szArr;
+        for (int s : m_resultsSplitterSizesByMode[static_cast<std::size_t>(m)]) {
+            szArr.append(s);
+        }
+        sizesByModeArr.append(szArr);
+    }
+    root.insert(QStringLiteral("splitterSizesByMode"), sizesByModeArr);
+
+    QJsonArray activeTabByModeArr;
+    for (int m = 0; m < 4; ++m) {
+        QJsonArray tabsArr;
+        for (int L = 0; L < 4; ++L) {
+            tabsArr.append(m_resultsActiveTabByMode[static_cast<std::size_t>(m)][static_cast<std::size_t>(L)]);
+        }
+        activeTabByModeArr.append(tabsArr);
+    }
+    root.insert(QStringLiteral("activeTabByMode"), activeTabByModeArr);
+
+    root.insert(QStringLiteral("tables"),
+                m_tableConfigurator ? m_tableConfigurator->saveAllTablesToJson() : QJsonObject{});
+    return root;
+}
+
+bool MainWindow::deserializeResultsPanelJson(const QJsonObject& root) {
+    if (root.isEmpty()) {
+        return false;
+    }
+
+    const ScopedBoolFlag guard(m_rebuildingOrLoadingResultsSettings);
+
+    const QJsonArray modesArr = root.value(QStringLiteral("modeTableAssignments")).toArray();
+    if (modesArr.size() == 4) {
+        for (int m = 0; m < 4; ++m) {
+            const QJsonArray layoutsArr = modesArr.at(m).toArray();
+            if (layoutsArr.size() != 4) {
+                continue;
+            }
+            for (int L = 0; L < 4; ++L) {
+                const QJsonArray tablesArr = layoutsArr.at(L).toArray();
+                if (tablesArr.size() != 4) {
+                    continue;
+                }
+                for (int k = 0; k < 4; ++k) {
+                    m_resultsModeTableAssign[static_cast<std::size_t>(m)]
+                                            [static_cast<std::size_t>(L)]
+                                            [static_cast<std::size_t>(k)] = tablesArr.at(k).toBool(false);
+                }
+            }
+        }
+    }
+
+    const QJsonArray sizesByModeArr = root.value(QStringLiteral("splitterSizesByMode")).toArray();
+    if (sizesByModeArr.size() == 4) {
+        for (int m = 0; m < 4; ++m) {
+            const QJsonArray szArr = sizesByModeArr.at(m).toArray();
+            if (szArr.size() == m + 1) {
+                QList<int> loadedSizes;
+                loadedSizes.reserve(szArr.size());
+                int total = 0;
+                for (int i = 0; i < szArr.size(); ++i) {
+                    const int s = std::max(0, szArr.at(i).toInt(0));
+                    loadedSizes.append(s);
+                    total += s;
+                }
+                if (total > 0) {
+                    m_resultsSplitterSizesByMode[static_cast<std::size_t>(m)] = loadedSizes;
+                }
+            }
+        }
+    }
+
+    const QJsonArray activeTabByModeArr = root.value(QStringLiteral("activeTabByMode")).toArray();
+    if (activeTabByModeArr.size() == 4) {
+        for (int m = 0; m < 4; ++m) {
+            const QJsonArray tabsArr = activeTabByModeArr.at(m).toArray();
+            if (tabsArr.size() == 4) {
+                for (int L = 0; L < 4; ++L) {
+                    m_resultsActiveTabByMode[static_cast<std::size_t>(m)][static_cast<std::size_t>(L)] =
+                        std::max(0, tabsArr.at(L).toInt(0));
+                }
+            }
+        }
+    }
+
+    m_resultsLayoutCount = std::clamp(root.value(QStringLiteral("layoutCount")).toInt(1), 1, 4);
+
+    if (m_tableConfigurator != nullptr && root.value(QStringLiteral("tables")).isObject()) {
+        m_tableConfigurator->loadAllTablesFromJson(root.value(QStringLiteral("tables")).toObject());
+    }
+
+    rebuildResultsLayoutsUi();
+    if (m_resultsSplitter != nullptr) {
+        const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+        QList<int> sizes = m_resultsSplitterSizesByMode[static_cast<std::size_t>(modeIdx)];
+        if (sizes.size() != m_resultsSplitter->count()) {
+            sizes.clear();
+            sizes.reserve(m_resultsSplitter->count());
+            for (int i = 0; i < m_resultsSplitter->count(); ++i) {
+                sizes.append(1000);
+            }
+        }
+        m_resultsSplitter->setSizes(sizes);
+    }
+    syncResultsLayoutsMenuState();
+    return true;
+}
+
+void MainWindow::saveResultsPanelSettings() const {
+    io::UserPreferencesStore::updateSection(QStringLiteral("resultsPanel"), serializeResultsPanelJson());
+}
+
+bool MainWindow::loadResultsPanelSettings() {
+    bool exists = false;
+    const QJsonObject resultsObj = io::UserPreferencesStore::readSection(QStringLiteral("resultsPanel"), &exists);
+    if (!exists || resultsObj.isEmpty()) {
+        return false;
+    }
+    return deserializeResultsPanelJson(resultsObj);
+}
+
+namespace {
+
+template <typename WidgetT>
+QList<WidgetT*> collectPersistableWidgets(const QDialog* dlg) {
+    QList<WidgetT*> result;
+    if (dlg == nullptr) {
+        return result;
+    }
+    for (WidgetT* w : dlg->findChildren<WidgetT*>()) {
+        if (w == nullptr || w->objectName().startsWith(QLatin1String("qt_"))) {
+            continue;
+        }
+        if constexpr (std::is_same_v<WidgetT, QLineEdit>) {
+            if (qobject_cast<QAbstractSpinBox*>(w->parentWidget()) != nullptr ||
+                qobject_cast<QComboBox*>(w->parentWidget()) != nullptr) {
+                continue;
+            }
+        }
+        result.append(w);
+    }
+    return result;
+}
+
+QString dialogControlKey(const char* prefix, int idx, const QWidget* w) {
+    const QString obj = w != nullptr ? w->objectName() : QString();
+    return obj.isEmpty()
+               ? QStringLiteral("%1_%2").arg(QLatin1String(prefix)).arg(idx)
+               : QStringLiteral("%1_%2_%3").arg(QLatin1String(prefix)).arg(idx).arg(obj);
+}
+
+bool shouldSkipLoadComboWidget(const QString& dialogKey,
+                               const char* prefix,
+                               int idx,
+                               const QWidget* widget = nullptr) {
+    if (widget != nullptr &&
+        (widget->objectName() == QLatin1String("guided_highlight_color_combo") ||
+         widget->objectName() == QLatin1String("guided_highlight_phase_combo"))) {
+        return true;
+    }
+    if (dialogKey != QLatin1String("LoadCombinationsDialog")) {
+        return false;
+    }
+    if (std::strcmp(prefix, "edit") == 0 || std::strcmp(prefix, "chk") == 0) {
+        return true;
+    }
+    if (std::strcmp(prefix, "combo") == 0 && idx < 5) {
+        return true;
+    }
+    if (std::strcmp(prefix, "dspin") == 0 && idx == 0) {
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+void MainWindow::capturePersistentDialogState(const QString& dialogKey,
+                                              const QDialog* dlg,
+                                              bool persistControls) const {
+    if (dlg == nullptr || dialogKey.isEmpty()) {
+        return;
+    }
+    QJsonObject dlgObj = m_savedDialogsStateJson.value(dialogKey).toObject();
+    if (dlg->width() >= 200 && dlg->height() >= 120) {
+        dlgObj.insert(QStringLiteral("width"), dlg->width());
+        dlgObj.insert(QStringLiteral("height"), dlg->height());
+    }
+
+    if (persistControls) {
+        QJsonObject controlsObj;
+        const auto tabs = collectPersistableWidgets<QTabWidget>(dlg);
+        for (int i = 0; i < tabs.size(); ++i) {
+            controlsObj.insert(dialogControlKey("tab", i, tabs[i]), tabs[i]->currentIndex());
+        }
+        const auto spins = collectPersistableWidgets<QSpinBox>(dlg);
+        for (int i = 0; i < spins.size(); ++i) {
+            if (!shouldSkipLoadComboWidget(dialogKey, "spin", i, spins[i])) {
+                controlsObj.insert(dialogControlKey("spin", i, spins[i]), spins[i]->value());
+            }
+        }
+        const auto dspins = collectPersistableWidgets<QDoubleSpinBox>(dlg);
+        for (int i = 0; i < dspins.size(); ++i) {
+            if (!shouldSkipLoadComboWidget(dialogKey, "dspin", i, dspins[i])) {
+                controlsObj.insert(dialogControlKey("dspin", i, dspins[i]), dspins[i]->value());
+            }
+        }
+        const auto checks = collectPersistableWidgets<QCheckBox>(dlg);
+        for (int i = 0; i < checks.size(); ++i) {
+            if (!shouldSkipLoadComboWidget(dialogKey, "chk", i, checks[i])) {
+                controlsObj.insert(dialogControlKey("chk", i, checks[i]), checks[i]->isChecked());
+            }
+        }
+        const auto sliders = collectPersistableWidgets<QSlider>(dlg);
+        for (int i = 0; i < sliders.size(); ++i) {
+            controlsObj.insert(dialogControlKey("slider", i, sliders[i]), sliders[i]->value());
+        }
+        const auto combos = collectPersistableWidgets<QComboBox>(dlg);
+        for (int i = 0; i < combos.size(); ++i) {
+            if (!shouldSkipLoadComboWidget(dialogKey, "combo", i, combos[i])) {
+                controlsObj.insert(dialogControlKey("combo", i, combos[i]), combos[i]->currentIndex());
+            }
+        }
+        const auto edits = collectPersistableWidgets<QLineEdit>(dlg);
+        for (int i = 0; i < edits.size(); ++i) {
+            if (!shouldSkipLoadComboWidget(dialogKey, "edit", i, edits[i])) {
+                controlsObj.insert(dialogControlKey("edit", i, edits[i]), edits[i]->text());
+            }
+        }
+        if (const auto* guidedDlg = qobject_cast<const GuidedSessionDialog*>(dlg)) {
+            controlsObj.insert(
+                QStringLiteral("stepHighlightColor"),
+                guidedDlg->stepHighlightColor().name(QColor::HexRgb).toUpper());
+            QJsonArray phaseColorsArr;
+            const int phaseCount = guidedDlg->maxPhasesCount();
+            for (int p = 1; p <= phaseCount; ++p) {
+                phaseColorsArr.append(guidedDlg->phaseHighlightColor(p).name(QColor::HexRgb).toUpper());
+            }
+            controlsObj.insert(QStringLiteral("phaseHighlightColors"), phaseColorsArr);
+        }
+        dlgObj.insert(QStringLiteral("controls"), controlsObj);
+    }
+
+    m_savedDialogsStateJson.insert(dialogKey, dlgObj);
+}
+
+void MainWindow::restorePersistentDialogState(const QString& dialogKey,
+                                              QDialog* dlg,
+                                              bool persistControls) {
+    if (dlg == nullptr || dialogKey.isEmpty() || !m_savedDialogsStateJson.contains(dialogKey)) {
+        return;
+    }
+
+    const ScopedBoolFlag guard(m_rebuildingOrLoadingResultsSettings);
+    const QJsonObject dlgObj = m_savedDialogsStateJson.value(dialogKey).toObject();
+
+    const int w = dlgObj.value(QStringLiteral("width")).toInt(0);
+    const int h = dlgObj.value(QStringLiteral("height")).toInt(0);
+    const QSize minHint = dlg->minimumSizeHint();
+    if (w >= std::max(200, minHint.width()) && h >= std::max(120, minHint.height())) {
+        dlg->resize(w, h);
+    }
+
+    if (!persistControls || !dlgObj.value(QStringLiteral("controls")).isObject()) {
+        return;
+    }
+
+    const QJsonObject controlsObj = dlgObj.value(QStringLiteral("controls")).toObject();
+
+    const auto tabs = collectPersistableWidgets<QTabWidget>(dlg);
+    for (int i = 0; i < tabs.size(); ++i) {
+        const QString key = dialogControlKey("tab", i, tabs[i]);
+        if (controlsObj.contains(key)) {
+            const int idx = controlsObj.value(key).toInt(-1);
+            if (idx >= 0 && idx < tabs[i]->count()) {
+                tabs[i]->setCurrentIndex(idx);
+            }
+        }
+    }
+    const auto combos = collectPersistableWidgets<QComboBox>(dlg);
+    for (int i = 0; i < combos.size(); ++i) {
+        if (shouldSkipLoadComboWidget(dialogKey, "combo", i, combos[i])) {
+            continue;
+        }
+        const QString key = dialogControlKey("combo", i, combos[i]);
+        if (controlsObj.contains(key)) {
+            const int idx = controlsObj.value(key).toInt(-1);
+            if (idx >= 0 && idx < combos[i]->count()) {
+                combos[i]->setCurrentIndex(idx);
+            }
+        }
+    }
+    const auto checks = collectPersistableWidgets<QCheckBox>(dlg);
+    for (int i = 0; i < checks.size(); ++i) {
+        if (shouldSkipLoadComboWidget(dialogKey, "chk", i, checks[i])) {
+            continue;
+        }
+        const QString key = dialogControlKey("chk", i, checks[i]);
+        if (controlsObj.contains(key)) {
+            checks[i]->setChecked(controlsObj.value(key).toBool(checks[i]->isChecked()));
+        }
+    }
+    const auto spins = collectPersistableWidgets<QSpinBox>(dlg);
+    for (int i = 0; i < spins.size(); ++i) {
+        if (shouldSkipLoadComboWidget(dialogKey, "spin", i, spins[i])) {
+            continue;
+        }
+        const QString key = dialogControlKey("spin", i, spins[i]);
+        if (controlsObj.contains(key)) {
+            spins[i]->setValue(controlsObj.value(key).toInt(spins[i]->value()));
+        }
+    }
+    const auto dspins = collectPersistableWidgets<QDoubleSpinBox>(dlg);
+    for (int i = 0; i < dspins.size(); ++i) {
+        if (shouldSkipLoadComboWidget(dialogKey, "dspin", i, dspins[i])) {
+            continue;
+        }
+        const QString key = dialogControlKey("dspin", i, dspins[i]);
+        if (controlsObj.contains(key)) {
+            dspins[i]->setValue(controlsObj.value(key).toDouble(dspins[i]->value()));
+        }
+    }
+    const auto sliders = collectPersistableWidgets<QSlider>(dlg);
+    for (int i = 0; i < sliders.size(); ++i) {
+        const QString key = dialogControlKey("slider", i, sliders[i]);
+        if (controlsObj.contains(key)) {
+            sliders[i]->setValue(controlsObj.value(key).toInt(sliders[i]->value()));
+        }
+    }
+    const auto edits = collectPersistableWidgets<QLineEdit>(dlg);
+    for (int i = 0; i < edits.size(); ++i) {
+        if (shouldSkipLoadComboWidget(dialogKey, "edit", i, edits[i])) {
+            continue;
+        }
+        const QString key = dialogControlKey("edit", i, edits[i]);
+        if (controlsObj.contains(key)) {
+            const QString txt = controlsObj.value(key).toString();
+            if (!txt.isEmpty()) {
+                edits[i]->setText(txt);
+            }
+        }
+    }
+    if (auto* guidedDlg = qobject_cast<GuidedSessionDialog*>(dlg)) {
+        if (controlsObj.contains(QStringLiteral("phaseHighlightColors"))) {
+            const QJsonArray arr = controlsObj.value(QStringLiteral("phaseHighlightColors")).toArray();
+            for (int i = 0; i < arr.size(); ++i) {
+                const QColor c(arr.at(i).toString().trimmed());
+                if (c.isValid()) {
+                    guidedDlg->setPhaseHighlightColor(i + 1, c);
+                }
+            }
+        } else if (controlsObj.contains(QStringLiteral("stepHighlightColor"))) {
+            const QColor savedColor(controlsObj.value(QStringLiteral("stepHighlightColor")).toString().trimmed());
+            if (savedColor.isValid()) {
+                guidedDlg->setStepHighlightColor(savedColor);
+            }
+        }
+    }
+}
+
+void MainWindow::bindPersistentDialog(const QString& dialogKey, QDialog* dlg, bool persistControls) {
+    if (dlg == nullptr || dialogKey.isEmpty()) {
+        return;
+    }
+
+    restorePersistentDialogState(dialogKey, dlg, persistControls);
+
+    QPointer<QDialog> dlgPtr(dlg);
+    auto onControlChanged = [this, dialogKey, dlgPtr, persistControls]() {
+        if (!m_rebuildingOrLoadingResultsSettings && dlgPtr) {
+            capturePersistentDialogState(dialogKey, dlgPtr.data(), persistControls);
+            saveUserPreferences();
+        }
+    };
+
+    connect(dlg, &QDialog::finished, this, [onControlChanged](int) {
+        onControlChanged();
+    });
+
+    if (!persistControls) {
+        return;
+    }
+
+    for (QTabWidget* tw : collectPersistableWidgets<QTabWidget>(dlg)) {
+        connect(tw, &QTabWidget::currentChanged, this, [onControlChanged](int) { onControlChanged(); });
+    }
+    const auto spins = collectPersistableWidgets<QSpinBox>(dlg);
+    for (int i = 0; i < spins.size(); ++i) {
+        if (!shouldSkipLoadComboWidget(dialogKey, "spin", i)) {
+            connect(spins[i], QOverload<int>::of(&QSpinBox::valueChanged), this,
+                    [onControlChanged](int) { onControlChanged(); });
+        }
+    }
+    const auto dspins = collectPersistableWidgets<QDoubleSpinBox>(dlg);
+    for (int i = 0; i < dspins.size(); ++i) {
+        if (!shouldSkipLoadComboWidget(dialogKey, "dspin", i)) {
+            connect(dspins[i], QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                    [onControlChanged](double) { onControlChanged(); });
+        }
+    }
+    const auto checks = collectPersistableWidgets<QCheckBox>(dlg);
+    for (int i = 0; i < checks.size(); ++i) {
+        if (!shouldSkipLoadComboWidget(dialogKey, "chk", i)) {
+            connect(checks[i], &QCheckBox::toggled, this, [onControlChanged](bool) { onControlChanged(); });
+        }
+    }
+    for (QSlider* sl : collectPersistableWidgets<QSlider>(dlg)) {
+        connect(sl, &QSlider::valueChanged, this, [onControlChanged](int) { onControlChanged(); });
+    }
+    const auto combos = collectPersistableWidgets<QComboBox>(dlg);
+    for (int i = 0; i < combos.size(); ++i) {
+        if (!shouldSkipLoadComboWidget(dialogKey, "combo", i, combos[i])) {
+            connect(combos[i], QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                    [onControlChanged](int) { onControlChanged(); });
+        }
+    }
+    const auto edits = collectPersistableWidgets<QLineEdit>(dlg);
+    for (int i = 0; i < edits.size(); ++i) {
+        if (!shouldSkipLoadComboWidget(dialogKey, "edit", i)) {
+            connect(edits[i], &QLineEdit::editingFinished, this, [onControlChanged]() { onControlChanged(); });
+        }
+    }
+}
+
+void MainWindow::captureAllOpenDialogsState() const {
+    capturePersistentDialogState(QStringLiteral("LoadCombinationsDialog"), m_loadCombinationsDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("MeshGeneratorDialog"), m_meshGeneratorDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("AnalysisSuiteDialog"), m_analysisSuiteDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("PostProcessControlDialog"), m_postProcessControlDialog.data(), false);
+    capturePersistentDialogState(QStringLiteral("NbrComplianceDialog"), m_nbrComplianceDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("PdfReportOptionsDialog"), m_pdfOptionsDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("GuidedSessionDialog"), m_guidedSessionDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("ManualDialog"), m_manualDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("AboutDialog"), m_aboutDialog.data(), true);
+    capturePersistentDialogState(QStringLiteral("MaterialCatalogDialog"), m_materialCatalogDialog.data(), false);
+    capturePersistentDialogState(QStringLiteral("SectionCatalogDialog"), m_sectionCatalogDialog.data(), false);
+    capturePersistentDialogState(QStringLiteral("RenderSettingsDialog"), m_renderSettingsDialog.data(), false);
+    capturePersistentDialogState(QStringLiteral("StartupSessionDialog"), m_startupSessionDialog.data(), false);
+}
+
+void MainWindow::saveUserPreferences() const {
+    const QJsonObject resultsPanelObj = serializeResultsPanelJson();
+
+    captureAllOpenDialogsState();
+
+    QJsonObject appObj;
+    appObj.insert(QStringLiteral("theme"),
+                  ThemeManager::instance().isLight() ? QStringLiteral("light") : QStringLiteral("dark"));
+    appObj.insert(QStringLiteral("uiStyleMode"),
+                  ThemeManager::instance().isNativeUi() ? QStringLiteral("native") : QStringLiteral("custom"));
+    appObj.insert(QStringLiteral("language"),
+                  locale::GerenciadorTraducao::instance().codigoIdiomaAtual());
+    appObj.insert(QStringLiteral("lastDarkPlaneTheme"), static_cast<int>(m_lastDarkPlaneTheme));
+    appObj.insert(QStringLiteral("lastFileDialogDir"), m_lastFileDialogDir);
+    appObj.insert(QStringLiteral("startupSessionBehavior"),
+                  io::startupSessionBehaviorToKey(m_startupSessionBehavior));
+    appObj.insert(QStringLiteral("confirmUnsavedOnClose"), m_confirmUnsavedOnClose);
+
+    const RenderQualitySettings activeRender =
+        m_viewport ? m_viewport->renderQualitySettings() : loadRenderSettings();
+    const QJsonObject graphicsObj = renderSettingsToJson(activeRender);
+
+    const int persistedInspWidth =
+        (!m_inspectorCollapsed && m_inspectorDock && !m_inspectorDock->isFloating() &&
+         m_inspectorDock->isVisible() && m_inspectorDock->width() >= 200)
+            ? qMax(320, m_inspectorDock->width())
+            : m_inspectorSavedWidth;
+    const int persistedInspFloatH =
+        (!m_inspectorCollapsed && m_inspectorDock && m_inspectorDock->isFloating() &&
+         m_inspectorDock->isVisible() && m_inspectorDock->height() >= 120)
+            ? qMax(260, m_inspectorDock->height())
+            : m_inspectorSavedFloatingHeight;
+
+    QJsonObject inspDockObj;
+    inspDockObj.insert(QStringLiteral("collapsed"), m_inspectorCollapsed);
+    inspDockObj.insert(QStringLiteral("savedWidth"), persistedInspWidth);
+    inspDockObj.insert(QStringLiteral("savedFloatingHeight"), persistedInspFloatH);
+    inspDockObj.insert(QStringLiteral("floating"), m_inspectorDock ? m_inspectorDock->isFloating() : false);
+
+    const int persistedResDockedH =
+        (!m_resultsCollapsed && m_resultsDock && !m_resultsDock->isFloating() &&
+         m_resultsDock->isVisible() && m_resultsDock->height() >= 100)
+            ? qMax(140, m_resultsDock->height())
+            : m_resultsSavedDockedHeight;
+    const int persistedResFloatH =
+        (!m_resultsCollapsed && m_resultsDock && m_resultsDock->isFloating() &&
+         m_resultsDock->isVisible() && m_resultsDock->height() >= 120)
+            ? qMax(180, m_resultsDock->height())
+            : m_resultsSavedFloatingHeight;
+
+    QJsonObject resDockObj;
+    resDockObj.insert(QStringLiteral("collapsed"), m_resultsCollapsed);
+    resDockObj.insert(QStringLiteral("savedDockedHeight"), persistedResDockedH);
+    resDockObj.insert(QStringLiteral("savedFloatingHeight"), persistedResFloatH);
+    resDockObj.insert(QStringLiteral("floating"), m_resultsDock ? m_resultsDock->isFloating() : false);
+
+    const bool persistedMaximized = isVisible() ? isMaximized() : m_preferredStartMaximized;
+    const QSize normalSz =
+        (persistedMaximized && normalGeometry().width() >= 640 && normalGeometry().height() >= 480)
+            ? normalGeometry().size()
+            : size();
+
+    QJsonObject windowObj;
+    windowObj.insert(QStringLiteral("width"), normalSz.width());
+    windowObj.insert(QStringLiteral("height"), normalSz.height());
+    windowObj.insert(QStringLiteral("maximized"), persistedMaximized);
+    windowObj.insert(QStringLiteral("inspectorDock"), inspDockObj);
+    windowObj.insert(QStringLiteral("resultsDock"), resDockObj);
+
+    QJsonObject quickObj;
+    quickObj.insert(QStringLiteral("x"), m_quickXSpin ? m_quickXSpin->value() : 0.0);
+    quickObj.insert(QStringLiteral("y"), m_quickYSpin ? m_quickYSpin->value() : 0.0);
+    quickObj.insert(QStringLiteral("z"), m_quickZSpin ? m_quickZSpin->value() : 0.0);
+
+    QJsonObject post3dObj;
+    post3dObj.insert(QStringLiteral("contourMode"),
+                     m_viewport ? static_cast<int>(m_viewport->postContourMode()) : 0);
+    post3dObj.insert(QStringLiteral("showSurfaceMesh"),
+                     m_viewport ? m_viewport->showSurfaceMesh() : true);
+    post3dObj.insert(QStringLiteral("clipAxis"),
+                     m_viewport ? static_cast<int>(m_viewport->clipAxis()) : 0);
+    post3dObj.insert(QStringLiteral("clipOffset"),
+                     m_viewport ? m_viewport->clipOffset() : 0.0);
+    post3dObj.insert(QStringLiteral("clipInverted"),
+                     m_viewport ? m_viewport->clipInverted() : false);
+    post3dObj.insert(QStringLiteral("animationSpeed"),
+                     m_viewport ? m_viewport->animationSpeed() : 1.0);
+    post3dObj.insert(QStringLiteral("animationAmplitude"),
+                     m_viewport ? m_viewport->animationAmplitude() : 1.0);
+
+    QJsonObject workspaceObj;
+    workspaceObj.insert(QStringLiteral("autoRecalculate"), m_autoRecalculate);
+    workspaceObj.insert(QStringLiteral("interactionMode"),
+                        m_viewport ? static_cast<int>(m_viewport->interactionMode()) : 0);
+    workspaceObj.insert(QStringLiteral("workPlane"),
+                        m_viewport ? static_cast<int>(m_viewport->workPlane())
+                                   : static_cast<int>(WorkPlane::XY_Top));
+    workspaceObj.insert(QStringLiteral("planeOffset"),
+                        m_viewport ? m_viewport->planeOffset() : 0.0);
+    workspaceObj.insert(QStringLiteral("snapToGrid"),
+                        m_viewport ? m_viewport->snapToGrid() : true);
+    workspaceObj.insert(QStringLiteral("gridStep"),
+                        m_viewport ? m_viewport->gridStep() : 0.5);
+    workspaceObj.insert(QStringLiteral("showLocalAxes"),
+                        m_viewport ? m_viewport->showLocalAxes() : false);
+    workspaceObj.insert(QStringLiteral("showReactions"),
+                        m_viewport ? m_viewport->showReactions() : true);
+    workspaceObj.insert(QStringLiteral("activeDiagram"),
+                        m_viewport ? static_cast<int>(m_viewport->activeDiagram()) : 0);
+    workspaceObj.insert(QStringLiteral("scaleSliderValue"),
+                        m_scaleSlider ? m_scaleSlider->value() : 30);
+    workspaceObj.insert(QStringLiteral("quickNodeInput"), quickObj);
+    workspaceObj.insert(QStringLiteral("postProcessing3D"), post3dObj);
+
+    QJsonObject guidedSessionObj = io::UserPreferencesStore::readSection(QStringLiteral("guidedSession"));
+    if (m_guidedSessionDialog) {
+        guidedSessionObj.insert(
+            QStringLiteral("stepHighlightColor"),
+            m_guidedSessionDialog->stepHighlightColor().name(QColor::HexRgb).toUpper());
+        QJsonArray phaseColorsArr;
+        const int phaseCount = m_guidedSessionDialog->maxPhasesCount();
+        for (int p = 1; p <= phaseCount; ++p) {
+            phaseColorsArr.append(m_guidedSessionDialog->phaseHighlightColor(p).name(QColor::HexRgb).toUpper());
+        }
+        guidedSessionObj.insert(QStringLiteral("phaseHighlightColors"), phaseColorsArr);
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("version"), io::UserPreferencesStore::kCurrentSchemaVersion);
+    root.insert(QStringLiteral("app"), appObj);
+    root.insert(QStringLiteral("graphics"), graphicsObj);
+    root.insert(QStringLiteral("window"), windowObj);
+    root.insert(QStringLiteral("workspace"), workspaceObj);
+    root.insert(QStringLiteral("dialogs"), m_savedDialogsStateJson);
+    root.insert(QStringLiteral("resultsPanel"), resultsPanelObj);
+    if (!guidedSessionObj.isEmpty()) {
+        root.insert(QStringLiteral("guidedSession"), guidedSessionObj);
+    }
+
+    io::UserPreferencesStore::writeRootObject(root);
+}
+
+bool MainWindow::loadUserPreferences() {
+    bool loadedOk = false;
+    const QJsonObject root = io::UserPreferencesStore::readRootObject(&loadedOk);
+    if (!loadedOk || root.isEmpty()) {
+        return false;
+    }
+
+    const ScopedBoolFlag guard(m_rebuildingOrLoadingResultsSettings);
+
+    if (const QJsonObject resultsObj = root.value(QStringLiteral("resultsPanel")).toObject();
+        !resultsObj.isEmpty()) {
+        deserializeResultsPanelJson(resultsObj);
+    }
+
+    if (const QJsonObject graphicsObj = root.value(QStringLiteral("graphics")).toObject();
+        !graphicsObj.isEmpty()) {
+        const RenderQualitySettings loadedRender = renderSettingsFromJson(graphicsObj);
+        m_renderSettingsSnapshot = loadedRender;
+        if (!QOpenGLContext::globalShareContext()) {
+            QSurfaceFormat::setDefaultFormat(buildPreferredSurfaceFormat(loadedRender));
+        }
+        if (m_viewport) {
+            m_viewport->setRenderQualitySettings(loadedRender);
+        }
+        if (loadedRender.planeTheme != ActivePlaneTheme::CleanLight) {
+            m_lastDarkPlaneTheme = loadedRender.planeTheme;
+        }
+        syncRenderSettingsMenuState();
+        if (m_renderSettingsDialog && m_viewport) {
+            m_renderSettingsDialog->syncSettings(loadedRender, m_viewport->graphicsCapabilities());
+        }
+    }
+
+    if (const QJsonObject appObj = root.value(QStringLiteral("app")).toObject(); !appObj.isEmpty()) {
+        const QString prevLang = locale::GerenciadorTraducao::instance().codigoIdiomaAtual();
+        if (locale::GerenciadorTraducao::instance().reloadSavedLanguage()) {
+            if (prevLang != locale::GerenciadorTraducao::instance().codigoIdiomaAtual()) {
+                retranslateUi();
+            }
+        }
+        (void)ThemeManager::instance().reloadSavedTheme();
+        syncThemeMenuState();
+        syncUiStyleMenuState();
+
+        const int darkPlaneInt = appObj.value(QStringLiteral("lastDarkPlaneTheme"))
+                                     .toInt(static_cast<int>(m_lastDarkPlaneTheme));
+        if (darkPlaneInt >= static_cast<int>(ActivePlaneTheme::ObsidianDark) &&
+            darkPlaneInt <= static_cast<int>(ActivePlaneTheme::GraphiteDark)) {
+            m_lastDarkPlaneTheme = static_cast<ActivePlaneTheme>(darkPlaneInt);
+        }
+        if (appObj.contains(QStringLiteral("lastFileDialogDir"))) {
+            m_lastFileDialogDir = appObj.value(QStringLiteral("lastFileDialogDir")).toString();
+        }
+        const QJsonValue startupVal = appObj.value(QStringLiteral("startupSessionBehavior"));
+        if (startupVal.isString()) {
+            m_startupSessionBehavior = io::startupSessionBehaviorFromKey(startupVal.toString(), 0);
+        } else if (startupVal.isDouble()) {
+            m_startupSessionBehavior = io::startupSessionBehaviorFromKey(QString(), startupVal.toInt(0));
+        } else {
+            m_startupSessionBehavior = io::StartupSessionBehavior::AskOnStartup;
+        }
+        m_confirmUnsavedOnClose = appObj.value(QStringLiteral("confirmUnsavedOnClose")).toBool(true);
+        syncStartupSessionMenuState();
+        if (m_startupSessionDialog) {
+            m_startupSessionDialog->syncSettings(m_startupSessionBehavior, m_confirmUnsavedOnClose);
+        }
+    }
+
+    if (const QJsonObject wsObj = root.value(QStringLiteral("workspace")).toObject(); !wsObj.isEmpty()) {
+        m_autoRecalculate = wsObj.value(QStringLiteral("autoRecalculate")).toBool(true);
+        if (m_actAutoRecalc) {
+            const QSignalBlocker b(m_actAutoRecalc);
+            m_actAutoRecalc->setChecked(m_autoRecalculate);
+        }
+
+        if (m_viewport) {
+            const int modeInt = std::clamp(
+                wsObj.value(QStringLiteral("interactionMode")).toInt(static_cast<int>(InteractionMode::Select)),
+                static_cast<int>(InteractionMode::Select),
+                static_cast<int>(InteractionMode::Delete));
+            const auto mode = static_cast<InteractionMode>(modeInt);
+            m_viewport->setInteractionMode(mode);
+            auto checkModeAct = [](QAction* act, bool on) {
+                if (act) {
+                    const QSignalBlocker b(act);
+                    act->setChecked(on);
+                }
+            };
+            checkModeAct(m_actSelect, mode == InteractionMode::Select);
+            checkModeAct(m_actAddNode, mode == InteractionMode::AddNode);
+            checkModeAct(m_actAddElement, mode == InteractionMode::AddElement);
+            checkModeAct(m_actMeasure, mode == InteractionMode::Measure);
+            checkModeAct(m_actDelete, mode == InteractionMode::Delete);
+
+            const int wpInt = std::clamp(
+                wsObj.value(QStringLiteral("workPlane")).toInt(static_cast<int>(WorkPlane::XY_Top)),
+                0, 2);
+            const auto wp = static_cast<WorkPlane>(wpInt);
+            m_viewport->setWorkPlane(wp);
+            if (m_planeCombo) {
+                const QSignalBlocker b(m_planeCombo);
+                const int idx = m_planeCombo->findData(wpInt);
+                if (idx >= 0) {
+                    m_planeCombo->setCurrentIndex(idx);
+                }
+            }
+
+            const double planeOffset = std::clamp(wsObj.value(QStringLiteral("planeOffset")).toDouble(0.0),
+                                                  -1000.0, 1000.0);
+            m_viewport->setPlaneOffset(planeOffset);
+            if (m_planeOffsetSpin) {
+                const QSignalBlocker b(m_planeOffsetSpin);
+                m_planeOffsetSpin->setValue(planeOffset);
+            }
+
+            const bool snap = wsObj.value(QStringLiteral("snapToGrid")).toBool(true);
+            m_viewport->setSnapToGrid(snap);
+            if (m_actSnap) {
+                const QSignalBlocker b(m_actSnap);
+                m_actSnap->setChecked(snap);
+            }
+
+            const double gridStep = std::clamp(wsObj.value(QStringLiteral("gridStep")).toDouble(0.5), 0.05, 50.0);
+            m_viewport->setGridStep(gridStep);
+            if (m_gridStepSpin) {
+                const QSignalBlocker b(m_gridStepSpin);
+                m_gridStepSpin->setValue(gridStep);
+            }
+
+            const bool showLocalAxes = wsObj.value(QStringLiteral("showLocalAxes")).toBool(false);
+            m_viewport->setShowLocalAxes(showLocalAxes);
+            if (m_actLocalAxes) {
+                const QSignalBlocker b(m_actLocalAxes);
+                m_actLocalAxes->setChecked(showLocalAxes);
+            }
+
+            const bool showReactions = wsObj.value(QStringLiteral("showReactions")).toBool(true);
+            m_viewport->setShowReactions(showReactions);
+            if (m_actReactions) {
+                const QSignalBlocker b(m_actReactions);
+                m_actReactions->setChecked(showReactions);
+            }
+
+            const int scaleVal = std::clamp(wsObj.value(QStringLiteral("scaleSliderValue")).toInt(30), 1, 100);
+            if (m_scaleSlider) {
+                const QSignalBlocker b(m_scaleSlider);
+                m_scaleSlider->setValue(scaleVal);
+            }
+            m_viewport->setDiagramScale(scaleVal / 30.0);
+            m_viewport->setDeformedScale(scaleVal * 1.5);
+
+            if (wsObj.contains(QStringLiteral("activeDiagram"))) {
+                const int diagInt = std::clamp(wsObj.value(QStringLiteral("activeDiagram")).toInt(0), 0, 7);
+                const auto diag = static_cast<DiagramType>(diagInt);
+                m_viewport->setActiveDiagram(diag);
+                if (m_diagramCombo) {
+                    const QSignalBlocker b(m_diagramCombo);
+                    const int idx = m_diagramCombo->findData(diagInt);
+                    if (idx >= 0) {
+                        m_diagramCombo->setCurrentIndex(idx);
+                    }
+                }
+                m_hasLoadedCustomDiagram = true;
+            }
+
+            if (const QJsonObject ppObj = wsObj.value(QStringLiteral("postProcessing3D")).toObject();
+                !ppObj.isEmpty()) {
+                const int cmInt = std::clamp(ppObj.value(QStringLiteral("contourMode")).toInt(0), 0, 3);
+                const auto cm = static_cast<Viewport3D::PostContourMode>(cmInt);
+                if (cm == Viewport3D::PostContourMode::NbrComplianceDcr) {
+                    m_viewport->setElementDcrMap(computeModelDcrMap());
+                }
+                m_viewport->setPostContourMode(cm);
+                m_viewport->setShowSurfaceMesh(ppObj.value(QStringLiteral("showSurfaceMesh")).toBool(true));
+
+                const int clipAxisInt = std::clamp(ppObj.value(QStringLiteral("clipAxis")).toInt(0), 0, 3);
+                const double clipOffset = ppObj.value(QStringLiteral("clipOffset")).toDouble(0.0);
+                const bool clipInv = ppObj.value(QStringLiteral("clipInverted")).toBool(false);
+                m_viewport->setClipPlane(static_cast<Viewport3D::ClipAxis>(clipAxisInt), clipOffset, clipInv);
+
+                const double animSpeed = std::clamp(ppObj.value(QStringLiteral("animationSpeed")).toDouble(1.0), 0.2, 5.0);
+                const double animAmp = std::clamp(ppObj.value(QStringLiteral("animationAmplitude")).toDouble(1.0), 0.1, 10.0);
+                m_viewport->setAnimationSpeed(animSpeed);
+                m_viewport->setAnimationAmplitude(animAmp);
+
+                if (m_postProcessControlDialog) {
+                    m_postProcessControlDialog->syncFromViewport();
+                }
+            }
+        }
+
+        if (const QJsonObject quickObj = wsObj.value(QStringLiteral("quickNodeInput")).toObject();
+            !quickObj.isEmpty()) {
+            if (m_quickXSpin) {
+                const QSignalBlocker b(m_quickXSpin);
+                m_quickXSpin->setValue(quickObj.value(QStringLiteral("x")).toDouble(0.0));
+            }
+            if (m_quickYSpin) {
+                const QSignalBlocker b(m_quickYSpin);
+                m_quickYSpin->setValue(quickObj.value(QStringLiteral("y")).toDouble(0.0));
+            }
+            if (m_quickZSpin) {
+                const QSignalBlocker b(m_quickZSpin);
+                m_quickZSpin->setValue(quickObj.value(QStringLiteral("z")).toDouble(0.0));
+            }
+        }
+    }
+
+    if (const QJsonObject winObj = root.value(QStringLiteral("window")).toObject(); !winObj.isEmpty()) {
+        m_preferredStartMaximized = winObj.value(QStringLiteral("maximized")).toBool(true);
+        if (!m_preferredStartMaximized) {
+            const int winW = winObj.value(QStringLiteral("width")).toInt(0);
+            const int winH = winObj.value(QStringLiteral("height")).toInt(0);
+            if (winW >= 640 && winH >= 480) {
+                QSize targetSize(winW, winH);
+                if (const QScreen* scr = screen() ? screen() : QGuiApplication::primaryScreen()) {
+                    const QRect avail = scr->availableGeometry();
+                    if (avail.isValid()) {
+                        targetSize.setWidth(std::min(targetSize.width(), avail.width()));
+                        targetSize.setHeight(std::min(targetSize.height(), avail.height()));
+                    }
+                }
+                resize(targetSize);
+            }
+        }
+
+        if (const QJsonObject inspObj = winObj.value(QStringLiteral("inspectorDock")).toObject();
+            !inspObj.isEmpty()) {
+            m_inspectorSavedWidth = std::max(320, inspObj.value(QStringLiteral("savedWidth")).toInt(320));
+            m_inspectorSavedFloatingHeight = std::max(260, inspObj.value(QStringLiteral("savedFloatingHeight")).toInt(520));
+            const bool inspFloating = inspObj.value(QStringLiteral("floating")).toBool(false);
+            if (m_inspectorDock && m_inspectorDock->isFloating() != inspFloating) {
+                m_inspectorDock->setFloating(inspFloating);
+            }
+            const bool inspCollapsed = inspObj.value(QStringLiteral("collapsed")).toBool(false);
+            if (m_inspectorCollapsed != inspCollapsed) {
+                setInspectorDockCollapsed(inspCollapsed);
+            } else if (!inspCollapsed && m_inspectorDock && !m_inspectorDock->isFloating()) {
+                resizeDocks({m_inspectorDock}, {m_inspectorSavedWidth}, Qt::Horizontal);
+                m_inspectorDock->setMaximumWidth(QWIDGETSIZE_MAX);
+                scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+            }
+        }
+        if (const QJsonObject resObj = winObj.value(QStringLiteral("resultsDock")).toObject();
+            !resObj.isEmpty()) {
+            m_resultsSavedDockedHeight = std::max(140, resObj.value(QStringLiteral("savedDockedHeight")).toInt(200));
+            m_resultsSavedFloatingHeight = std::max(180, resObj.value(QStringLiteral("savedFloatingHeight")).toInt(240));
+            const bool resFloating = resObj.value(QStringLiteral("floating")).toBool(false);
+            if (m_resultsDock && m_resultsDock->isFloating() != resFloating) {
+                m_resultsDock->setFloating(resFloating);
+            }
+            const bool resCollapsed = resObj.value(QStringLiteral("collapsed")).toBool(false);
+            if (m_resultsCollapsed != resCollapsed) {
+                setResultsDockCollapsed(resCollapsed);
+            } else if (!resCollapsed && m_resultsDock && !m_resultsDock->isFloating()) {
+                resizeDocks({m_resultsDock}, {m_resultsSavedDockedHeight}, Qt::Vertical);
+                m_resultsDock->setMaximumHeight(QWIDGETSIZE_MAX);
+                scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+            }
+        }
+    }
+
+    m_savedDialogsStateJson = root.value(QStringLiteral("dialogs")).toObject();
+    if (m_loadCombinationsDialog) restorePersistentDialogState(QStringLiteral("LoadCombinationsDialog"), m_loadCombinationsDialog.data(), true);
+    if (m_meshGeneratorDialog) restorePersistentDialogState(QStringLiteral("MeshGeneratorDialog"), m_meshGeneratorDialog.data(), true);
+    if (m_analysisSuiteDialog) restorePersistentDialogState(QStringLiteral("AnalysisSuiteDialog"), m_analysisSuiteDialog.data(), true);
+    if (m_postProcessControlDialog) restorePersistentDialogState(QStringLiteral("PostProcessControlDialog"), m_postProcessControlDialog.data(), false);
+    if (m_nbrComplianceDialog) restorePersistentDialogState(QStringLiteral("NbrComplianceDialog"), m_nbrComplianceDialog.data(), true);
+    if (m_pdfOptionsDialog) restorePersistentDialogState(QStringLiteral("PdfReportOptionsDialog"), m_pdfOptionsDialog.data(), true);
+    if (m_guidedSessionDialog) {
+        restorePersistentDialogState(QStringLiteral("GuidedSessionDialog"), m_guidedSessionDialog.data(), true);
+        const QJsonObject guidedObj = root.value(QStringLiteral("guidedSession")).toObject();
+        if (guidedObj.contains(QStringLiteral("phaseHighlightColors"))) {
+            const QJsonArray arr = guidedObj.value(QStringLiteral("phaseHighlightColors")).toArray();
+            for (int i = 0; i < arr.size(); ++i) {
+                const QColor c(arr.at(i).toString().trimmed());
+                if (c.isValid()) {
+                    m_guidedSessionDialog->setPhaseHighlightColor(i + 1, c);
+                }
+            }
+        } else if (guidedObj.contains(QStringLiteral("stepHighlightColor"))) {
+            const QColor savedColor(guidedObj.value(QStringLiteral("stepHighlightColor")).toString().trimmed());
+            if (savedColor.isValid()) {
+                m_guidedSessionDialog->setStepHighlightColor(savedColor);
+            }
+        }
+    }
+    if (m_manualDialog) restorePersistentDialogState(QStringLiteral("ManualDialog"), m_manualDialog.data(), true);
+    if (m_aboutDialog) restorePersistentDialogState(QStringLiteral("AboutDialog"), m_aboutDialog.data(), true);
+    if (m_materialCatalogDialog) restorePersistentDialogState(QStringLiteral("MaterialCatalogDialog"), m_materialCatalogDialog.data(), false);
+    if (m_sectionCatalogDialog) restorePersistentDialogState(QStringLiteral("SectionCatalogDialog"), m_sectionCatalogDialog.data(), false);
+    if (m_renderSettingsDialog) restorePersistentDialogState(QStringLiteral("RenderSettingsDialog"), m_renderSettingsDialog.data(), false);
+    if (m_startupSessionDialog) restorePersistentDialogState(QStringLiteral("StartupSessionDialog"), m_startupSessionDialog.data(), false);
+
+    if (m_viewport) {
+        m_viewport->update();
+    }
+    return true;
+}
+
+void MainWindow::restoreAllDefaultSettings() {
+    {
+        const ScopedBoolFlag guard(m_rebuildingOrLoadingResultsSettings);
+
+        m_autoRecalculate = true;
+        if (m_actAutoRecalc) {
+            const QSignalBlocker b(m_actAutoRecalc);
+            m_actAutoRecalc->setChecked(true);
+        }
+        m_hasLoadedCustomDiagram = false;
+
+        if (m_actSelect) {
+            const QSignalBlocker b(m_actSelect);
+            m_actSelect->setChecked(true);
+        }
+
+        if (m_viewport) {
+            m_viewport->setInteractionMode(InteractionMode::Select);
+            applyDefaultExampleWorkPlane();
+
+            if (m_actSnap) {
+                const QSignalBlocker b(m_actSnap);
+                m_actSnap->setChecked(true);
+            }
+            m_viewport->setSnapToGrid(true);
+
+            if (m_gridStepSpin) {
+                const QSignalBlocker b(m_gridStepSpin);
+                m_gridStepSpin->setValue(0.5);
+            }
+            m_viewport->setGridStep(0.5);
+
+            if (m_actLocalAxes) {
+                const QSignalBlocker b(m_actLocalAxes);
+                m_actLocalAxes->setChecked(false);
+            }
+            m_viewport->setShowLocalAxes(false);
+
+            if (m_actReactions) {
+                const QSignalBlocker b(m_actReactions);
+                m_actReactions->setChecked(true);
+            }
+            m_viewport->setShowReactions(true);
+
+            const DiagramType defDiag = m_lastSolverResult.success ? DiagramType::Deformed : DiagramType::None;
+            if (m_diagramCombo) {
+                const QSignalBlocker b(m_diagramCombo);
+                const int idx = m_diagramCombo->findData(static_cast<int>(defDiag));
+                if (idx >= 0) {
+                    m_diagramCombo->setCurrentIndex(idx);
+                }
+            }
+            m_viewport->setActiveDiagram(defDiag);
+
+            if (m_scaleSlider) {
+                const QSignalBlocker b(m_scaleSlider);
+                m_scaleSlider->setValue(30);
+            }
+            m_viewport->setDiagramScale(1.0);
+            m_viewport->setDeformedScale(45.0);
+
+            m_viewport->clearElementDcrMap();
+            m_viewport->setPostContourMode(Viewport3D::PostContourMode::None);
+            m_viewport->setShowSurfaceMesh(true);
+            m_viewport->setClipPlane(Viewport3D::ClipAxis::None, 0.0, false);
+            m_viewport->clearPostAnimation();
+            m_viewport->setAnimationSpeed(1.0);
+            m_viewport->setAnimationAmplitude(1.0);
+            if (m_postProcessControlDialog) {
+                m_postProcessControlDialog->syncFromViewport();
+            }
+        }
+
+        if (m_quickXSpin) {
+            const QSignalBlocker b(m_quickXSpin);
+            m_quickXSpin->setValue(0.0);
+        }
+        if (m_quickYSpin) {
+            const QSignalBlocker b(m_quickYSpin);
+            m_quickYSpin->setValue(0.0);
+        }
+        if (m_quickZSpin) {
+            const QSignalBlocker b(m_quickZSpin);
+            m_quickZSpin->setValue(0.0);
+        }
+
+        m_inspectorSavedWidth = 320;
+        m_inspectorSavedFloatingHeight = 520;
+        m_resultsSavedDockedHeight = 200;
+        m_resultsSavedFloatingHeight = 240;
+        m_preferredStartMaximized = true;
+        m_lastDarkPlaneTheme = ActivePlaneTheme::ObsidianDark;
+        if (m_inspectorCollapsed) {
+            setInspectorDockCollapsed(false);
+        } else if (m_inspectorDock && !m_inspectorDock->isFloating()) {
+            resizeDocks({m_inspectorDock}, {m_inspectorSavedWidth}, Qt::Horizontal);
+            m_inspectorDock->setMaximumWidth(QWIDGETSIZE_MAX);
+            scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+        }
+        if (m_resultsCollapsed) {
+            setResultsDockCollapsed(false);
+        } else if (m_resultsDock && !m_resultsDock->isFloating()) {
+            resizeDocks({m_resultsDock}, {m_resultsSavedDockedHeight}, Qt::Vertical);
+            m_resultsDock->setMaximumHeight(QWIDGETSIZE_MAX);
+            scheduleDockSeparatorRepaint(this, m_resultsSplitter);
+        }
+
+        m_savedDialogsStateJson = QJsonObject{};
+        if (m_guidedSessionDialog) {
+            m_guidedSessionDialog->resetAllPhaseHighlightColors();
+        }
+        io::UserPreferencesStore::updateSection(QStringLiteral("guidedSession"), QJsonObject{});
+        m_lastFileDialogDir.clear();
+        m_startupSessionBehavior = io::StartupSessionBehavior::AskOnStartup;
+        m_confirmUnsavedOnClose = true;
+        syncStartupSessionMenuState();
+        if (m_startupSessionDialog) {
+            m_startupSessionDialog->syncSettings(m_startupSessionBehavior, m_confirmUnsavedOnClose);
+        }
+
+        resetResultsLayoutsToDefault();
+        if (m_tableConfigurator) {
+            for (QTableWidget* tbl : {m_dispTable, m_reacTable, m_forcesTable, m_continuumTable}) {
+                if (tbl != nullptr) {
+                    m_tableConfigurator->resetAllDefaults(tbl);
+                }
+            }
+        }
+
+        ThemeManager::instance().setUiStyleMode(UiStyleMode::Custom);
+        onRestoreDefaultRenderSettings();
+    }
+
+    saveUserPreferences();
+    if (m_viewport) {
+        m_viewport->update();
+    }
+}
+
+void MainWindow::onSaveAllSettingsNow() {
+    saveUserPreferences();
+    showStatusMessage(locale::GerenciadorTraducao::trText(
+        "Todas as configurações e preferências foram salvas em AppData/Local/OmniFrame/user_preferences.json."));
+}
+
+void MainWindow::onReloadSavedSettings() {
+    loadUserPreferences();
+    showStatusMessage(locale::GerenciadorTraducao::trText(
+        "Configurações e preferências recarregadas com sucesso."));
+}
+
+void MainWindow::onRestoreAllDefaultSettings() {
+    restoreAllDefaultSettings();
+    showStatusMessage(locale::GerenciadorTraducao::trText(
+        "Todas as configurações e preferências foram restauradas para o padrão."));
+}
+
+void MainWindow::setResultsLayoutCount(int count) {
+    const int clamped = std::clamp(count, 1, 4);
+    if (m_resultsLayoutCount == clamped && m_resultsSplitter != nullptr) {
+        syncResultsLayoutsMenuState();
+        return;
+    }
+    const int oldModeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+    if (m_resultsSplitter != nullptr && m_resultsSplitter->isVisible()) {
+        const QList<int> prevSizes = m_resultsSplitter->sizes();
+        if (prevSizes.size() == m_resultsLayoutCount) {
+            int total = 0;
+            for (int s : prevSizes) {
+                total += s;
+            }
+            if (total > 0) {
+                m_resultsSplitterSizesByMode[static_cast<std::size_t>(oldModeIdx)] = prevSizes;
+            }
+        }
+    }
+    m_resultsLayoutCount = clamped;
+    rebuildResultsLayoutsUi();
+    if (m_resultsSplitter != nullptr) {
+        const int newModeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+        QList<int> sizes = m_resultsSplitterSizesByMode[static_cast<std::size_t>(newModeIdx)];
+        if (sizes.size() != m_resultsSplitter->count()) {
+            sizes.clear();
+            sizes.reserve(m_resultsSplitter->count());
+            for (int i = 0; i < m_resultsSplitter->count(); ++i) {
+                sizes.append(1000);
+            }
+            m_resultsSplitterSizesByMode[static_cast<std::size_t>(newModeIdx)] = sizes;
+        }
+        m_resultsSplitter->setSizes(sizes);
+    }
+    syncResultsLayoutsMenuState();
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+void MainWindow::setResultsLayoutTableVisible(int layoutIndex, ui::ResultTableKind kind, bool visible) {
+    if (layoutIndex < 0 || layoutIndex >= 4) {
+        return;
+    }
+    const int k = static_cast<int>(kind);
+    if (k < 0 || k >= 4) {
+        return;
+    }
+    const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+    if (m_resultsModeTableAssign[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(layoutIndex)][static_cast<std::size_t>(k)] == visible) {
+        return;
+    }
+    m_resultsModeTableAssign[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(layoutIndex)][static_cast<std::size_t>(k)] = visible;
+    rebuildResultsLayoutsUi();
+    syncResultsLayoutsMenuState();
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+bool MainWindow::isResultsLayoutTableVisible(int layoutIndex, ui::ResultTableKind kind) const {
+    if (layoutIndex < 0 || layoutIndex >= 4) {
+        return false;
+    }
+    const int k = static_cast<int>(kind);
+    if (k < 0 || k >= 4) {
+        return false;
+    }
+    const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+    return m_resultsModeTableAssign[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(layoutIndex)][static_cast<std::size_t>(k)];
+}
+
+void MainWindow::resetResultsLayoutsToDefault() {
+    initDefaultResultsLayoutAssignments();
+    m_resultsLayoutCount = 1;
+    rebuildResultsLayoutsUi();
+    if (m_resultsSplitter != nullptr) {
+        m_resultsSplitter->setSizes({1000});
+    }
+    syncResultsLayoutsMenuState();
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+QTabWidget* MainWindow::resultsLayoutTabWidget(int layoutIndex) const {
+    if (layoutIndex < 0 || layoutIndex >= 4) {
+        return nullptr;
+    }
+    return m_resultsLayoutTabWidgets[static_cast<std::size_t>(layoutIndex)];
+}
+
+void MainWindow::rebuildResultsLayoutsUi() {
+    if (!m_resultsSplitter || !m_hiddenTablesHost) {
+        return;
+    }
+
+    const bool prevGuard = m_rebuildingOrLoadingResultsSettings;
+    m_rebuildingOrLoadingResultsSettings = true;
+
+    auto primaryForKind = [this](int k) -> QTableWidget* {
+        switch (k) {
+        case 0: return m_dispTable;
+        case 1: return m_reacTable;
+        case 2: return m_forcesTable;
+        case 3: return m_continuumTable;
+        default: return nullptr;
+        }
+    };
+
+    // Detach inactive layout containers into hidden host and active tables safely
+    for (int L = 0; L < 4; ++L) {
+        if (QTabWidget* tabW = m_resultsLayoutTabWidgets[static_cast<std::size_t>(L)]) {
+            while (tabW->count() > 0) {
+                tabW->removeTab(0);
+            }
+            if (L >= m_resultsLayoutCount) {
+                tabW->hide();
+                tabW->setParent(m_hiddenTablesHost);
+            }
+        }
+    }
+
+    auto stashHiddenTable = [this](QTableWidget* tbl) {
+        if (tbl != nullptr) {
+            tbl->hide();
+            tbl->setParent(m_hiddenTablesHost);
+        }
+    };
+    for (int k = 0; k < 4; ++k) {
+        stashHiddenTable(primaryForKind(k));
+        for (int L = 0; L < 4; ++L) {
+            stashHiddenTable(m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)]);
+        }
+    }
+
+    std::array<bool, 4> primaryPlaced{};
+    const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+    const bool isLight = ThemeManager::instance().isLight();
+
+    for (int L = 0; L < m_resultsLayoutCount; ++L) {
+        QTabWidget* tabW = m_resultsLayoutTabWidgets[static_cast<std::size_t>(L)];
+        if (tabW == nullptr) {
+            continue;
+        }
+        for (int k = 0; k < 4; ++k) {
+            if (!m_resultsModeTableAssign[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(L)][static_cast<std::size_t>(k)]) {
+                continue;
+            }
+            const auto kind = static_cast<ui::ResultTableKind>(k);
+            QTableWidget* tblToInsert = nullptr;
+            if (!primaryPlaced[static_cast<std::size_t>(k)]) {
+                primaryPlaced[static_cast<std::size_t>(k)] = true;
+                tblToInsert = primaryForKind(k);
+            } else {
+                QTableWidget*& cloneRef = m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)];
+                if (cloneRef == nullptr) {
+                    cloneRef = new QTableWidget(m_hiddenTablesHost);
+                    cloneRef->setObjectName(QStringLiteral("extraResultsTable_L%1_K%2").arg(L).arg(k));
+                    if (m_tableConfigurator) {
+                        m_tableConfigurator->configureTable(
+                            cloneRef, kind, resultTableHeaders(kind), isLight);
+                    }
+                }
+                tblToInsert = cloneRef;
+            }
+            if (tblToInsert != nullptr) {
+                const QString tabTitle = resultTableTabTitle(kind);
+                const int tabIdx = tabW->addTab(tblToInsert, tabTitle);
+                tabW->setTabToolTip(tabIdx, tabTitle);
+                tblToInsert->show();
+            }
+        }
+        const int savedTab = m_resultsActiveTabByMode[static_cast<std::size_t>(modeIdx)][static_cast<std::size_t>(L)];
+        if (savedTab >= 0 && savedTab < tabW->count()) {
+            tabW->setCurrentIndex(savedTab);
+        }
+        if (tabW->parentWidget() != m_resultsSplitter) {
+            m_resultsSplitter->insertWidget(L, tabW);
+        }
+        tabW->show();
+    }
+
+    syncExtraLayoutTables();
+    m_rebuildingOrLoadingResultsSettings = prevGuard;
+}
+
+void MainWindow::syncResultsLayoutsMenuState() {
+    for (int i = 0; i < 4; ++i) {
+        if (QAction* actCnt = m_actResultsLayoutCount[static_cast<std::size_t>(i)]) {
+            const QSignalBlocker b(actCnt);
+            actCnt->setChecked((i + 1) == m_resultsLayoutCount);
+        }
+    }
+
+    const int modeIdx = std::clamp(m_resultsLayoutCount - 1, 0, 3);
+    for (int L = 0; L < 4; ++L) {
+        if (QMenu* subMenu = m_resultsLayoutConfigMenus[static_cast<std::size_t>(L)]) {
+            subMenu->setEnabled(L < m_resultsLayoutCount);
+        }
+        for (int k = 0; k < 4; ++k) {
+            if (QAction* actTbl = m_actResultsLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)]) {
+                const QSignalBlocker b(actTbl);
+                actTbl->setChecked(
+                    m_resultsModeTableAssign[static_cast<std::size_t>(modeIdx)]
+                                            [static_cast<std::size_t>(L)]
+                                            [static_cast<std::size_t>(k)]);
+            }
+        }
+    }
+}
+
+void MainWindow::syncExtraLayoutTables() {
+    auto primaryForKind = [this](int k) -> const QTableWidget* {
+        switch (k) {
+        case 0: return m_dispTable;
+        case 1: return m_reacTable;
+        case 2: return m_forcesTable;
+        case 3: return m_continuumTable;
+        default: return nullptr;
+        }
+    };
+
+    for (int L = 0; L < 4; ++L) {
+        for (int k = 0; k < 4; ++k) {
+            QTableWidget* dst = m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)];
+            if (dst == nullptr || dst->parentWidget() == m_hiddenTablesHost) {
+                continue;
+            }
+            const QTableWidget* src = primaryForKind(k);
+            if (src == nullptr) {
+                continue;
+            }
+
+            {
+                const QSignalBlocker blocker(dst);
+                const int rows = src->rowCount();
+                const int cols = src->columnCount();
+                dst->setRowCount(rows);
+                if (dst->columnCount() != cols) {
+                    dst->setColumnCount(cols);
+                }
+                for (int r = 0; r < rows; ++r) {
+                    for (int c = 0; c < cols; ++c) {
+                        const QTableWidgetItem* sItem = src->item(r, c);
+                        if (sItem != nullptr) {
+                            dst->setItem(r, c, new QTableWidgetItem(*sItem));
+                        } else {
+                            dst->setItem(r, c, nullptr);
+                        }
+                    }
+                }
+            }
+            if (m_tableConfigurator) {
+                m_tableConfigurator->afterTablePopulated(dst);
+            }
+        }
+    }
+    refreshReactionSummaryRowTheme();
 }
 
 void MainWindow::updateCursorCoordinates(double x, double y, double z) {
@@ -3011,13 +5573,17 @@ void MainWindow::updateCursorCoordinates(double x, double y, double z) {
 }
 
 void MainWindow::showStatusMessage(const QString& msg) {
+    io::AppLogger::info(QStringLiteral("Status"), msg);
     statusBar()->showMessage(msg, 5000);
 }
 
 void MainWindow::onManual() {
     openManagedInfoDialog(
         m_windowManager, m_manualDialog, true,
-        []() { return new ui::ManualDialog(nullptr); }
+        []() { return new ui::ManualDialog(nullptr); },
+        [this](ui::ManualDialog* dlg) {
+            bindPersistentDialog(QStringLiteral("ManualDialog"), dlg, true);
+        }
     );
 }
 
@@ -3033,6 +5599,12 @@ void MainWindow::onGuidedSession() {
     auto* dlg = new GuidedSessionDialog(this, nullptr);
     m_guidedSessionDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("GuidedSessionDialog"), dlg, true);
+    connect(dlg, &GuidedSessionDialog::stepHighlightColorChanged, this, [this](const QColor&) {
+        if (!m_rebuildingOrLoadingResultsSettings) {
+            saveUserPreferences();
+        }
+    });
     dlg->positionHudNearMainWindow();
     m_windowManager->showAndRaise(dlg);
 }
@@ -3040,7 +5612,10 @@ void MainWindow::onGuidedSession() {
 void MainWindow::onAbout() {
     openManagedInfoDialog(
         m_windowManager, m_aboutDialog, true,
-        []() { return new AboutDialog(nullptr); }
+        []() { return new AboutDialog(nullptr); },
+        [this](AboutDialog* dlg) {
+            bindPersistentDialog(QStringLiteral("AboutDialog"), dlg, true);
+        }
     );
 }
 
@@ -3135,8 +5710,9 @@ void MainWindow::applyAndSaveRenderSettings(const RenderQualitySettings& setting
     if (settings.planeTheme != ActivePlaneTheme::CleanLight) {
         m_lastDarkPlaneTheme = settings.planeTheme;
     }
-    saveRenderSettings(settings);
-    QSurfaceFormat::setDefaultFormat(buildPreferredSurfaceFormat(settings));
+    if (!QOpenGLContext::globalShareContext()) {
+        QSurfaceFormat::setDefaultFormat(buildPreferredSurfaceFormat(settings));
+    }
     m_renderSettingsSnapshot = settings;
     if (m_viewport) {
         m_viewport->setRenderQualitySettings(settings);
@@ -3144,6 +5720,13 @@ void MainWindow::applyAndSaveRenderSettings(const RenderQualitySettings& setting
     syncRenderSettingsMenuState();
     if (m_renderSettingsDialog && m_viewport) {
         m_renderSettingsDialog->syncSettings(settings, m_viewport->graphicsCapabilities());
+    }
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        if (m_viewport) {
+            saveUserPreferences();
+        } else {
+            saveRenderSettings(settings);
+        }
     }
 }
 
@@ -3225,6 +5808,7 @@ void MainWindow::onOpenRenderSettingsDialog() {
     auto* dlg = new RenderSettingsDialog(m_renderSettingsSnapshot, m_viewport->graphicsCapabilities(), nullptr);
     m_renderSettingsDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, false, true);
+    bindPersistentDialog(QStringLiteral("RenderSettingsDialog"), dlg, false);
 
     connect(dlg, &RenderSettingsDialog::settingsPreviewChanged, this,
             [this, dlgPtr = QPointer<RenderSettingsDialog>(dlg)](const RenderQualitySettings& preview) {
@@ -3266,31 +5850,181 @@ void MainWindow::onRestoreDefaultRenderSettings() {
 }
 
 void MainWindow::onChangeGuiTheme(UiTheme theme) {
-    if (m_viewport) {
-        RenderQualitySettings s = m_viewport->renderQualitySettings();
-        if (theme == UiTheme::Light) {
-            if (s.planeTheme != ActivePlaneTheme::CleanLight) {
-                m_lastDarkPlaneTheme = s.planeTheme;
+    {
+        const ScopedBoolFlag batchGuard(m_rebuildingOrLoadingResultsSettings);
+        if (m_viewport) {
+            RenderQualitySettings s = m_viewport->renderQualitySettings();
+            if (theme == UiTheme::Light) {
+                if (s.planeTheme != ActivePlaneTheme::CleanLight) {
+                    m_lastDarkPlaneTheme = s.planeTheme;
+                }
+                s.planeTheme = ActivePlaneTheme::CleanLight;
+                applyAndSaveRenderSettings(s);
+            } else if (s.planeTheme == ActivePlaneTheme::CleanLight) {
+                s.planeTheme = m_lastDarkPlaneTheme;
+                applyAndSaveRenderSettings(s);
             }
-            s.planeTheme = ActivePlaneTheme::CleanLight;
-            applyAndSaveRenderSettings(s);
-        } else if (s.planeTheme == ActivePlaneTheme::CleanLight) {
-            s.planeTheme = m_lastDarkPlaneTheme;
-            applyAndSaveRenderSettings(s);
         }
+        ThemeManager::instance().setTheme(theme);
     }
 
-    ThemeManager::instance().setTheme(theme);
     if (m_renderSettingsDialog && m_viewport) {
         m_renderSettingsDialog->syncSettings(m_viewport->renderQualitySettings(), m_viewport->graphicsCapabilities());
     }
     showStatusMessage(theme == UiTheme::Light
         ? locale::GerenciadorTraducao::trText("Tema claro aplicado em toda a interface.")
         : locale::GerenciadorTraducao::trText("Tema escuro aplicado em toda a interface."));
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+void MainWindow::onChangeUiStyleMode(UiStyleMode mode) {
+    {
+        const ScopedBoolFlag batchGuard(m_rebuildingOrLoadingResultsSettings);
+        ThemeManager::instance().setUiStyleMode(mode);
+    }
+
+    syncUiStyleMenuState();
+    showStatusMessage(mode == UiStyleMode::Native
+        ? locale::GerenciadorTraducao::trText("Modo de interface nativo (Qt6 padrão) aplicado.")
+        : locale::GerenciadorTraducao::trText("Modo de interface customizado aplicado."));
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
 }
 
 void MainWindow::onChangeLanguage(const QString& langCode) {
     locale::GerenciadorTraducao::instance().definir_idioma(langCode);
+    io::AppLogger::info(QStringLiteral("Settings"), QStringLiteral("Idioma alterado para: %1").arg(langCode));
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+void MainWindow::syncStartupSessionMenuState() {
+    if (m_actStartupAsk) {
+        const QSignalBlocker b(m_actStartupAsk);
+        m_actStartupAsk->setChecked(m_startupSessionBehavior == io::StartupSessionBehavior::AskOnStartup);
+    }
+    if (m_actStartupAutoLoad) {
+        const QSignalBlocker b(m_actStartupAutoLoad);
+        m_actStartupAutoLoad->setChecked(m_startupSessionBehavior == io::StartupSessionBehavior::AutoLoadPrevious);
+    }
+    if (m_actStartupNewProject) {
+        const QSignalBlocker b(m_actStartupNewProject);
+        m_actStartupNewProject->setChecked(m_startupSessionBehavior == io::StartupSessionBehavior::AlwaysStartNew);
+    }
+    if (m_actConfirmUnsavedOnClose) {
+        const QSignalBlocker b(m_actConfirmUnsavedOnClose);
+        m_actConfirmUnsavedOnClose->setChecked(m_confirmUnsavedOnClose);
+    }
+}
+
+void MainWindow::setStartupSessionBehavior(io::StartupSessionBehavior behavior) {
+    m_startupSessionBehavior = behavior;
+    syncStartupSessionMenuState();
+    if (m_startupSessionDialog) {
+        m_startupSessionDialog->syncSettings(m_startupSessionBehavior, m_confirmUnsavedOnClose);
+    }
+    io::AppLogger::info(
+        QStringLiteral("Settings"),
+        QStringLiteral("Politica de inicializacao definida para: %1")
+            .arg(io::startupSessionBehaviorToKey(behavior)));
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+void MainWindow::setConfirmUnsavedOnClose(bool enabled) {
+    m_confirmUnsavedOnClose = enabled;
+    syncStartupSessionMenuState();
+    if (m_startupSessionDialog) {
+        m_startupSessionDialog->syncSettings(m_startupSessionBehavior, m_confirmUnsavedOnClose);
+    }
+    io::AppLogger::info(
+        QStringLiteral("Settings"),
+        QStringLiteral("Confirmacao de alteracoes nao salvas ao sair: %1")
+            .arg(enabled ? QStringLiteral("true") : QStringLiteral("false")));
+    if (!m_rebuildingOrLoadingResultsSettings) {
+        saveUserPreferences();
+    }
+}
+
+void MainWindow::onChangeStartupSessionBehavior(io::StartupSessionBehavior behavior) {
+    setStartupSessionBehavior(behavior);
+    switch (behavior) {
+        case io::StartupSessionBehavior::AutoLoadPrevious:
+            showStatusMessage(locale::GerenciadorTraducao::trText(
+                "Inicialização configurada: carregar automaticamente projeto ou exemplo anterior."));
+            break;
+        case io::StartupSessionBehavior::AlwaysStartNew:
+            showStatusMessage(locale::GerenciadorTraducao::trText(
+                "Inicialização configurada: sempre iniciar um novo projeto vazio."));
+            break;
+        case io::StartupSessionBehavior::AskOnStartup:
+        default:
+            showStatusMessage(locale::GerenciadorTraducao::trText(
+                "Inicialização configurada: perguntar a cada nova inicialização."));
+            break;
+    }
+}
+
+void MainWindow::onToggleConfirmUnsavedOnClose(bool checked) {
+    setConfirmUnsavedOnClose(checked);
+    showStatusMessage(checked
+        ? locale::GerenciadorTraducao::trText("Confirmação de alterações não salvas ao sair ativada.")
+        : locale::GerenciadorTraducao::trText("Confirmação de alterações não salvas ao sair desativada (recuperação automática mantida)."));
+}
+
+void MainWindow::onOpenStartupSessionDialog() {
+    if (m_startupSessionDialog) {
+        m_startupSessionDialog->syncSettings(m_startupSessionBehavior, m_confirmUnsavedOnClose);
+        m_startupSessionDialog->refreshLogSummary();
+        m_windowManager->showAndRaise(m_startupSessionDialog.data());
+        return;
+    }
+
+    auto* dlg = new StartupSessionDialog(m_startupSessionBehavior, m_confirmUnsavedOnClose, nullptr);
+    m_startupSessionDialog = dlg;
+    m_windowManager->prepareModelessDialog(dlg, true, true);
+    bindPersistentDialog(QStringLiteral("StartupSessionDialog"), dlg, false);
+
+    connect(dlg, &StartupSessionDialog::settingsChanged, this,
+            [this](io::StartupSessionBehavior behavior, bool confirmClose) {
+                const bool behaviorChanged = (m_startupSessionBehavior != behavior);
+                const bool confirmChanged = (m_confirmUnsavedOnClose != confirmClose);
+                if (behaviorChanged) {
+                    onChangeStartupSessionBehavior(behavior);
+                }
+                if (confirmChanged) {
+                    onToggleConfirmUnsavedOnClose(confirmClose);
+                }
+            });
+    connect(dlg, &StartupSessionDialog::restoreDefaultsRequested, this, [this, dlg]() {
+        setStartupSessionBehavior(io::StartupSessionBehavior::AskOnStartup);
+        setConfirmUnsavedOnClose(true);
+        if (dlg) {
+            dlg->syncSettings(m_startupSessionBehavior, m_confirmUnsavedOnClose);
+        }
+        showStatusMessage(locale::GerenciadorTraducao::trText(
+            "Preferências de inicialização restauradas para o padrão."));
+    });
+    connect(dlg, &StartupSessionDialog::openLogDirectoryRequested, this, &MainWindow::onOpenLogDirectory);
+
+    m_windowManager->showAndRaise(dlg);
+}
+
+void MainWindow::onOpenLogDirectory() {
+    const QString logDir = io::AppLogger::logDirectory();
+    QDir().mkpath(logDir);
+    io::AppLogger::info(QStringLiteral("Settings"),
+                        QStringLiteral("Pasta de logs acessada: %1").arg(logDir));
+    if (!testAttribute(Qt::WA_DontShowOnScreen)) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(logDir));
+    }
+    showStatusMessage(locale::GerenciadorTraducao::trText("Diretório de logs: %1")
+                          .arg(QDir::toNativeSeparators(logDir)));
 }
 
 void MainWindow::changeEvent(QEvent* event) {
@@ -3301,6 +6035,14 @@ void MainWindow::changeEvent(QEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    flushRecoverySnapshotIfDirty();
+    if (!m_closingConfirmed && m_confirmUnsavedOnClose && m_hasUnsavedEdits && event &&
+        (event->spontaneous() || m_userRequestedQuit)) {
+        event->ignore();
+        promptUnsavedChangesBeforeClose();
+        return;
+    }
+    saveUserPreferences();
     if (m_windowManager) {
         m_windowManager->closeAllChildWindows();
     }
@@ -3379,13 +6121,17 @@ void MainWindow::translateComboPreservingData() {
 
 void MainWindow::retranslateUi() {
     using locale::GerenciadorTraducao;
-    setWindowTitle(GerenciadorTraducao::trText("OmniFrame 3D - Análise Estrutural Espacial"));
+    updateWindowTitleAndFileActions();
+    updateRecoveryPromptBoxTexts();
+    updateCloseConfirmBoxTexts();
 
     // Menus
     if (m_fileMenu) m_fileMenu->setTitle(GerenciadorTraducao::trText("&Arquivo"));
     if (m_actNewProject) m_actNewProject->setText(GerenciadorTraducao::trText("Novo Projeto"));
     if (m_actOpenProject) m_actOpenProject->setText(GerenciadorTraducao::trText("Abrir (.omniframe)..."));
-    if (m_actSaveProject) m_actSaveProject->setText(GerenciadorTraducao::trText("Salvar (.omniframe)..."));
+    if (m_actSaveProject) m_actSaveProject->setText(GerenciadorTraducao::trText("Salvar (.omniframe)"));
+    if (m_actSaveProjectAs) m_actSaveProjectAs->setText(GerenciadorTraducao::trText("Salvar Como (.omniframe)..."));
+    if (m_actRecoverSession) m_actRecoverSession->setText(GerenciadorTraducao::trText("Recuperar Sessão Anterior..."));
     if (m_actImportDxf) m_actImportDxf->setText(GerenciadorTraducao::trText("Importar DXF..."));
     if (m_actExportDxf) m_actExportDxf->setText(GerenciadorTraducao::trText("Exportar DXF..."));
     if (m_actImportIfc) m_actImportIfc->setText(GerenciadorTraducao::trText("Importar BIM IFC4..."));
@@ -3474,10 +6220,98 @@ void MainWindow::retranslateUi() {
     if (m_actAdvancedRenderSettings) m_actAdvancedRenderSettings->setText(GerenciadorTraducao::trText("Configurações Avançadas de Resolução e Imagem..."));
     if (m_actRestoreRenderDefaults) m_actRestoreRenderDefaults->setText(GerenciadorTraducao::trText("Restaurar Padrões de Máxima Qualidade"));
 
+    if (m_resultsLayoutsMenu) {
+        m_resultsLayoutsMenu->setTitle(GerenciadorTraducao::trText("Layouts do Painel de Tabelas de Resultados"));
+        const char* countLabels[4] = {
+            "1 Layout (Todas as Tabelas)",
+            "2 Layouts",
+            "3 Layouts",
+            "4 Layouts"
+        };
+        const char* layoutMenuTitles[4] = {
+            "Tabelas do 1º Layout",
+            "Tabelas do 2º Layout",
+            "Tabelas do 3º Layout",
+            "Tabelas do 4º Layout"
+        };
+        for (int i = 0; i < 4; ++i) {
+            if (m_actResultsLayoutCount[static_cast<std::size_t>(i)]) {
+                m_actResultsLayoutCount[static_cast<std::size_t>(i)]->setText(
+                    GerenciadorTraducao::trText(countLabels[i]));
+            }
+            if (m_resultsLayoutConfigMenus[static_cast<std::size_t>(i)]) {
+                m_resultsLayoutConfigMenus[static_cast<std::size_t>(i)]->setTitle(
+                    GerenciadorTraducao::trText(layoutMenuTitles[i]));
+            }
+            for (int k = 0; k < 4; ++k) {
+                if (m_actResultsLayoutTables[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)]) {
+                    m_actResultsLayoutTables[static_cast<std::size_t>(i)][static_cast<std::size_t>(k)]->setText(
+                        resultTableTabTitle(static_cast<ui::ResultTableKind>(k)));
+                }
+            }
+            if (m_actResultsLayoutSelectAll[static_cast<std::size_t>(i)]) {
+                m_actResultsLayoutSelectAll[static_cast<std::size_t>(i)]->setText(
+                    GerenciadorTraducao::trText("Selecionar Todas as Tabelas"));
+            }
+        }
+        if (m_actResetResultsLayouts) {
+            m_actResetResultsLayouts->setText(GerenciadorTraducao::trText("Restaurar Layouts Padrão"));
+        }
+    }
+
+    if (m_preferencesPersistenceMenu) {
+        m_preferencesPersistenceMenu->setTitle(
+            GerenciadorTraducao::trText("Persistência de Configurações e Preferências"));
+    }
+    if (m_actSaveAllPreferences) {
+        m_actSaveAllPreferences->setText(
+            GerenciadorTraducao::trText("Salvar Todas as Configurações Agora"));
+    }
+    if (m_actReloadSavedPreferences) {
+        m_actReloadSavedPreferences->setText(
+            GerenciadorTraducao::trText("Recarregar Configurações Salvas"));
+    }
+    if (m_actRestoreAllDefaults) {
+        m_actRestoreAllDefaults->setText(
+            GerenciadorTraducao::trText("Restaurar Todas as Configurações Padrão"));
+    }
+
+    if (m_startupSessionMenu) {
+        m_startupSessionMenu->setTitle(GerenciadorTraducao::trText("Sessão, Inicialização e Logs"));
+    }
+    if (m_actStartupAsk) {
+        m_actStartupAsk->setText(GerenciadorTraducao::trText("Perguntar ao iniciar (Exibir diálogo)"));
+    }
+    if (m_actStartupAutoLoad) {
+        m_actStartupAutoLoad->setText(
+            GerenciadorTraducao::trText("Carregar automaticamente projeto ou exemplo anterior"));
+    }
+    if (m_actStartupNewProject) {
+        m_actStartupNewProject->setText(
+            GerenciadorTraducao::trText("Sempre iniciar um novo projeto (Vazio)"));
+    }
+    if (m_actConfirmUnsavedOnClose) {
+        m_actConfirmUnsavedOnClose->setText(
+            GerenciadorTraducao::trText("Exibir confirmação de alterações não salvas ao sair"));
+    }
+    if (m_actOpenStartupSessionDialog) {
+        m_actOpenStartupSessionDialog->setText(
+            GerenciadorTraducao::trText("Configurar Inicialização, Sessão e Logs..."));
+    }
+    if (m_actOpenLogDirectory) {
+        m_actOpenLogDirectory->setText(GerenciadorTraducao::trText("Abrir Pasta de Logs..."));
+    }
+    syncStartupSessionMenuState();
+
     if (m_themeMenu) m_themeMenu->setTitle(GerenciadorTraducao::trText("&Tema"));
     if (m_actGuiThemeDark) m_actGuiThemeDark->setText(GerenciadorTraducao::trText("Escuro"));
     if (m_actGuiThemeLight) m_actGuiThemeLight->setText(GerenciadorTraducao::trText("Claro"));
     syncThemeMenuState();
+
+    if (m_uiStyleMenu) m_uiStyleMenu->setTitle(GerenciadorTraducao::trText("Interface do Usuário"));
+    if (m_actUiStyleNative) m_actUiStyleNative->setText(GerenciadorTraducao::trText("Nativo"));
+    if (m_actUiStyleCustom) m_actUiStyleCustom->setText(GerenciadorTraducao::trText("Customizado"));
+    syncUiStyleMenuState();
 
     if (m_langMenu) m_langMenu->setTitle(GerenciadorTraducao::trText("&Idioma"));
     const bool isEn = (GerenciadorTraducao::instance().idiomaAtual() == locale::Idioma::InglesEstadosUnidos);
@@ -3515,6 +6349,7 @@ void MainWindow::retranslateUi() {
     if (m_actViewFitTb) m_actViewFitTb->setText(GerenciadorTraducao::trText("Enquadrar (F)"));
 
     if (m_tb2) m_tb2->setWindowTitle(GerenciadorTraducao::trText("Engenharia e Resultados"));
+    updateToolbarExtensionToolTips(m_tb1, m_tb2);
     if (m_actTbMaterials) m_actTbMaterials->setText(GerenciadorTraducao::trText("Materiais..."));
     if (m_actTbSections) m_actTbSections->setText(GerenciadorTraducao::trText("Seções..."));
     if (m_actTbSupports) m_actTbSupports->setText(GerenciadorTraducao::trText("Apoios..."));
@@ -3544,35 +6379,61 @@ void MainWindow::retranslateUi() {
 
     if (m_resultsDock) m_resultsDock->setWindowTitle(GerenciadorTraducao::trText("Tabelas de Resultados e Diagnóstico Estrutural"));
     if (m_resultsTitleBar) m_resultsTitleBar->retranslateToolTip();
-    if (m_resultsTabs) {
-        m_resultsTabs->setTabText(0, GerenciadorTraducao::trText("Deslocamentos Nodais"));
-        m_resultsTabs->setTabText(1, GerenciadorTraducao::trText("Reações de Apoio"));
-        m_resultsTabs->setTabText(2, GerenciadorTraducao::trText("Esforços nas Barras"));
-        if (m_resultsTabs->count() > 3) {
-            m_resultsTabs->setTabText(3, GerenciadorTraducao::trText("Esforços 2D/3D (Casca/Sólido)"));
+
+    for (int L = 0; L < 4; ++L) {
+        QTabWidget* tabW = m_resultsLayoutTabWidgets[static_cast<std::size_t>(L)];
+        if (tabW == nullptr) {
+            continue;
+        }
+        auto updateTabTitle = [&](int tabIndex, ui::ResultTableKind kind) {
+            const QString title = resultTableTabTitle(kind);
+            tabW->setTabText(tabIndex, title);
+            tabW->setTabToolTip(tabIndex, title);
+        };
+        for (int t = 0; t < tabW->count(); ++t) {
+            const QWidget* w = tabW->widget(t);
+            if (w == m_dispTable || w == m_extraLayoutTables[static_cast<std::size_t>(L)][0]) {
+                updateTabTitle(t, ui::ResultTableKind::Displacements);
+            } else if (w == m_reacTable || w == m_extraLayoutTables[static_cast<std::size_t>(L)][1]) {
+                updateTabTitle(t, ui::ResultTableKind::Reactions);
+            } else if (w == m_forcesTable || w == m_extraLayoutTables[static_cast<std::size_t>(L)][2]) {
+                updateTabTitle(t, ui::ResultTableKind::BarForces);
+            } else if (w == m_continuumTable || w == m_extraLayoutTables[static_cast<std::size_t>(L)][3]) {
+                updateTabTitle(t, ui::ResultTableKind::ContinuumStress);
+            }
         }
     }
-    if (m_dispTable) {
-        m_dispTable->setHorizontalHeaderLabels({GerenciadorTraducao::trText("Nó"), "uX (mm)", "uY (mm)", "uZ (mm)", "θX (mrad)", "θY (mrad)", "θZ (mrad)"});
+
+    auto retranslateTable = [this](QTableWidget* table, ui::ResultTableKind kind) {
+        if (!table) {
+            return;
+        }
+        const QStringList hdrs = resultTableHeaders(kind);
+        if (m_tableConfigurator) {
+            m_tableConfigurator->updateHeaders(table, hdrs);
+        } else {
+            table->setHorizontalHeaderLabels(hdrs);
+        }
+    };
+    retranslateTable(m_dispTable, ui::ResultTableKind::Displacements);
+    retranslateTable(m_reacTable, ui::ResultTableKind::Reactions);
+    retranslateTable(m_forcesTable, ui::ResultTableKind::BarForces);
+    retranslateTable(m_continuumTable, ui::ResultTableKind::ContinuumStress);
+    for (int L = 0; L < 4; ++L) {
+        for (int k = 0; k < 4; ++k) {
+            retranslateTable(
+                m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)],
+                static_cast<ui::ResultTableKind>(k));
+        }
     }
-    if (m_reacTable) {
-        m_reacTable->setHorizontalHeaderLabels({GerenciadorTraducao::trText("Nó"), "Rx (kN)", "Ry (kN)", "Rz (kN)", "Mx (kNm)", "My (kNm)", "Mz (kNm)"});
+    if (m_reacTable && m_reacTable->rowCount() > 0) {
+        if (QTableWidgetItem* sumItem = m_reacTable->item(m_reacTable->rowCount() - 1, 0);
+            sumItem != nullptr && sumItem->data(ui::kResultTableSummaryRowRole).toBool()) {
+            sumItem->setText(GerenciadorTraducao::trText("Σ Reações"));
+            refreshReactionSummaryRowTheme();
+        }
     }
-    if (m_forcesTable) {
-        m_forcesTable->setHorizontalHeaderLabels({GerenciadorTraducao::trText("Barra"), "N min/max (kN)", "Vy min/max (kN)", "Vz min/max (kN)", "Tx min/max (kNm)", "My min/max (kNm)", "Mz min/max (kNm)", GerenciadorTraducao::trText("Flecha (mm)")});
-    }
-    if (m_continuumTable) {
-        m_continuumTable->setHorizontalHeaderLabels({
-            GerenciadorTraducao::trText("Elemento"),
-            GerenciadorTraducao::trText("Tipo"),
-            QStringLiteral("σ_vM (kPa)"),
-            QStringLiteral("σ_1 (kPa)"),
-            QStringLiteral("σ_3 (kPa)"),
-            QStringLiteral("Nxx / σxx"),
-            QStringLiteral("Nyy / σyy"),
-            QStringLiteral("Mxx / τxz")
-        });
-    }
+    syncExtraLayoutTables();
 
     if (m_modelStatsLabel) {
         QString statsMsg = GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
@@ -3609,6 +6470,10 @@ void MainWindow::retranslateUi() {
         } else if (m_hasSolvedContext && !m_autoRecalculate) {
             m_solverStatusLabel->setText(
                 GerenciadorTraducao::trText("Modelo modificado — clique em CALCULAR ESTRUTURA (F5) para atualizar os resultados."));
+        } else if (m_model.getNodes().empty() &&
+                   m_model.getElements().empty() &&
+                   m_model.surfaceMesh().elements.empty()) {
+            m_solverStatusLabel->setText(GerenciadorTraducao::trText("Pronto para modelar."));
         } else {
             m_solverStatusLabel->setText(GerenciadorTraducao::trText("Pronto para calcular."));
         }

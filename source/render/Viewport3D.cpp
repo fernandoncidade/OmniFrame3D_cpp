@@ -576,20 +576,27 @@ void Viewport3D::paintGL() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     m_legendVisible = false;
-    const bool clipActive = (m_clipAxis != ClipAxis::None);
-    if (clipActive) {
-        glEnable(GL_CLIP_DISTANCE0);
-    } else {
-        glDisable(GL_CLIP_DISTANCE0);
-    }
+    glDisable(GL_CLIP_DISTANCE0);
 
     const float aspect = (height() > 0) ? (static_cast<float>(width()) / static_cast<float>(height())) : 1.0f;
     const QMatrix4x4 mvp = m_camera.viewProjectionMatrix(aspect);
     const QMatrix4x4 view = m_camera.viewMatrix();
 
+    // Grid e planos de trabalho (Planta XY, Frontal XZ, Lateral YZ) nunca são recortados pelo plano de corte 3D
+    m_suppressClipPlaneForDraw = true;
     renderGrid(mvp);
+    m_suppressClipPlaneForDraw = false;
 
-    if (m_model) {
+    const bool hasModelContent = m_model &&
+        (!m_model->getNodes().empty() ||
+         !m_model->getElements().empty() ||
+         !m_model->surfaceMesh().elements.empty());
+    const bool clipActive = hasModelContent && (m_clipAxis != ClipAxis::None);
+    if (clipActive) {
+        glEnable(GL_CLIP_DISTANCE0);
+    }
+
+    if (hasModelContent) {
         if (m_showSurfaceMesh && !m_model->surfaceMesh().elements.empty()) {
             renderSurfaceMesh(mvp);
         }
@@ -609,10 +616,12 @@ void Viewport3D::paintGL() {
         renderLoads(mvp, view);
     }
 
-    renderCursorPreview(mvp);
     if (clipActive) {
         glDisable(GL_CLIP_DISTANCE0);
     }
+    m_suppressClipPlaneForDraw = true;
+    renderCursorPreview(mvp);
+    m_suppressClipPlaneForDraw = false;
 
     if (hasCustomFbo) {
         if (m_msaaFbo != 0) {
@@ -1212,7 +1221,7 @@ void Viewport3D::renderLoads(const QMatrix4x4& mvp, const QMatrix4x4& view) {
 }
 
 void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
-    if (!m_model) return;
+    if (!m_model || (m_model->getElements().empty() && m_model->surfaceMesh().elements.empty())) return;
 
     const ActivePlanePalette pal = activePlanePaletteForTheme(m_renderSettings.planeTheme, m_renderSettings.planeGridContrast);
     std::vector<float> lines;
@@ -1432,7 +1441,7 @@ void Viewport3D::renderDeformedShape(const QMatrix4x4& mvp) {
 }
 
 void Viewport3D::renderDiagrams(const QMatrix4x4& mvp) {
-    if (!m_model) return;
+    if (!m_model || m_model->getElements().empty()) return;
 
     const ActivePlanePalette pal = activePlanePaletteForTheme(m_renderSettings.planeTheme, m_renderSettings.planeGridContrast);
     std::vector<float> fillTris;
@@ -2262,6 +2271,9 @@ void Viewport3D::setClipPlane(ClipAxis axis, double offsetMeters, bool inverted)
 }
 
 QVector4D Viewport3D::activeClipPlaneVec() const {
+    if (m_suppressClipPlaneForDraw) {
+        return QVector4D(0.0f, 0.0f, 0.0f, 1.0f);
+    }
     const float sign = m_clipInverted ? -1.0f : 1.0f;
     const float d = static_cast<float>(m_clipOffset);
     switch (m_clipAxis) {

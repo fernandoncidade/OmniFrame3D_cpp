@@ -200,6 +200,7 @@ private:
     ClipAxis m_clipAxis = ClipAxis::None;
     double m_clipOffset = 0.0;
     bool m_clipInverted = false;
+    bool m_suppressClipPlaneForDraw = false;
 
     int m_animTimerId = 0;
     bool m_animPlaying = false;

@@ -1,5 +1,5 @@
 LICENÇA DE USO DE USUÁRIO FINAL (EULA) — OmniFrame 3D
-Versao 2026.11.17.0, 17 de novembro de 2026
+Versao 2026.11.18.0, 18 de novembro de 2026
 
 Copyright (c) 2025-2026 Fernando Nillsson Cidade. Todos os direitos reservados.
 

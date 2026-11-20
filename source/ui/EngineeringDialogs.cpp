@@ -224,14 +224,16 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
     const SolverResult* lastStaticResult,
     std::function<void(const SolverResult&)> onStaticOrNonlinearCompleted,
     std::function<void(const QString&)> onStatusMsg,
-    std::function<void()> onModelMutated)
+    std::function<void()> onModelMutated,
+    std::function<void()> onMetadataUpdated)
     : QDialog(parent),
       m_model(model),
       m_viewport(viewport),
       m_lastStatic(lastStaticResult),
       m_onCompleted(std::move(onStaticOrNonlinearCompleted)),
       m_onStatus(std::move(onStatusMsg)),
-      m_onModelMutated(std::move(onModelMutated)) {
+      m_onModelMutated(std::move(onModelMutated)),
+      m_onMetadataUpdated(std::move(onMetadataUpdated)) {
     setModal(false);
     setWindowModality(Qt::NonModal);
     resize(840, 620);
@@ -249,6 +251,18 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
         m_linearSolverCombo->addItem(QStringLiteral("SimplicialLDLT (SPD Cholesky)"), static_cast<int>(kernel::LinearSolverType::SimplicialLDLT));
         m_linearSolverCombo->addItem(QStringLiteral("SparseLU (COLAMD)"), static_cast<int>(kernel::LinearSolverType::SparseLU));
         m_linearSolverCombo->addItem(QStringLiteral("ConjugateGradient (PCG)"), static_cast<int>(kernel::LinearSolverType::ConjugateGradient));
+        if (m_model) {
+            const int sIdx = m_linearSolverCombo->findData(static_cast<int>(m_model->solverOptions().type));
+            if (sIdx >= 0) m_linearSolverCombo->setCurrentIndex(sIdx);
+        }
+        connect(m_linearSolverCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
+            if (!m_model || idx < 0) return;
+            const auto chosen = static_cast<kernel::LinearSolverType>(m_linearSolverCombo->itemData(idx).toInt());
+            if (m_model->solverOptions().type == chosen) return;
+            m_model->solverOptions().type = chosen;
+            m_model->pushUndo();
+            if (m_onMetadataUpdated) m_onMetadataUpdated();
+        });
         m_btnRunCombos = new QPushButton(tab);
         m_btnPlotCombos = new QPushButton(tab);
         m_actionButtons.push_back(m_btnRunCombos);
@@ -716,6 +730,11 @@ void AnalysisSuiteDialog::refreshContext() {
     m_hasSpec = false;
     m_hasSeis = false;
     m_hasNonlinear = false;
+    if (m_linearSolverCombo && m_model) {
+        const QSignalBlocker b(m_linearSolverCombo);
+        const int sIdx = m_linearSolverCombo->findData(static_cast<int>(m_model->solverOptions().type));
+        if (sIdx >= 0) m_linearSolverCombo->setCurrentIndex(sIdx);
+    }
     refreshSeismicLoadCases();
     if (m_combosTable) m_combosTable->setRowCount(0);
     if (m_modalTable) m_modalTable->setRowCount(0);
@@ -757,8 +776,9 @@ void AnalysisSuiteDialog::setBusyState(bool busy, const QString& statusText) {
 
 void AnalysisSuiteDialog::onRunCombosAsync() {
     if (!m_model || m_busy) return;
-    kernel::LinearSolverOptions opts;
+    kernel::LinearSolverOptions opts = m_model->solverOptions();
     opts.type = static_cast<kernel::LinearSolverType>(m_linearSolverCombo->currentData().toInt());
+    m_model->solverOptions().type = opts.type;
 
     StructuralModel snapshot = *m_model;
     setBusyState(true, GerenciadorTraducao::trText("Resolvendo casos de carga e combinações em segundo plano..."));
@@ -1282,10 +1302,12 @@ void AnalysisSuiteDialog::onPlayNonlinearHistory() {
 LoadCombinationsDialog::LoadCombinationsDialog(
     QWidget* parent,
     StructuralModel* model,
-    std::function<void()> onModelUpdated)
+    std::function<void()> onModelUpdated,
+    std::function<void()> onMetadataUpdated)
     : QDialog(parent),
       m_model(model),
-      m_onModelUpdated(std::move(onModelUpdated)) {
+      m_onModelUpdated(std::move(onModelUpdated)),
+      m_onMetadataUpdated(std::move(onMetadataUpdated)) {
     setModal(false);
     setWindowModality(Qt::NonModal);
     resize(780, 560);
@@ -1329,15 +1351,25 @@ LoadCombinationsDialog::LoadCombinationsDialog(
         lay->addLayout(form);
 
         auto applyCaseMeta = [this]() {
-            if (!m_model || m_caseListCombo->currentIndex() < 0) return;
+            if (!m_model || m_refreshingLists || m_caseListCombo->currentIndex() < 0) return;
             const auto cid = static_cast<kernel::LoadCaseId>(m_caseListCombo->currentData().toInt());
             if (auto* lc = m_model->findLoadCase(cid)) {
-                lc->name = m_caseNameEdit->text().toStdString();
-                lc->category = static_cast<kernel::LoadCaseCategory>(m_caseCatCombo->currentData().toInt());
-                lc->selfWeight.enabled = m_caseSelfWeightCheck->isChecked();
-                lc->selfWeight.factor = m_caseSwFactorSpin->value();
+                const std::string newName = m_caseNameEdit->text().toStdString();
+                const auto newCat = static_cast<kernel::LoadCaseCategory>(m_caseCatCombo->currentData().toInt());
+                const bool newSw = m_caseSelfWeightCheck->isChecked();
+                const double newSwFactor = m_caseSwFactorSpin->value();
+                if (lc->name == newName && lc->category == newCat &&
+                    lc->selfWeight.enabled == newSw &&
+                    std::abs(lc->selfWeight.factor - newSwFactor) < 1e-12) {
+                    return;
+                }
+                lc->name = newName;
+                lc->category = newCat;
+                lc->selfWeight.enabled = newSw;
+                lc->selfWeight.factor = newSwFactor;
                 m_caseListCombo->setItemText(m_caseListCombo->currentIndex(),
                                              QStringLiteral("#%1 %2").arg(lc->id).arg(QString::fromStdString(lc->name)));
+                m_model->pushUndo();
                 if (m_onModelUpdated) m_onModelUpdated();
             }
         };
@@ -1394,14 +1426,21 @@ LoadCombinationsDialog::LoadCombinationsDialog(
         lay->addLayout(meta);
 
         auto applyComboMeta = [this]() {
-            if (!m_model || m_comboListCombo->currentIndex() < 0) return;
+            if (!m_model || m_refreshingLists || m_comboListCombo->currentIndex() < 0) return;
             const auto cid = static_cast<kernel::LoadComboId>(m_comboListCombo->currentData().toInt());
             if (auto* c = m_model->findLoadCombination(cid)) {
-                c->name = m_comboNameEdit->text().toStdString();
-                c->limitState = static_cast<kernel::LimitStateType>(m_comboLimitCombo->currentData().toInt());
-                c->pDeltaEnabled = m_comboPDeltaCheck->isChecked();
+                const std::string newName = m_comboNameEdit->text().toStdString();
+                const auto newLs = static_cast<kernel::LimitStateType>(m_comboLimitCombo->currentData().toInt());
+                const bool newPDelta = m_comboPDeltaCheck->isChecked();
+                if (c->name == newName && c->limitState == newLs && c->pDeltaEnabled == newPDelta) {
+                    return;
+                }
+                c->name = newName;
+                c->limitState = newLs;
+                c->pDeltaEnabled = newPDelta;
                 m_comboListCombo->setItemText(m_comboListCombo->currentIndex(),
                                               QStringLiteral("#%1 %2").arg(c->id).arg(QString::fromStdString(c->name)));
+                m_model->pushUndo();
                 if (m_onModelUpdated) m_onModelUpdated();
             }
         };
@@ -1982,10 +2021,21 @@ void LoadCombinationsDialog::onComputeWind6123() {
     const double fWind = r.q_kPa * m_windAreaSpin->value() * m_windCpSpin->value();
     if (m_model) {
         auto& md = m_model->metadata();
-        md.windV0_ms = in.v0_ms;
-        md.windS1 = in.s1;
-        md.windS2 = in.s2;
-        md.windS3 = in.s3;
+        const bool windChanged =
+            std::abs(md.windV0_ms - in.v0_ms) > 1e-9 ||
+            std::abs(md.windS1 - in.s1) > 1e-9 ||
+            std::abs(md.windS2 - in.s2) > 1e-9 ||
+            std::abs(md.windS3 - in.s3) > 1e-9;
+        if (windChanged) {
+            md.windV0_ms = in.v0_ms;
+            md.windS1 = in.s1;
+            md.windS2 = in.s2;
+            md.windS3 = in.s3;
+            m_model->pushUndo();
+            if (m_onMetadataUpdated) {
+                m_onMetadataUpdated();
+            }
+        }
     }
     m_windResultLabel->setText(
         GerenciadorTraducao::trText("Vk = %1 m/s  |  q = %2 Pa (%3 kN/m²)  |  F_eq = %4 kN")

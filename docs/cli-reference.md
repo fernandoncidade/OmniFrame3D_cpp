@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Referência de Linha de Comando (CLI) e Utilitários
 
-**Versão:** `2026.11.17.0`  
-**Data:** `17 de novembro de 2026`  
+**Versão:** `2026.11.18.0`  
+**Data:** `18 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -59,7 +59,7 @@ Compilado pelo preset `version-msvc-release` em `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.17.0 --date 2026-11-17 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.18.0 --date 2026-11-18 --apply --root .
 ```
 
 ---
@@ -123,6 +123,7 @@ omniframe-cli --check-windows-integration --json
 ### 3.3. Códigos de Saída e Verificação Automatizada
 
 - Códigos de saída (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (sucesso), `1` (erro de sintaxe CLI, I/O ou registro Windows), `2` (falha na validação estrutural `--validate` ou falha numérica/física na solução).
+- **Logs Diários e Fontes em Modo Headless:** Cada execução de `omniframe-cli.exe` registra automaticamente eventos em `%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log` (rotação automática com máximo de 10 arquivos). Ao exportar relatórios PDF sem interface gráfica (`--report pdf`), a CLI configura automaticamente `QT_QPA_PLATFORM=offscreen` e resolve `QT_QPA_FONTDIR` para `%WINDIR%\Fonts` no Windows.
 - Verificação automatizada (`20` suítes CTest): `ctest --preset testes-msvc-release --output-on-failure`.
 
 </details>
@@ -136,8 +137,8 @@ omniframe-cli --check-windows-integration --json
 
 # OmniFrame 3D — Command Line Reference & Companion Utilities
 
-**Version:** `2026.11.17.0`  
-**Date:** `November 17, 2026`  
+**Version:** `2026.11.18.0`  
+**Date:** `November 18, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -181,7 +182,7 @@ Built by the `version-msvc-release` preset in `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.17.0 --date 2026-11-17 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.18.0 --date 2026-11-18 --apply --root .
 ```
 
 ---
@@ -245,6 +246,7 @@ omniframe-cli --check-windows-integration --json
 ### 3.3. Process Exit Codes & Automated Tests
 
 - Exit codes (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (success), `1` (CLI usage/I/O/registry error), `2` (validation `--validate` failure or numerical/physical solver failure).
+- **Daily Execution Logs & Headless PDF Font Resolution:** Every `omniframe-cli.exe` invocation automatically records diagnostic events to `%LOCALAPPDATA%\OmniFrame\log\omniframe_yyyy-mm-dd.log` (capped at 10 files via automatic rotation). When generating A4 PDF reports headlessly (`--report pdf`), the CLI automatically initializes `QT_QPA_PLATFORM=offscreen` and points `QT_QPA_FONTDIR` to `%WINDIR%\Fonts` on Windows.
 - Modular CTest verification (`20` test suites): `ctest --preset testes-msvc-release --output-on-failure`.
 
 </details>

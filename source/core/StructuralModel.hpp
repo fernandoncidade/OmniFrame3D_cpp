@@ -200,6 +200,7 @@ private:
         std::vector<RigidLinkSpec> rigidLinks;
         std::vector<RigidDiaphragmSpec> rigidDiaphragms;
         ProjectMetadata metadata;
+        kernel::LinearSolverOptions solverOptions;
         kernel::MeshContainer surfaceMesh;
     };
 

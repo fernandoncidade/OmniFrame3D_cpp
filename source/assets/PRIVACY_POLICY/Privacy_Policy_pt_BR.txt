@@ -1,6 +1,6 @@
 POLÍTICA DE PRIVACIDADE DO OMNIFRAME 3D
-Última atualização: 17 de novembro de 2026
-Versão: 2026.11.17.0
+Última atualização: 18 de novembro de 2026
+Versão: 2026.11.18.0
 
 A sua privacidade, o sigilo profissional de seus projetos de engenharia e a soberania irrestrita dos seus dados estruturais são princípios fundamentais do OmniFrame 3D. Esta Política de Privacidade explica com transparência absoluta como o OmniFrame 3D ("Software") opera e como suas informações permanecem sob seu controle exclusivo.
 
@@ -15,7 +15,7 @@ O Software processa exclusivamente os seguintes dados inseridos ou abertos delib
 - Coordenadas Geométricas e Topologia Estrutural: Coordenadas cartesianas (X, Y, Z), conectividade de barras, ângulo de roll e liberações de extremidade (rótulas).
 - Propriedades de Materiais e Seções: Módulo de elasticidade (E), coeficiente de Poisson (nu), dilatação térmica (alpha), peso específico (gamma), área (A), inércias (Iy, Iz) e constante de torção (J).
 - Vínculos e Carregamentos: Engastes, apoios de 1º/2º gênero, molas elásticas nodais, deslocamentos/rotações prescritos, cargas nodais concentradas e cargas uniformemente distribuídas em barras.
-- Preferência Mínima Persistida Localmente: Apenas a escolha de idioma da interface ("pt_BR" ou "en_US") é gravada localmente no arquivo JSON "%LOCALAPPDATA%\OmniFrame\OmniFrame\language.json" (ou no contêiner isolado equivalente do pacote MSIX). Preferências temporárias de visualização, câmera e fator de escala permanecem apenas em memória durante a sessão.
+- Preferências Mínimas, Recuperação e Logs Persistidos Localmente: Preferências de interface (idioma "pt_BR" ou "en_US", tema visual, modo de interface, perfil gráfico OpenGL e configuração local de janela/painéis/tabelas) são gravadas localmente de forma consolidada no arquivo JSON único "%LOCALAPPDATA%\OmniFrame\user_preferences.json" (ou no contêiner isolado equivalente do pacote MSIX), juntamente com eventuais cópias locais de recuperação de rascunho ("%LOCALAPPDATA%\OmniFrame\recovery\") e logs diários locais sem dados pessoais ("%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log", máximo de 10 arquivos). Dados de cálculo em memória e arquivos de projeto permanecem sob controle exclusivo do usuário.
 
 O Software NÃO coleta, NÃO solicita, NÃO armazena e NÃO processa dados pessoais identificáveis (nome, e-mail, CPF/CNPJ, telefone, localização geográfica, biometria, saúde, dados financeiros ou dados de crianças).
 
@@ -30,7 +30,7 @@ Em pacotes MSIX da Microsoft Store, declara-se apenas a capacidade restrita <res
 
 5. Controle do Usuário e Desinstalação Limpa
 Você possui soberania integral sobre seus arquivos e sobre o programa, podendo:
-- Salvar, mover, copiar, editar ou excluir arquivos .omniframe, .html, .md e language.json a qualquer momento;
+- Salvar, mover, copiar, editar ou excluir arquivos .omniframe, .html, .md e user_preferences.json a qualquer momento;
 - Desinstalar e remover o OmniFrame 3D de forma limpa a qualquer momento em Configurações do Windows -> Aplicativos -> Aplicativos instalados (ou Menu Iniciar -> Desinstalar), removendo integralmente os binários e o estado do pacote MSIX sem deixar processos, drivers ou serviços em segundo plano.
 
 6. Contato para Privacidade e Suporte (Desenvolvedor Individual)
