@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Arquitetura de Sistema e Especificações Técnicas
 
-**Versão:** `2026.11.16.0`  
-**Data:** `16 de novembro de 2026`  
+**Versão:** `2026.11.17.0`  
+**Data:** `17 de novembro de 2026`  
 **Padrão:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Plataforma Alvo:** Windows 11 / Windows 10 x64  
 **Autor:** Fernando Nillsson Cidade  
@@ -170,8 +170,8 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 
 # OmniFrame 3D — System Architecture & Technical Specifications
 
-**Version:** `2026.11.16.0`  
-**Date:** `November 16, 2026`  
+**Version:** `2026.11.17.0`  
+**Date:** `November 17, 2026`  
 **Standards:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Target Platform:** Windows 11 / Windows 10 x64  
 **Author:** Fernando Nillsson Cidade  

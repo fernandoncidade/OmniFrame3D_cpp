@@ -1,7 +1,7 @@
 # Auditoria Técnica, Decisões Arquiteturais, Matriz V&V e Roadmap / Technical Audit, ADRs & Roadmap — OmniFrame 3D
 
-**Versão:** `2026.11.16.0`  
-**Data:** `16 de novembro de 2026`  
+**Versão:** `2026.11.17.0`  
+**Data:** `17 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 Este documento consolida a auditoria técnica de engenharia estrutural, decisões arquiteturais (ADRs), matrizes de integração, verificação e validação (V&V), conformidade normativa, rastreabilidade, posicionamento técnico e roadmap do **OmniFrame 3D**, conforme os critérios de qualidade científica e rastreabilidade do projeto.

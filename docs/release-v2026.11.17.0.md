@@ -1,4 +1,4 @@
-# Release Notes — OmniFrame 3D v2026.11.16.0
+# Release Notes — OmniFrame 3D v2026.11.17.0
 
 <p align="center">
   <b>Selecione o idioma / Select language:</b><br>
@@ -12,9 +12,9 @@
 <details>
 <summary>Clique para expandir / recolher notas de lançamento em português</summary><br>
 
-# OmniFrame 3D — Versão 2026.11.16.0 (Release Inicial)
+# OmniFrame 3D — Versão 2026.11.17.0 (Release Inicial)
 
-**Data de Lançamento:** 16 de novembro de 2026  
+**Data de Lançamento:** 17 de novembro de 2026  
 **Autor:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
 **Repositório:** `fernandoncidade/OmniFrame_cpp`  
 **Licenciamento:** GNU AGPLv3 (Código Aberto) / EULA (Microsoft Store)  
@@ -53,9 +53,9 @@
 <details>
 <summary>Click to expand / collapse release notes in English</summary><br>
 
-# OmniFrame 3D — Version 2026.11.16.0 (Initial Release)
+# OmniFrame 3D — Version 2026.11.17.0 (Initial Release)
 
-**Release Date:** November 16, 2026  
+**Release Date:** November 17, 2026  
 **Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
 **Repository:** `fernandoncidade/OmniFrame_cpp`  
 **Licensing:** GNU AGPLv3 (Open Source) / EULA (Microsoft Store)  

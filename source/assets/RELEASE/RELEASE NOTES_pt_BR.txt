@@ -1,4 +1,17 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.17.0
+Data: 17 de novembro de 2026
+
+Destaques da Versão 2026.11.17.0:
+
+1. Novo Logotipo e Ícone Oficial do OmniFrame 3D
+- O programa passou a contar com uma nova identidade visual, adotando um logotipo e ícone com desenho simples de capacete de engenharia na cor laranja, de fácil identificação em qualquer tamanho.
+- O novo ícone foi aplicado de maneira uniforme em todo o aplicativo, incluindo o topo das janelas, a janela "Sobre o OmniFrame 3D", a barra de tarefas do Windows, os atalhos, o instalador, as ferramentas auxiliares e os arquivos de projeto salvos.
+- Todas as versões do logotipo, miniaturas e imagens de apresentação também foram atualizadas para manter a mesma aparência nítida na Microsoft Store, na página oficial e na documentação.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versão: 2026.11.16.0
 Data: 16 de novembro de 2026
 

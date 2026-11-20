@@ -6,7 +6,7 @@
 
 namespace mocks::compile_translations_terminal {
 
-inline constexpr const char* kFallbackAppVersion = "2026.11.16.0";
+inline constexpr const char* kFallbackAppVersion = "2026.11.17.0";
 
 enum class ModoExecucao {
     CompilarTodos,

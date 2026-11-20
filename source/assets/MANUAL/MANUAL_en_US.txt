@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
-Version: 2026.11.16.0 | Date: November 16, 2026 | Author: Fernando Nillsson Cidade
+Version: 2026.11.17.0 | Date: November 17, 2026 | Author: Fernando Nillsson Cidade
 Document Language: English (US) — Strict line-by-line correspondence with pt-BR
 ================================================================================
 

@@ -11,7 +11,7 @@
 
 int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationName("OmniFrame");
-    QCoreApplication::setApplicationVersion("2026.11.16.0");
+    QCoreApplication::setApplicationVersion("2026.11.17.0");
     QCoreApplication::setOrganizationName("OmniFrame");
 
     QStringList startupFiles;

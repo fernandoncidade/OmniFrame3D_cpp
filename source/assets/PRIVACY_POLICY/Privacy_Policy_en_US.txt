@@ -1,6 +1,6 @@
 PRIVACY POLICY FOR OMNIFRAME 3D
-Last Updated: November 16, 2026
-Version: 2026.11.16.0
+Last Updated: November 17, 2026
+Version: 2026.11.17.0
 
 Your privacy, the professional confidentiality of your engineering models, and the unrestricted sovereignty of your structural calculation data are foundational principles of OmniFrame 3D. This Privacy Policy explains clearly how OmniFrame 3D ("Software") operates and how your data remains solely under your control.
 

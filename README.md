@@ -2,7 +2,7 @@
 
 **Plataforma desktop nativa de engenharia para análise estrutural tridimensional (FEA — estática linear, modal, flambagem, harmônica, espectro de resposta e não linear geométrica/J2) em Windows, desenvolvida em C++23 moderno (`OmniFrameKernel` livre de Qt), Qt 6.11.1, Eigen 3.4.0 e OpenGL 3.3 Core Profile. Oferece elementos 1D/2D/3D, gerador de malhas (`MeshGenerator`), combinações ELU/ELS (`LoadSystem`), suíte de solvers esparsos (`LinearSolverSuite`), interpolação contínua de Hermite, viewport de alta definição (SSAA/MSAA/SDF, Clip Planes e contornos DCR), interoperabilidade `.omniframe` Schema 2.1.0 / DXF / IFC4, auditoria ABNT NBR em PDF local, relatórios PDF A4 e CLI headless `omniframe-cli.exe` (`pt-BR` / `en-US`).**
 
-[![Latest Release](https://img.shields.io/badge/Release-v2026.11.16.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.16.0)
+[![Latest Release](https://img.shields.io/badge/Release-v2026.11.17.0-blue.svg)](https://github.com/fernandoncidade/OmniFrame_cpp/releases/tag/v2026.11.17.0)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C?logo=c%2B%2B)](CMakeLists.txt)
 [![Qt 6.11.1](https://img.shields.io/badge/Qt-6.11.1-41CD52?logo=qt)](CMakeLists.txt)
 [![Eigen 3.4.0](https://img.shields.io/badge/Eigen-3.4.0-d9534f)](https://eigen.tuxfamily.org)
@@ -30,7 +30,7 @@
 ---
 
 <p align="center">
-  <img src="docs/images/banner.png" alt="OmniFrame 3D Banner" width="900">
+  <img src="docs/images/banner.png" alt="OmniFrame 3D Banner" width="300">
 </p>
 
 ---
@@ -42,7 +42,7 @@
 <details>
 <summary><b>Clique para expandir / recolher a documentação em Português (BR)</b></summary><br>
 
-O **OmniFrame 3D** (Versão 2026.11.16.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
+O **OmniFrame 3D** (Versão 2026.11.17.0) é uma plataforma nativa desktop de engenharia para simulação estrutural no Windows, desenvolvida em **C++23 moderno** e **Qt 6.11.1** para engenheiros estruturais, engenheiros civis, projetistas mecânicos, pesquisadores e estudantes.
 
 Diferente de suítes comerciais de FEA em caixa-preta que bloqueiam cálculos atrás de assinaturas caras, armazenamento obrigatório em nuvem e solvers opacos, o **OmniFrame 3D** foi concebido para entregar transparência matemática integral, soberania absoluta de dados locais (`Local-First`) e alto desempenho computacional em álgebra matricial esparsa:
 
@@ -125,46 +125,26 @@ Elemento Espacial de Viga-Coluna 3D (Nós i -> j)
 
 ### 📸 Capturas de Tela da Interface (`pt-BR`)
 
-Capturas reais do **OmniFrame 3D** localizado em **Português (Brasil)** no repositório [`repo/LISTAGEM/pt_BR/`](repo/LISTAGEM/pt_BR), demonstrando a análise de pórtico espacial com renderização SSAA 2.00× / MSAA 16× / Shader SDF, painéis acopláveis recolhíveis (`Inspetor e Entrada Rápida` na lateral esquerda e `Tabelas de Resultados e Diagnóstico Estrutural` na base), Sessão Guiada Interativa (Fases 1/2 e 2/2) e alternância dinâmica entre os temas Escuro e Claro:
+Capturas reais do **OmniFrame 3D** localizado em **Português (Brasil)** no repositório [`repo/LISTAGEM/pt_BR/`](repo/LISTAGEM/pt_BR), demonstrando os **3 exemplos estruturais integrados** com renderização **SSAA 2.00× / MSAA 16× / Linhas AA: Shader SDF**, painéis acopláveis recolhíveis (`Inspetor e Entrada Rápida` na lateral esquerda e `Tabelas de Resultados e Diagnóstico Estrutural` na base), alternância de **Plano Ativo** (`XY (Planta)` e `XZ (Frontal)`), escalas de deslocamento (`|u|`), carregamentos e reações de apoio:
 
 <p align="center">
-  <strong>Tema Escuro (pt-BR) — Painéis Expandidos: Inspetor Lateral com Spin Buttons Arredondados, Deformada 3D e Tabelas de Resultados</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-15%20235950.png" alt="OmniFrame 3D Português (BR) Tema Escuro Painéis Expandidos" width="900">
+  <strong>Exemplo 1 (pt-BR) — Pórtico Espacial de Edifício (2 Pavimentos, Vento e Sobrecarga) · Painéis Expandidos (3188×1346 px): Inspetor Lateral com Spin Buttons Arredondados, Deformada 3D (7.60 mm), Reações e Tabelas de Resultados (12 nós, 16 barras, 72 DOFs)</strong><br><br>
+  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20153830.png" alt="OmniFrame 3D Português (BR) Exemplo 1 Pórtico Espacial de Edifício Painéis Expandidos" width="900">
 </p>
 
 <p align="center">
-  <strong>Tema Escuro (pt-BR) — Painéis Recolhidos: Inspetor Lateral Rotacionado em -90° e Base Minimizada Ampliando o Viewport 3D (3760×1794 px)</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-15%20235929.png" alt="OmniFrame 3D Português (BR) Tema Escuro Painéis Recolhidos" width="900">
+  <strong>Exemplo 1 (pt-BR) — Pórtico Espacial de Edifício (2 Pavimentos) · Painéis Recolhidos (3760×1794 px): Inspetor Lateral Rotacionado em -90° (▶) e Base Minimizada (▲) Ampliando o Viewport OpenGL com SSAA 2.00× / MSAA 16× / Shader SDF</strong><br><br>
+  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20153851.png" alt="OmniFrame 3D Português (BR) Exemplo 1 Pórtico Espacial de Edifício Painéis Recolhidos" width="900">
 </p>
 
 <p align="center">
-  <strong>Tema Escuro (pt-BR) — Sessão Guiada Interativa (Fase 1/2): Destaque Âmbar no Próximo Controle e Tooltip Explicativo</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20000015.png" alt="OmniFrame 3D Português (BR) Tema Escuro Sessão Guiada Fase 1 de 2" width="900">
+  <strong>Exemplo 2 (pt-BR) — Balanço Espacial em L Sujeito a Flexo-Torção · Plano Ativo XZ (Frontal) e Painéis Recolhidos (3760×1794 px): Deformada 3D (216.2 mm), Carga Concentrada e Reações no Engaste (3 nós, 2 barras, 18 DOFs)</strong><br><br>
+  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20154256.png" alt="OmniFrame 3D Português (BR) Exemplo 2 Balanço Espacial em L Plano XZ Frontal" width="900">
 </p>
 
 <p align="center">
-  <strong>Tema Escuro (pt-BR) — Sessão Guiada Interativa (Fase 2/2): Execução Ativa no Controle em Foco (Viewport 3D) e Painéis Expandidos</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20000040.png" alt="OmniFrame 3D Português (BR) Tema Escuro Sessão Guiada Fase 2 de 2" width="900">
-</p>
-
-<p align="center">
-  <strong>Tema Claro (pt-BR) — Painéis Expandidos: Alternância Dinâmica de Tema, Deformada 3D, Reações e Tabelas de Resultados</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20000326.png" alt="OmniFrame 3D Português (BR) Tema Claro Painéis Expandidos" width="900">
-</p>
-
-<p align="center">
-  <strong>Tema Claro (pt-BR) — Painéis Recolhidos: Inspetor Lateral Rotacionado em -90° e Base Minimizada com SSAA 2.00× / MSAA 16× / Shader SDF</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20000306.png" alt="OmniFrame 3D Português (BR) Tema Claro Painéis Recolhidos" width="900">
-</p>
-
-<p align="center">
-  <strong>Tema Claro (pt-BR) — Sessão Guiada Interativa (Fase 1/2): Destaque Âmbar no Controle Alvo e Tooltip Educacional</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20000400.png" alt="OmniFrame 3D Português (BR) Tema Claro Sessão Guiada Fase 1 de 2" width="900">
-</p>
-
-<p align="center">
-  <strong>Tema Claro (pt-BR) — Sessão Guiada Interativa (Fase 2/2): Execução Ativa na Área Gráfica 3D durante Reconstrução Passo a Passo</strong><br><br>
-  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20000411.png" alt="OmniFrame 3D Português (BR) Tema Claro Sessão Guiada Fase 2 de 2" width="900">
+  <strong>Exemplo 3 (pt-BR) — Treliça Espacial / Passarela Metálica 3D · Plano Ativo XY (Planta) e Painéis Recolhidos (3760×1794 px): Deformada 3D (2.75 mm), Cargas Nodais e Reações de Apoio (20 nós, 57 barras, 120 DOFs)</strong><br><br>
+  <img src="repo/LISTAGEM/pt_BR/Captura%20de%20tela%202026-11-16%20154339.png" alt="OmniFrame 3D Português (BR) Exemplo 3 Treliça Espacial Passarela Metálica 3D" width="900">
 </p>
 
 ---
@@ -257,7 +237,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutur
 - 💻 [Referência da Linha de Comando e Utilitários (CLI)](docs/cli-reference.md#ptbr)
 - 💡 [Sugestões de Evolução e Backlog Técnico](docs/suggested-issues.md#ptbr)
 - 🔬 [Auditoria Técnica, ADRs, Matriz V&V e Roadmap](docs/technical-audit-and-roadmap.md)
-- 🚀 [Notas de Lançamento da Versão 2026.11.16.0](docs/release-v2026.11.16.0.md#ptbr)
+- 🚀 [Notas de Lançamento da Versão 2026.11.17.0](docs/release-v2026.11.17.0.md#ptbr)
 
 ---
 
@@ -279,7 +259,7 @@ O **OmniFrame 3D** é uma ferramenta computacional auxiliar de análise estrutur
 <details>
 <summary><b>Click to expand / collapse English (US) documentation</b></summary><br>
 
-**OmniFrame 3D** (Version 2026.11.16.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
+**OmniFrame 3D** (Version 2026.11.17.0) is an engineering-grade, native Windows desktop structural simulation platform designed in **modern C++23** and **Qt 6.11.1** for structural engineers, civil engineers, mechanical designers, researchers, and students.
 
 Unlike commercial black-box FEA suites that lock calculations behind expensive subscription paywalls, forced cloud storage, and opaque solvers, **OmniFrame 3D** is purpose-built to deliver complete mathematical transparency, strict local data sovereignty (`Local-First`), and high-speed sparse matrix computation:
 
@@ -362,46 +342,26 @@ Unlike commercial black-box FEA suites that lock calculations behind expensive s
 
 ### 📸 Interface Screenshots (`en-US`)
 
-Actual captures of **OmniFrame 3D** localized in **English (US)** stored under [`repo/LISTAGEM/en_US/`](repo/LISTAGEM/en_US), showcasing 3D space frame FEA analysis with SSAA 2.00× / MSAA 16× / Shader SDF rendering, collapsible dock panels (`Inspector &amp; Quick Input` on the left sidebar and `Result Tables &amp; Structural Diagnostics` at the bottom), the Interactive Guided Session (Phases 1/2 and 2/2), and live Dark/Light theme adaptation:
+Actual captures of **OmniFrame 3D** localized in **English (US)** stored under [`repo/LISTAGEM/en_US/`](repo/LISTAGEM/en_US), showcasing all **3 built-in structural examples** rendered with **SSAA 2.00× / MSAA 16× / Line AA: Shader SDF**, collapsible dock panels (`Inspector &amp; Quick Input` on the left sidebar and `Result Tables &amp; Structural Diagnostics` at the bottom), **Active Plane** switching (`XY (Plan)` and `XZ (Front)`), displacement colorbars (`|u|`), applied loads, and support reactions:
 
 <p align="center">
-  <strong>Dark Theme (en-US) — Expanded Panels: Left Inspector with Rounded Spin Buttons, 3D Deformed Shape &amp; Result Tables</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000540.png" alt="OmniFrame 3D English (US) Dark Theme Expanded Panels" width="900">
+  <strong>Example 1 (en-US) — 3D Building Space Frame (2 Stories, Wind and Live Load) · Expanded Panels (3188×1346 px): Left Inspector with Rounded Spin Buttons, 3D Deformed Shape (7.60 mm), Support Reactions &amp; Result Tables (12 nodes, 16 members, 72 DOFs)</strong><br><br>
+  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20154444.png" alt="OmniFrame 3D English (US) Example 1 3D Building Space Frame Expanded Panels" width="900">
 </p>
 
 <p align="center">
-  <strong>Dark Theme (en-US) — Collapsed Panels: Side-Collapsed Inspector (-90° Rotated Title) &amp; Minimized Bottom Dock Expanding 3D Viewport (3760×1794 px)</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000518.png" alt="OmniFrame 3D English (US) Dark Theme Collapsed Panels" width="900">
+  <strong>Example 1 (en-US) — 3D Building Space Frame (2 Stories) · Collapsed Panels (3760×1794 px): Side-Collapsed Inspector (-90° Rotated Title, ▶) &amp; Minimized Bottom Dock (▲) Expanding the OpenGL Viewport with SSAA 2.00× / MSAA 16× / Shader SDF</strong><br><br>
+  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20154459.png" alt="OmniFrame 3D English (US) Example 1 3D Building Space Frame Collapsed Panels" width="900">
 </p>
 
 <p align="center">
-  <strong>Dark Theme (en-US) — Interactive Guided Session (Phase 1/2): Amber Spotlight &amp; Explanatory Tooltip</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000601.png" alt="OmniFrame 3D English (US) Dark Theme Guided Session Phase 1 of 2" width="900">
+  <strong>Example 2 (en-US) — L-Shaped 3D Cantilever under Bending-Torsion · XZ (Front) Active Plane &amp; Collapsed Panels (3760×1794 px): 3D Deformed Shape (216.2 mm), Nodal Load &amp; Fixed-End Reactions (3 nodes, 2 members, 18 DOFs)</strong><br><br>
+  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20154539.png" alt="OmniFrame 3D English (US) Example 2 L-Shaped 3D Cantilever XZ Front Plane" width="900">
 </p>
 
 <p align="center">
-  <strong>Dark Theme (en-US) — Interactive Guided Session (Phase 2/2): Executing in Target Control (3D Viewport) with Auto-Expanded Panels</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000619.png" alt="OmniFrame 3D English (US) Dark Theme Guided Session Phase 2 of 2" width="900">
-</p>
-
-<p align="center">
-  <strong>Light Theme (en-US) — Expanded Panels: Dynamic Theme Switching, 3D Deformed Shape, Reactions &amp; Result Tables</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000719.png" alt="OmniFrame 3D English (US) Light Theme Expanded Panels" width="900">
-</p>
-
-<p align="center">
-  <strong>Light Theme (en-US) — Collapsed Panels: Side-Collapsed Inspector (-90° Rotated Title) &amp; Minimized Bottom Dock with SSAA 2.00× / MSAA 16× / Shader SDF</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000704.png" alt="OmniFrame 3D English (US) Light Theme Collapsed Panels" width="900">
-</p>
-
-<p align="center">
-  <strong>Light Theme (en-US) — Interactive Guided Session (Phase 1/2): Amber Spotlight on Target Control &amp; Reading-Paced Tooltip</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000739.png" alt="OmniFrame 3D English (US) Light Theme Guided Session Phase 1 of 2" width="900">
-</p>
-
-<p align="center">
-  <strong>Light Theme (en-US) — Interactive Guided Session (Phase 2/2): Executing on the 3D Viewport during Step-by-Step Reconstruction</strong><br><br>
-  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20000755.png" alt="OmniFrame 3D English (US) Light Theme Guided Session Phase 2 of 2" width="900">
+  <strong>Example 3 (en-US) — 3D Space Truss / Steel Footbridge · XY (Plan) Active Plane &amp; Collapsed Panels (3760×1794 px): 3D Deformed Shape (2.75 mm), Nodal Loads &amp; Support Reactions (20 nodes, 57 members, 120 DOFs)</strong><br><br>
+  <img src="repo/LISTAGEM/en_US/Captura%20de%20tela%202026-11-16%20154558.png" alt="OmniFrame 3D English (US) Example 3 3D Space Truss Steel Footbridge" width="900">
 </p>
 
 ---
@@ -494,7 +454,7 @@ omniframe-cli --example building --nbr-audit --json
 - 💻 [Command-Line & Utilities Reference (CLI)](docs/cli-reference.md#enus)
 - 💡 [Suggested Issues & Technical Backlog](docs/suggested-issues.md#enus)
 - 🔬 [Technical Audit, ADRs, V&V Matrix & Roadmap](docs/technical-audit-and-roadmap.md)
-- 🚀 [Release Notes for Version 2026.11.16.0](docs/release-v2026.11.16.0.md#enus)
+- 🚀 [Release Notes for Version 2026.11.17.0](docs/release-v2026.11.17.0.md#enus)
 
 ---
 

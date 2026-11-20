@@ -1,8 +1,8 @@
 # MANUAL DO USUÁRIO E GUIA DE ENGENHARIA FEA 3D — OMNIFRAME 3D
 # USER MANUAL AND 3D FEA ENGINEERING GUIDE — OMNIFRAME 3D
 
-**Versão / Version:** `2026.11.16.0`  
-**Data / Date:** `16 de novembro de 2026` / `November 16, 2026`  
+**Versão / Version:** `2026.11.17.0`  
+**Data / Date:** `17 de novembro de 2026` / `November 17, 2026`  
 **Ambiente Tecnológico / Tech Stack:** C++23 | Qt 6.11.1 | Eigen 3.4.0 Sparse Cholesky | OpenGL 3.3 Core Profile  
 **Plataforma / Platform:** Windows 11 / Windows 10 x64  
 **Autor / Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  

@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Guia do Usuário e Manual de Operações
 
-**Versão:** `2026.11.16.0`  
-**Data:** `16 de novembro de 2026`  
+**Versão:** `2026.11.17.0`  
+**Data:** `17 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -114,8 +114,8 @@ Você pode desinstalar e remover o OmniFrame 3D de forma limpa a qualquer moment
 
 # OmniFrame 3D — User Guide & Operations Manual
 
-**Version:** `2026.11.16.0`  
-**Date:** `November 16, 2026`  
+**Version:** `2026.11.17.0`  
+**Date:** `November 17, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---

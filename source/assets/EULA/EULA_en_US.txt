@@ -1,5 +1,5 @@
 END USER LICENSE AGREEMENT (EULA) — OmniFrame 3D
-Version 2026.11.16.0, November 16, 2026
+Version 2026.11.17.0, November 17, 2026
 
 Copyright (c) 2025-2026 Fernando Nillsson Cidade. All rights reserved.
 
