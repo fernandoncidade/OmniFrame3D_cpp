@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Arquitetura de Sistema e Especificações Técnicas
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Padrão:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Plataforma Alvo:** Windows 11 / Windows 10 x64  
 **Autor:** Fernando Nillsson Cidade  
@@ -148,7 +148,7 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 - **Shaders Compilados In-Process:** Shaders modernos GLSL 330 com iluminação difusa Lambertiana e realce especular de Phong.
 - **Buffers Otimizados:** VBOs e VAOs dedicados para nós (esferas instanciadas), barras indeformadas (cilindros neutros) e barras deformadas amplificadas.
 - **Picking Espacial por Raycasting:** Ao clicar na tela nas coordenadas $(x_s, y_s)$, as matrizes de projeção inversa e visualização inversa mapeiam o raio do olho para o espaço de mundo ($Ray_{origem}, Ray_{direcao}$). A distância mínima entre o raio e cada segmento de reta de elemento tridimensional permite a seleção imediata da barra com tolerância em pixels.
-- **Janelas Filhas Modeless, Estilo Vetorial e Plano Inicial:** O `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes da primeira exibição para impedir contornos fantasmas transitórios na abertura por clique único; o `ThemeManager` utiliza `QProxyStyle::drawPrimitive` para renderizar setas vetoriais de `QComboBox`/`QAbstractSpinBox` diretamente no tema ativo sem gravar PNGs temporários; a janela `GuidedSessionDialog` organiza controles em layout redimensionado sem truncamento de rótulos; `ManualDialog` inclui o botão de atalho para o Capítulo 10 da CLI (`CMD`/`PowerShell`); e `MainWindow::applyDefaultExampleWorkPlane()` padroniza os 3 exemplos no plano `XY (Planta)`.
+- **Janelas Filhas Modeless, Estilo Vetorial, Docks Recolhíveis e Plano Inicial:** O `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes da primeira exibição para impedir contornos fantasmas transitórios na abertura por clique único; o `ThemeManager` (`OmniFrameFusionStyle`) utiliza `QProxyStyle::drawPrimitive` / `drawComplexControl` / `subControlRect` e recorte `innerControlClipPath` para renderizar setas vetoriais nas 4 direções (`paintSpinArrowButton`) e alinhar rente os cantos externos arredondados dos botões *spin* em todos os `QComboBox`/`QSpinBox`/`QDoubleSpinBox` sem gravar PNGs temporários; `MainWindow` equipa os dois painéis com `DockTitleBar`, `RotatableTitleLabel` (rotação `-90°` no `LeftDockWidgetArea`) e `SpinArrowButton` (`◀/▶` lateral e `▼/▲` vertical, acoplado ou flutuante); a janela `GuidedSessionDialog` expande docks recolhidos quando necessário e organiza controles em layout sem truncamento; `ManualDialog` inclui o botão de atalho para o Capítulo 10 da CLI (`CMD`/`PowerShell`); e `MainWindow::applyDefaultExampleWorkPlane()` padroniza os 3 exemplos no plano `XY (Planta)`.
 
 ---
 
@@ -170,8 +170,8 @@ A Viewport 3D é implementada através do componente `QOpenGLWidget`:
 
 # OmniFrame 3D — System Architecture & Technical Specifications
 
-**Version:** `2026.11.15.0`  
-**Date:** `November 15, 2027`  
+**Version:** `2026.11.16.0`  
+**Date:** `November 16, 2026`  
 **Standards:** C++23 | Qt 6.11.1 | Eigen 3.4.0 | OpenGL 3.3 Core Profile  
 **Target Platform:** Windows 11 / Windows 10 x64  
 **Author:** Fernando Nillsson Cidade  
@@ -304,7 +304,7 @@ The 3D Viewport is implemented using the `QOpenGLWidget` component:
 - **In-Process Compiled Shaders:** Modern GLSL 330 shaders with Lambertian diffuse illumination and Phong specular highlights.
 - **Optimized Buffers:** Dedicated VBOs and VAOs for nodes (instanced spheres), undeformed members (neutral cylinders), and amplified deformed members.
 - **Spatial Raycasting Picking:** Clicking screen coordinates $(x_s, y_s)$ uses inverse projection and inverse view matrices to cast a ray from eye to world space ($Ray_{origin}, Ray_{direction}$). Minimum distance between the ray and each 3D member segment enables instant bar picking within pixel tolerance.
-- **Ghost-Free Modeless Windows, Native Vector Styling & Default Work Plane:** `WindowZOrderManager` prepares hidden native window handles (`Qt::WA_DontShowOnScreen`) prior to first on-screen mapping to prevent transient ghost frames on single-click dialog launch; `ThemeManager` uses `QProxyStyle::drawPrimitive` to draw vector combo/spin arrows natively per active theme without emitting temporary PNG files; `GuidedSessionDialog` uses an enlarged two-row transport layout with unclipped strings; `ManualDialog` provides a quick-jump toolbar button directly to Chapter 10 CLI reference (`CMD`/`PowerShell`); and `MainWindow::applyDefaultExampleWorkPlane()` defaults all three built-in examples to the `XY (Plan)` work plane.
+- **Ghost-Free Modeless Windows, Native Vector Styling, Collapsible Docks & Default Work Plane:** `WindowZOrderManager` prepares hidden native window handles (`Qt::WA_DontShowOnScreen`) prior to first on-screen mapping to prevent transient ghost frames on single-click dialog launch; `ThemeManager` (`OmniFrameFusionStyle`) uses `QProxyStyle::drawPrimitive` / `drawComplexControl` / `subControlRect` and `innerControlClipPath` to paint 4-direction vector arrows (`paintSpinArrowButton`) and align flush rounded outer corners on every `QComboBox`/`QSpinBox`/`QDoubleSpinBox` without emitting temporary PNG files; `MainWindow` attaches `DockTitleBar`, `RotatableTitleLabel` (`-90°` rotation in `LeftDockWidgetArea`), and `SpinArrowButton` (`◀/▶` lateral and `▼/▲` bottom, docked or floating); `GuidedSessionDialog` automatically uncollapses docks when needed and uses an enlarged two-row transport layout; `ManualDialog` provides a quick-jump toolbar button directly to Chapter 10 CLI reference (`CMD`/`PowerShell`); and `MainWindow::applyDefaultExampleWorkPlane()` defaults all three built-in examples to the `XY (Plan)` work plane.
 
 ---
 

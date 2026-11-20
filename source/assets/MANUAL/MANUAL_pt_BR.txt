@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — MANUAL COMPLETO DE OPERAÇÃO E ENGENHARIA
-Versão: 2026.11.15.0 | Data: 15 de novembro de 2027 | Autor: Fernando Nillsson Cidade
+Versão: 2026.11.16.0 | Data: 16 de novembro de 2026 | Autor: Fernando Nillsson Cidade
 Idioma do Documento: Português (Brasil) — Correspondência rigorosa linha a linha com en-US
 ================================================================================
 
@@ -20,9 +20,12 @@ A janela principal organiza o fluxo de trabalho em seis regiões integradas e re
 • Painel Lateral Esquerdo (Dock Inspetor e Entrada Rápida): concentra a inserção exata de nós por coordenadas cartesianas (X, Y, Z) e o quadro interativo Elemento / Nó Selecionado com listas suspensas e botões de edição direta.
 • Painel Inferior (Dock Tabelas de Resultados e Diagnóstico Estrutural) e Barra de Status: exibe quatro abas sincronizadas de Deslocamentos Nodais, Reações de Apoio, Esforços nas Barras e Esforços 2D/3D (Casca/Sólido), enquanto a barra de status reporta continuamente as coordenadas 3D do cursor, contadores de nós/barras/malha e mensagens de diagnóstico.
 
-1.3 Painéis Encaixáveis (Docks) e Personalização do Workspace
-Tanto o painel lateral esquerdo quanto o painel inferior são painéis encaixáveis (QDockWidget) que podem permanecer acoplados às bordas da janela principal ou ser destacados em janelas flutuantes independentes por meio do botão de desencaixe ou arrastando sua barra de título.
-A qualquer momento você pode alternar a visibilidade de cada painel ou trazê-los de volta à posição desejada sem perder seleções nem resultados já calculados.
+1.3 Painéis Encaixáveis (Docks), Recolhimento Lateral/Inferior e Personalização do Workspace
+Tanto o painel lateral esquerdo quanto o painel inferior são painéis encaixáveis (QDockWidget) que podem permanecer acoplados às bordas da janela principal ou ser destacados em janelas flutuantes independentes ao arrastar ou dar clique duplo em sua barra de título.
+A qualquer momento você pode recolher, expandir, ocultar ou destacar cada painel para liberar mais área de tela para o Viewport 3D sem perder seleções nem resultados já calculados:
+• Recolher e Expandir "Inspetor e Entrada Rápida" (Lateral Esquerda — Seta ◀ / ▶): clique no botão de seta estilo spin button apontado para a esquerda (◀) no cabeçalho para recolher o inspetor para a lateral esquerda em uma faixa vertical compacta com o rótulo rotacionado em 90° no sentido anti-horário; clique na seta apontada para a direita (▶) no topo dessa faixa vertical para expandir o painel de volta à largura completa.
+• Recolher e Expandir "Tabelas de Resultados e Diagnóstico Estrutural" (Base — Seta ▼ / ▲): clique no botão de seta estilo spin button apontado para baixo (▼) no canto direito do cabeçalho para recolher as tabelas mantendo a barra inferior visível em toda a largura; clique na seta apontada para cima (▲) para reabrir as quatro abas de resultados.
+• Modo Flutuante, Tema, Idioma e Campos Numéricos (Spinbox): ao destacar qualquer painel, o mesmo botão permite recolher e expandir a janela flutuante mantendo dimensões compactas ao reacoplar; dicas de tela ("Recolher painel" / "Expandir painel"), rótulo rotacionado e setas adaptam-se automaticamente aos temas Claro/Escuro e aos idiomas pt-BR/en-US, os painéis recolhidos reabrem automaticamente durante a Sessão Guiada (F2), e todos os campos numéricos da interface exibem botões spin com cantos externos arredondados alinhados continuamente à moldura do campo.
 Quando um dock é destacado como janela flutuante, ele participa integralmente do gerenciamento de empilhamento visual (Z-Order), permitindo alternar livremente o foco entre o dock flutuante, a janela principal e qualquer janela filha aberta.
 
 1.4 Janelas Filhas Modeless e Gerenciamento de Z-Order

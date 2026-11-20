@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Guia do Usuário e Manual de Operações
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -36,8 +36,8 @@ A interface do **OmniFrame 3D** organiza-se em cinco áreas principais:
    - **Barra 1 (Interação e Plano de Trabalho):** Modos `Selecionar (S)`, `Inserir Nó (N)`, `Inserir Barra (B)`, `Medir (M)`, `Excluir (Del)`, seletor de Plano (`XY (Planta)` como padrão inicial e nos 3 exemplos, `XZ (Frontal)`, `YZ (Lateral)`), Cota, `Snap Grid`, Passo, `Eixos Locais` e botões rápidos de vista (`3D Iso`, `Frontal`, `Planta`, `Lateral`, `Enquadrar (F)`).
    - **Barra 2 (Engenharia e Resultados):** Atalhos diretos (`Materiais...`, `Seções...`, `Apoios...`, `Rótulas...`, `Nodais...`, `Distribuídas...`, `Térmica (ΔT)...`, `Roll (γ)...`, `Combinações...`, `Malha 2D/3D...`, `Avançadas...`, `Corte/Contornos...`, `Auditoria NBR...`), botão **Calcular Estrutura (`F5`)**, seletor de **Diagrama** (`Nenhum`, `Deformada 3D`, `Normal N`, `Cortante Vy`, `Cortante Vz`, `Torsor Tx`, `Fletor My`, `Fletor Mz`), alternância de **Reações** e controle deslizante **Escala** (`1` a `100`, padrão `30`, aplicando ampliação `1.5x` a `150x` na deformada 3D). Todas as janelas de engenharia abrem com **clique único**, sem qualquer contorno fantasma transitório, e em modo **não-modal (*modeless*)** com **Z-Order** estável sobre a janela principal.
 3. **Viewport Gráfica 3D Central (OpenGL 3.3 Core):** Renderização interativa da estrutura, eixos, apoios, cargas, deformada, malhas 2D/3D, planos de corte (*Clip Plane*), contornos `|u|`, **Tensão de von Mises (Casca/Sólido)** e DCR, animações modais e diagramas de esforços.
-4. **Dock Esquerdo (Inspetor e Entrada Rápida):** Entrada numérica exata de nós $(X, Y, Z)$ em metros e painel **`Elemento / Nó Selecionado`** com listas suspensas diretas **`Material:`** e **`Seção Transversal:`** (exibindo nomes limpos, sem prefixo `#ID`), edição direta de propriedades e botões **`Mesmo Material`** / **`Mesma Seção`** para seleção e ajuste em lote.
-5. **Dock Inferior (Tabelas de Resultados e Diagnóstico Estrutural):** Abas sincronizadas para **Deslocamentos Nodais**, **Reações de Apoio**, **Esforços nas Barras** e **`Esforços 2D/3D (Casca/Sólido)`** (resultantes de placa e tensões principais/von Mises).
+4. **Dock Esquerdo (Inspetor e Entrada Rápida):** Entrada numérica exata de nós $(X, Y, Z)$ em metros (com botões *spin* de cantos arredondados acompanhando a moldura dos campos) e painel **`Elemento / Nó Selecionado`** com listas suspensas diretas **`Material:`** e **`Seção Transversal:`** (exibindo nomes limpos, sem prefixo `#ID`), edição direta de propriedades e botões **`Mesmo Material`** / **`Mesma Seção`** para seleção e ajuste em lote. No cabeçalho, a seta estilo *spin button* (**`◀`** para recolher / **`▶`** para expandir) recolhe o painel para a lateral esquerda com rótulo rotacionado **90° no sentido anti-horário**, ampliando a área livre do Viewport 3D (funcionando também em modo flutuante e expandindo automaticamente na Sessão Guiada `F2`).
+5. **Dock Inferior (Tabelas de Resultados e Diagnóstico Estrutural):** Abas sincronizadas para **Deslocamentos Nodais**, **Reações de Apoio**, **Esforços nas Barras** e **`Esforços 2D/3D (Casca/Sólido)`** (resultantes de placa e tensões principais/von Mises), além de botão estilo *spin button* no cabeçalho (**`▼`** para recolher / **`▲`** para expandir) para compactar as tabelas na borda inferior (ou em janela flutuante) liberando altura vertical para o modelo 3D.
 
 ---
 
@@ -114,8 +114,8 @@ Você pode desinstalar e remover o OmniFrame 3D de forma limpa a qualquer moment
 
 # OmniFrame 3D — User Guide & Operations Manual
 
-**Version:** `2026.11.15.0`  
-**Date:** `November 15, 2027`  
+**Version:** `2026.11.16.0`  
+**Date:** `November 16, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -136,8 +136,8 @@ The **OmniFrame 3D** workspace is organized into five main areas:
    - **Toolbar 1 (Interaction & Work Plane):** Modes `Select (S)`, `Add Node (N)`, `Add Member (B)`, `Measure (M)`, `Delete (Del)`, Work Plane selector (`XY (Plan)` as startup and built-in example default, `XZ (Front)`, `YZ (Side)`), Elevation, `Snap Grid`, Step, `Local Axes`, and quick view buttons (`3D Iso`, `Front`, `Top`, `Side`, `Fit (F)`).
    - **Toolbar 2 (Engineering & Results):** Direct dialog shortcuts (`Materials...`, `Sections...`, `Supports...`, `Hinges...`, `Nodal...`, `Distributed...`, `Thermal (ΔT)...`, `Roll (γ)...`, `Combinations...`, `Mesh 2D/3D...`, `Advanced...`, `Clip/Contours...`, `NBR Audit...`), **Solve Structure (`F5`)** button, **Diagram** selector (`None`, `Deformed 3D`, `Normal N`, `Shear Vy`, `Shear Vz`, `Torsion Tx`, `Moment My`, `Moment Mz`), **Reactions** toggle, and **Scale** slider (`1` to `100`, default `30`, applying `1.5x` to `150x` amplification on the 3D deformed shape). All engineering dialogs open on a **single click**, without any transient ghost window outline, and run as **modeless** windows with managed **Z-Order** above the main window.
 3. **Central 3D Graphics Viewport (OpenGL 3.3 Core):** Interactive rendering of structure, axes, supports, loads, deformed shape, 2D/3D meshes, 3D clip planes, `|u|`, **von Mises Stress (Shell/Solid)**, and DCR contours, modal animations, and internal force diagrams.
-4. **Left Dock (Inspector & Quick Entry):** Exact numerical node entry $(X, Y, Z)$ in meters and the **`Selected Element / Node`** Inspector with inline **`Material:`** and **`Cross-Section:`** dropdown lists (showing clean names without `#ID` prefixes), direct property fields, and **`Same Material`** / **`Same Section`** batch-selection buttons.
-5. **Bottom Dock (Results Tables & Structural Diagnostics):** Synchronized tabs for **Nodal Displacements**, **Support Reactions**, **Member Forces**, and **`2D/3D Forces (Shell/Solid)`** (plate resultants and principal/von Mises stresses).
+4. **Left Dock (Inspector & Quick Entry):** Exact numerical node entry $(X, Y, Z)$ in meters (featuring rounded outer corners on spin buttons aligned seamlessly to the field frame) and the **`Selected Element / Node`** Inspector with inline **`Material:`** and **`Cross-Section:`** dropdown lists (showing clean names without `#ID` prefixes), direct property fields, and **`Same Material`** / **`Same Section`** batch-selection buttons. In the panel header, the spin-button arrow (**`◀`** to collapse / **`▶`** to expand) collapses the dock horizontally to the left edge with its title rotated **90° counter-clockwise** to maximize 3D Viewport width (also operating in floating mode and auto-expanding during Guided Session `F2`).
+5. **Bottom Dock (Results Tables & Structural Diagnostics):** Synchronized tabs for **Nodal Displacements**, **Support Reactions**, **Member Forces**, and **`2D/3D Forces (Shell/Solid)`** (plate resultants and principal/von Mises stresses), paired with a header spin-button arrow (**`▼`** to collapse / **`▲`** to expand) that compacts the tables cleanly along the bottom border (or while floating) to reclaim vertical height for the 3D scene.
 
 ---
 

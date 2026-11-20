@@ -1,4 +1,32 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.16.0
+Data: 16 de novembro de 2026
+
+Destaques da Versão 2026.11.16.0:
+
+1. Painel "Inspetor e Entrada Rápida" Recolhível para a Lateral Esquerda
+- O cabeçalho do painel "Inspetor e Entrada Rápida" recebeu um botão com seta direcional para recolher e expandir a barra lateral conforme a necessidade do trabalho.
+- Quando o painel está expandido, a seta aponta para a esquerda para recolhê-lo; ao recolher, o painel recua para a lateral esquerda em uma faixa vertical compacta com o título "Inspetor e Entrada Rápida" rotacionado em 90 graus no sentido anti-horário, liberando toda a largura restante da tela para a visualização da estrutura em 3D.
+- Quando está recolhido, a seta no topo da faixa passa a apontar para a direita para expandir o painel novamente com todas as ferramentas de criação e edição rápida intactas.
+- Ao destacar o painel como janela flutuante, o mesmo botão permite recolher e expandir a janela separada, retomando automaticamente a faixa vertical lateral caso ela volte a ser encaixada ainda recolhida.
+
+2. Painel "Tabelas de Resultados e Diagnóstico Estrutural" Recolhível na Base
+- O cabeçalho do painel "Tabelas de Resultados e Diagnóstico Estrutural" passou a contar com um botão de seta direcional para recolher e expandir as abas de resultados a qualquer momento.
+- Com o painel aberto, a seta aponta para baixo para recolher as tabelas em uma faixa inferior discreta mantendo o título visível em toda a largura da tela, ampliando a área vertical disponível para o modelo 3D.
+- Com o painel recolhido, a seta aponta para cima para restaurar imediatamente as quatro abas de deslocamentos, reações, esforços em barras e esforços de casca/sólido, preservando o funcionamento também quando destacado em janela flutuante.
+
+3. Acabamento Arredondado nos Botões de Ajuste dos Campos Numéricos
+- Todos os campos de entrada numérica da interface gráfica tiveram suas setas duplas superior e inferior ajustadas para acompanhar perfeitamente o contorno da caixa em todos os diálogos e barras de ferramentas.
+- Os cantos externos desses botões passaram a seguir exatamente a curvatura arredondada da moldura nos temas Claro e Escuro, removendo folgas retangulares e mantendo os divisores internos mais limpos e alinhados.
+
+4. Tradução em Tempo Real, Integração com a Sessão Guiada (F2) e Manual Atualizado
+- Os títulos dos painéis encaixáveis (inclusive quando rotacionados na lateral esquerda) e as mensagens de dica "Recolher painel" e "Expandir painel" dos botões de controle alternam automaticamente entre Português (Brasil) e Inglês (EUA) em tempo real, além de se adaptarem imediatamente à troca entre os temas Claro e Escuro.
+- Ao iniciar ou avançar pelas etapas da Sessão Guiada Interativa (F2) que utilizam o inspetor ou as tabelas de resultados, painéis que estejam recolhidos são reabertos automaticamente para manter todos os passos claramente visíveis.
+- O Manual de Operações (F1) foi atualizado em Português e Inglês com orientações práticas sobre como recolher, expandir e destacar os painéis laterais e inferiores e utilizar os controles atualizados.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versão: 2026.11.15.0
 Data: 15 de novembro de 2026
 

@@ -1,5 +1,5 @@
 Projeto: OMNIFRAME 3D
-Versao: 2026.11.15.0
+Versao: 2026.11.16.0
 Autor: Fernando Nillsson Cidade
 E-mail: linceu_lighthouse@outlook.com
 Repositorio Oficial: https://github.com/fernandoncidade/OmniFrame_cpp

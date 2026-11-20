@@ -1331,6 +1331,11 @@ void GuidedSessionDialog::startSession(int customPhaseIntervalMs) {
     m_currentPhase = 1;
     m_progressBar->setValue(0);
 
+    if (m_mainWindow) {
+        m_mainWindow->setInspectorDockCollapsed(false);
+        m_mainWindow->setResultsDockCollapsed(false);
+    }
+
     updateControlsState();
     showPreActionTooltipForStep(m_currentStep);
     schedulePhaseTimer(computePhase1ReadingMs(m_currentStep));
@@ -2462,6 +2467,7 @@ void GuidedSessionDialog::executeStepAction(int step) {
             break;
         }
         case 6: {
+            m_mainWindow->setInspectorDockCollapsed(false);
             if (m_mainWindow->m_inspectorDock) {
                 m_mainWindow->m_inspectorDock->show();
                 m_mainWindow->m_inspectorDock->raise();
@@ -2602,6 +2608,7 @@ void GuidedSessionDialog::executeStepAction(int step) {
             break;
         }
         case 13: {
+            m_mainWindow->setInspectorDockCollapsed(false);
             if (m_mainWindow->m_inspectorDock) {
                 m_mainWindow->m_inspectorDock->show();
                 m_mainWindow->m_inspectorDock->raise();
@@ -2758,6 +2765,7 @@ void GuidedSessionDialog::executeStepAction(int step) {
             break;
         }
         case 22: {
+            m_mainWindow->setResultsDockCollapsed(false);
             if (m_mainWindow->m_resultsDock) {
                 m_mainWindow->m_resultsDock->show();
                 m_mainWindow->m_resultsDock->raise();
@@ -2818,6 +2826,11 @@ void GuidedSessionDialog::executeStepAction(int step) {
             }
             waitForBackgroundSolvers();
             m_mainWindow->ensureStaticSolvedSync();
+            m_mainWindow->setResultsDockCollapsed(false);
+            if (m_mainWindow->m_resultsDock) {
+                m_mainWindow->m_resultsDock->show();
+                m_mainWindow->m_resultsDock->raise();
+            }
             m_mainWindow->updateResultsTables();
             if (m_mainWindow->m_resultsTabs && m_mainWindow->m_resultsTabs->count() >= 4 && m_mainWindow->m_continuumTable) {
                 m_mainWindow->m_resultsTabs->setCurrentIndex(3);

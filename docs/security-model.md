@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Modelo de Segurança, Integridade de Dados e Resiliência
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -61,8 +61,8 @@ Ao importar ou abrir qualquer arquivo `.omniframe`, `.dxf` ou `.ifc`:
 
 # OmniFrame 3D — Security Model, Data Integrity & Resilience
 
-**Version:** `2026.11.15.0`  
-**Date:** `November 15, 2027`  
+**Version:** `2026.11.16.0`  
+**Date:** `November 16, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---

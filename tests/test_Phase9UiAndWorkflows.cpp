@@ -21,6 +21,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
+#include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QFile>
@@ -32,12 +33,14 @@
 #include <QPointer>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #ifdef Q_OS_WIN
@@ -1247,6 +1250,61 @@ void testGuidedSessionWalkthroughAndTranslations() {
     pumpEvents(60);
 }
 
+bool hasDistinctArrowTriangle(const QImage& img, const QRect& box, const QColor& expectedArrow, Qt::ArrowType expectedDir) {
+    if (img.isNull() || box.isEmpty() || expectedDir == Qt::NoArrow) return false;
+    const QRect clipped = box.intersected(img.rect()).adjusted(2, 2, -2, -2);
+    if (!clipped.isValid()) return false;
+
+    auto isArrowPixel = [&](int x, int y) {
+        const QColor px = img.pixelColor(x, y);
+        return std::abs(px.red() - expectedArrow.red()) <= 65 &&
+               std::abs(px.green() - expectedArrow.green()) <= 65 &&
+               std::abs(px.blue() - expectedArrow.blue()) <= 65;
+    };
+
+    std::vector<int> sliceCounts;
+    int totalMatching = 0;
+    if (expectedDir == Qt::LeftArrow || expectedDir == Qt::RightArrow) {
+        for (int x = clipped.left(); x <= clipped.right(); ++x) {
+            int colCount = 0;
+            for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
+                if (isArrowPixel(x, y)) {
+                    ++colCount;
+                    ++totalMatching;
+                }
+            }
+            if (colCount > 0) {
+                sliceCounts.push_back(colCount);
+            }
+        }
+        if (totalMatching < 8 || sliceCounts.size() < 3) return false;
+        return (expectedDir == Qt::LeftArrow)
+            ? (sliceCounts.back() > sliceCounts.front())
+            : (sliceCounts.front() > sliceCounts.back());
+    }
+
+    for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
+        int rowCount = 0;
+        for (int x = clipped.left(); x <= clipped.right(); ++x) {
+            if (isArrowPixel(x, y)) {
+                ++rowCount;
+                ++totalMatching;
+            }
+        }
+        if (rowCount > 0) {
+            sliceCounts.push_back(rowCount);
+        }
+    }
+    if (totalMatching < 8 || sliceCounts.size() < 3) return false;
+    return (expectedDir == Qt::UpArrow)
+        ? (sliceCounts.back() > sliceCounts.front())
+        : (sliceCounts.front() > sliceCounts.back());
+}
+
+bool hasDistinctArrowTriangle(const QImage& img, const QRect& box, const QColor& expectedArrow, bool expectUp) {
+    return hasDistinctArrowTriangle(img, box, expectedArrow, expectUp ? Qt::UpArrow : Qt::DownArrow);
+}
+
 void testThemedComboAndSpinArrowsRenderWithoutPngAssets() {
     for (const char* resPath : {
              ":/omniframe/assets/icons/spin_up_dark.png",
@@ -1261,32 +1319,6 @@ void testThemedComboAndSpinArrowsRenderWithoutPngAssets() {
         TEST_ASSERT(!QFile::exists(QString::fromLatin1(resPath)),
                     std::string("Recurso legado nao deve estar embutido: ") + resPath);
     }
-
-    auto hasDistinctArrowTriangle = [](const QImage& img, const QRect& box, const QColor& expectedArrow, bool expectUp) {
-        if (img.isNull() || box.isEmpty()) return false;
-        const QRect clipped = box.intersected(img.rect()).adjusted(2, 2, -2, -2);
-        if (!clipped.isValid()) return false;
-        std::vector<int> rowWidths;
-        int totalMatching = 0;
-        for (int y = clipped.top(); y <= clipped.bottom(); ++y) {
-            int rowCount = 0;
-            for (int x = clipped.left(); x <= clipped.right(); ++x) {
-                const QColor px = img.pixelColor(x, y);
-                const int dr = std::abs(px.red() - expectedArrow.red());
-                const int dg = std::abs(px.green() - expectedArrow.green());
-                const int db = std::abs(px.blue() - expectedArrow.blue());
-                if (dr <= 65 && dg <= 65 && db <= 65) {
-                    ++rowCount;
-                    ++totalMatching;
-                }
-            }
-            if (rowCount > 0) {
-                rowWidths.push_back(rowCount);
-            }
-        }
-        if (totalMatching < 8 || rowWidths.size() < 3) return false;
-        return expectUp ? (rowWidths.back() > rowWidths.front()) : (rowWidths.front() > rowWidths.back());
-    };
 
     const UiTheme originalTheme = ThemeManager::instance().currentTheme();
     const QString shotDir = qEnvironmentVariable("OMNIFRAME_UI_SHOT_DIR");
@@ -1348,6 +1380,39 @@ void testThemedComboAndSpinArrowsRenderWithoutPngAssets() {
         TEST_ASSERT(hasDistinctArrowTriangle(spinImg, spinDownRect, normalArrow, false),
                     "QSpinBox deve renderizar triangulo inferior nitido sem PNGs externos");
 
+        auto verifyFlushRoundedSpinCorners = [&](const QImage& sImg, bool isEnabledSpin, const char* label) {
+            const QColor hostBg = host.palette().color(QPalette::Window);
+            const QColor expectedBtnBg = isEnabledSpin
+                ? ((theme == UiTheme::Light) ? QColor(0xe2, 0xe8, 0xf0) : QColor(0x28, 0x31, 0x3e))
+                : ((theme == UiTheme::Light) ? QColor(0xf1, 0xf5, 0xf9) : QColor(0x1c, 0x22, 0x2b));
+            auto matchesColor = [](const QColor& a, const QColor& b, int tol) {
+                return std::abs(a.red() - b.red()) <= tol &&
+                       std::abs(a.green() - b.green()) <= tol &&
+                       std::abs(a.blue() - b.blue()) <= tol;
+            };
+            // O preenchimento dos botões up/down deve tocar rente as bordas superior, direita e inferior (sem vão retangular).
+            TEST_ASSERT(matchesColor(sImg.pixelColor(sImg.width() - 5, 1), expectedBtnBg, 8),
+                        std::string(label) + ": topo do spin button superior deve tocar rente a borda arredondada");
+            TEST_ASSERT(matchesColor(sImg.pixelColor(sImg.width() - 2, 4), expectedBtnBg, 8),
+                        std::string(label) + ": lateral direita do spin button superior deve tocar rente a borda");
+            TEST_ASSERT(matchesColor(sImg.pixelColor(sImg.width() - 5, sImg.height() - 2), expectedBtnBg, 8),
+                        std::string(label) + ": base do spin button inferior deve tocar rente a borda arredondada");
+            TEST_ASSERT(matchesColor(sImg.pixelColor(sImg.width() - 2, sImg.height() - 5), expectedBtnBg, 8),
+                        std::string(label) + ": lateral direita do spin button inferior deve tocar rente a borda");
+            // Os vértices externos (cantos extremos da caixa) devem preservar o fundo externo fora do raio arredondado.
+            TEST_ASSERT(matchesColor(sImg.pixelColor(sImg.width() - 1, 0), hostBg, 6),
+                        std::string(label) + ": canto extremo superior direito deve permanecer recortado pelo raio da moldura");
+            TEST_ASSERT(matchesColor(sImg.pixelColor(sImg.width() - 1, sImg.height() - 1), hostBg, 6),
+                        std::string(label) + ": canto extremo inferior direito deve permanecer recortado pelo raio da moldura");
+            if (isEnabledSpin) {
+                TEST_ASSERT(!matchesColor(sImg.pixelColor(sImg.width() - 1, 0), expectedBtnBg, 6),
+                            std::string(label) + ": preenchimento do botao superior nao deve vazar para o canto extremo");
+                TEST_ASSERT(!matchesColor(sImg.pixelColor(sImg.width() - 1, sImg.height() - 1), expectedBtnBg, 6),
+                            std::string(label) + ": preenchimento do botao inferior nao deve vazar para o canto extremo");
+            }
+        };
+        verifyFlushRoundedSpinCorners(spinImg, true, "QSpinBox");
+
         const QImage dspinDisImg = dspinDis->grab().toImage();
         const int dspinMidY = dspinDisImg.height() / 2;
         TEST_ASSERT(hasDistinctArrowTriangle(dspinDisImg,
@@ -1360,6 +1425,7 @@ void testThemedComboAndSpinArrowsRenderWithoutPngAssets() {
                                              disabledArrow,
                                              false),
                     "QDoubleSpinBox desabilitado deve renderizar triangulo inferior sem PNGs externos");
+        verifyFlushRoundedSpinCorners(dspinDisImg, false, "QDoubleSpinBox desabilitado");
 
         AboutDialog about;
         about.setAttribute(Qt::WA_DontShowOnScreen, true);
@@ -1385,34 +1451,265 @@ void testThemedComboAndSpinArrowsRenderWithoutPngAssets() {
     ThemeManager::instance().setTheme(originalTheme);
 }
 
+void testCollapsibleDocksWithSpinArrowButtons() {
+    auto& traducao = omniframe::locale::GerenciadorTraducao::instance();
+    const QString originalLang = traducao.codigoIdiomaAtual();
+    const UiTheme originalTheme = ThemeManager::instance().currentTheme();
+    const QString shotDir = qEnvironmentVariable("OMNIFRAME_UI_SHOT_DIR");
+
+    TEST_ASSERT(traducao.definir_idioma(QStringLiteral("pt_BR")), "Deve ativar pt_BR para teste de docks");
+    ThemeManager::instance().setTheme(UiTheme::Dark);
+
+    MainWindow w;
+    w.setAttribute(Qt::WA_DontShowOnScreen, true);
+    w.resize(1360, 860);
+    w.show();
+    pumpEvents(50);
+
+    auto* inspectorBtn = w.findChild<QToolButton*>(QStringLiteral("inspectorCollapseButton"));
+    auto* resultsBtn = w.findChild<QToolButton*>(QStringLiteral("resultsCollapseButton"));
+    TEST_ASSERT(inspectorBtn != nullptr, "Botao spin arrow do Inspetor deve existir");
+    TEST_ASSERT(resultsBtn != nullptr, "Botao spin arrow das Tabelas de Resultados deve existir");
+
+    auto* inspectorDock = qobject_cast<QDockWidget*>(inspectorBtn->parentWidget() ? inspectorBtn->parentWidget()->parentWidget() : nullptr);
+    auto* resultsDock = qobject_cast<QDockWidget*>(resultsBtn->parentWidget() ? resultsBtn->parentWidget()->parentWidget() : nullptr);
+    TEST_ASSERT(inspectorDock != nullptr, "Inspector button deve estar hospedado na barra de titulo de seu QDockWidget");
+    TEST_ASSERT(resultsDock != nullptr, "Results button deve estar hospedado na barra de titulo de seu QDockWidget");
+
+    auto* inspectorScroll = inspectorDock->findChild<QScrollArea*>();
+    auto* resultsTabs = resultsDock->findChild<QTabWidget*>();
+    auto* viewport = w.findChild<Viewport3D*>();
+    TEST_ASSERT(inspectorScroll != nullptr, "Conteudo ScrollArea do Inspetor deve existir");
+    TEST_ASSERT(resultsTabs != nullptr, "QTabWidget das Tabelas de Resultados deve existir");
+    TEST_ASSERT(viewport != nullptr, "Viewport3D deve existir");
+
+    auto verifySpinButtonPixels = [&](QToolButton* btn, UiTheme theme, Qt::ArrowType expectedDir, const char* context) {
+        const QColor arrowColor = (theme == UiTheme::Light) ? QColor(0x1e, 0x29, 0x3b) : QColor(0xe2, 0xe8, 0xf0);
+        const QImage img = btn->grab().toImage();
+        TEST_ASSERT(hasDistinctArrowTriangle(img, img.rect(), arrowColor, expectedDir), context);
+    };
+
+    // Estado inicial expandido: Inspetor aponta para esquerda (◀) e Resultados para baixo (▼).
+    TEST_ASSERT(!w.isInspectorDockCollapsed(), "Inspetor deve iniciar expandido");
+    TEST_ASSERT(!w.isResultsDockCollapsed(), "Tabelas de Resultados devem iniciar expandidas");
+    TEST_ASSERT(inspectorDock->isVisible() && inspectorScroll->isVisible(), "Conteudo do Inspetor deve estar visivel inicialmente");
+    TEST_ASSERT(resultsDock->isVisible() && resultsTabs->isVisible(), "Conteudo das Tabelas de Resultados deve estar visivel inicialmente");
+    TEST_ASSERT(inspectorBtn->arrowType() == Qt::LeftArrow, "Seta inicial do Inspetor deve apontar para esquerda");
+    TEST_ASSERT(resultsBtn->arrowType() == Qt::DownArrow, "Seta inicial de Resultados deve apontar para baixo");
+    TEST_ASSERT(inspectorBtn->toolTip() == QStringLiteral("Recolher painel"), "Tooltip inicial do Inspetor deve ser Recolher painel");
+    TEST_ASSERT(resultsBtn->toolTip() == QStringLiteral("Recolher painel"), "Tooltip inicial de Resultados deve ser Recolher painel");
+    TEST_ASSERT(w.dockWidgetArea(inspectorDock) == Qt::LeftDockWidgetArea, "Inspetor inicia ancorado a esquerda");
+    TEST_ASSERT(w.dockWidgetArea(resultsDock) == Qt::BottomDockWidgetArea, "Resultados inicia ancorado abaixo");
+
+    verifySpinButtonPixels(inspectorBtn, UiTheme::Dark, Qt::LeftArrow, "Seta inicial do Inspetor (Dark) deve renderizar triangulo para esquerda");
+    verifySpinButtonPixels(resultsBtn, UiTheme::Dark, Qt::DownArrow, "Seta inicial de Resultados (Dark) deve renderizar triangulo inferior");
+
+    const int initialViewportWidth = viewport->width();
+    const int initialViewportHeight = viewport->height();
+    const int initialResultsHeight = resultsDock->height();
+
+    if (!shotDir.isEmpty()) {
+        w.grab().save(shotDir + QStringLiteral("/docks_expanded_dark.png"));
+    }
+
+    // 1) Recolhe Tabelas de Resultados via clique no botão spin arrow.
+    resultsBtn->click();
+    pumpEvents(50);
+
+    TEST_ASSERT(w.isResultsDockCollapsed(), "Resultados deve estar recolhido apos clique");
+    TEST_ASSERT(resultsBtn->arrowType() == Qt::UpArrow, "Seta de Resultados recolhido deve apontar para cima");
+    TEST_ASSERT(resultsBtn->toolTip() == QStringLiteral("Expandir painel"), "Tooltip recolhido de Resultados deve ser Expandir painel");
+    TEST_ASSERT(!resultsTabs->isVisible(), "QTabWidget deve ficar oculto ao recolher Resultados");
+    TEST_ASSERT(resultsDock->isVisible() && resultsBtn->isVisible(), "Barra de titulo e botao devem continuar visiveis para expandir Resultados");
+    TEST_ASSERT(resultsDock->height() < initialResultsHeight && resultsDock->height() <= 45,
+                "Dock de Resultados deve encolher para a altura da barra de titulo");
+    TEST_ASSERT(viewport->height() > initialViewportHeight, "Viewport3D deve ganhar altura vertical ao recolher Resultados");
+    verifySpinButtonPixels(resultsBtn, UiTheme::Dark, Qt::UpArrow, "Seta recolhida de Resultados (Dark) deve renderizar triangulo superior");
+
+    // 2) Recolhe Inspetor via clique no botão spin arrow.
+    inspectorBtn->click();
+    pumpEvents(50);
+
+    TEST_ASSERT(w.isInspectorDockCollapsed(), "Inspetor deve estar recolhido apos clique");
+    TEST_ASSERT(inspectorBtn->arrowType() == Qt::RightArrow, "Seta do Inspetor recolhido deve apontar para direita");
+    TEST_ASSERT(inspectorBtn->toolTip() == QStringLiteral("Expandir painel"), "Tooltip recolhido do Inspetor deve ser Expandir painel");
+    TEST_ASSERT(!inspectorScroll->isVisible(), "ScrollArea do Inspetor deve ficar oculta ao recolher");
+    TEST_ASSERT(inspectorDock->isVisible() && inspectorBtn->isVisible(), "Barra de titulo e botao do Inspetor devem permanecer visiveis");
+    TEST_ASSERT(w.dockWidgetArea(inspectorDock) == Qt::LeftDockWidgetArea,
+                "Inspetor recolhido deve permanecer na lateral esquerda (LeftDockWidgetArea)");
+    TEST_ASSERT(inspectorDock->features().testFlag(QDockWidget::DockWidgetVerticalTitleBar),
+                "Inspetor recolhido na lateral deve ativar DockWidgetVerticalTitleBar");
+    TEST_ASSERT(inspectorDock->width() <= 45 && inspectorDock->height() >= 400,
+                "Inspetor recolhido deve formar faixa vertical compacta na lateral esquerda");
+    TEST_ASSERT(viewport->width() > initialViewportWidth + 200,
+                "Viewport3D deve recuperar a largura lateral (~285px) ao recolher o Inspetor");
+    verifySpinButtonPixels(inspectorBtn, UiTheme::Dark, Qt::RightArrow, "Seta recolhida do Inspetor (Dark) deve renderizar triangulo para direita");
+
+    auto assertFullCollapsedHeaderReadable = [&](UiTheme theme, const char* themeTag) {
+        auto* inspLbl = inspectorDock->titleBarWidget()->findChild<QLabel*>(QStringLiteral("dockTitleLabel"));
+        auto* resLbl = resultsDock->titleBarWidget()->findChild<QLabel*>(QStringLiteral("dockTitleLabel"));
+        TEST_ASSERT(inspectorDock->titleBarWidget()->height() >= 400 && inspLbl &&
+                        inspLbl->height() >= 200 && inspLbl->height() > inspLbl->width(),
+                    std::string("Cabecalho recolhido do Inspetor deve ocupar a faixa vertical com rotulo rotacionado no tema ") + themeTag);
+        // Confirma que há pixels do texto rotacionado pintados na metade superior do rótulo vertical.
+        const QImage lblImg = inspLbl->grab().toImage();
+        const QColor expectedText = (theme == UiTheme::Light) ? QColor(0x0f, 0x17, 0x2a) : QColor(0xe1, 0xe6, 0xeb);
+        int textPixels = 0;
+        const int scanH = std::min(lblImg.height(), 220);
+        for (int y = 0; y < scanH; ++y) {
+            for (int x = 0; x < lblImg.width(); ++x) {
+                const QColor px = lblImg.pixelColor(x, y);
+                if (std::abs(px.red() - expectedText.red()) <= 50 &&
+                    std::abs(px.green() - expectedText.green()) <= 50 &&
+                    std::abs(px.blue() - expectedText.blue()) <= 50) {
+                    ++textPixels;
+                }
+            }
+        }
+        TEST_ASSERT(textPixels >= 40,
+                    std::string("Rotulo rotacionado -90 graus do Inspetor deve renderizar texto visivel no tema ") + themeTag);
+        TEST_ASSERT(resultsDock->titleBarWidget()->width() >= 900 && resLbl && resLbl->width() >= 140,
+                    std::string("Cabecalho recolhido de Resultados deve ocupar toda a largura e exibir titulo no tema ") + themeTag);
+    };
+    assertFullCollapsedHeaderReadable(UiTheme::Dark, "Dark");
+
+    if (!shotDir.isEmpty()) {
+        w.grab().save(shotDir + QStringLiteral("/docks_collapsed_dark.png"));
+    }
+
+    // Verifica tema claro com painéis recolhidos.
+    ThemeManager::instance().setTheme(UiTheme::Light);
+    pumpEvents(40);
+    assertFullCollapsedHeaderReadable(UiTheme::Light, "Light");
+    verifySpinButtonPixels(inspectorBtn, UiTheme::Light, Qt::RightArrow, "Seta recolhida do Inspetor (Light) deve renderizar triangulo para direita");
+    verifySpinButtonPixels(resultsBtn, UiTheme::Light, Qt::UpArrow, "Seta recolhida de Resultados (Light) deve renderizar triangulo superior");
+
+    if (!shotDir.isEmpty()) {
+        w.grab().save(shotDir + QStringLiteral("/docks_collapsed_light.png"));
+    }
+
+    // 3) Expande Inspetor novamente via clique.
+    inspectorBtn->click();
+    pumpEvents(50);
+    TEST_ASSERT(!w.isInspectorDockCollapsed(), "Inspetor deve expandir ao clicar na seta para direita");
+    TEST_ASSERT(inspectorBtn->arrowType() == Qt::LeftArrow, "Seta do Inspetor expandido deve voltar a apontar para esquerda");
+    TEST_ASSERT(!inspectorDock->features().testFlag(QDockWidget::DockWidgetVerticalTitleBar),
+                "Inspetor expandido deve retornar para barra de titulo horizontal");
+    TEST_ASSERT(inspectorScroll->isVisible(), "Conteudo do Inspetor deve voltar a ficar visivel");
+    TEST_ASSERT(w.dockWidgetArea(inspectorDock) == Qt::LeftDockWidgetArea, "Inspetor expandido deve permanecer em LeftDockWidgetArea");
+    TEST_ASSERT(inspectorDock->width() >= 320, "Inspetor expandido deve restaurar largura minima de 320px");
+
+    // 4) Expande Tabelas de Resultados novamente via clique.
+    resultsBtn->click();
+    pumpEvents(50);
+    TEST_ASSERT(!w.isResultsDockCollapsed(), "Resultados deve expandir ao clicar na seta para cima");
+    TEST_ASSERT(resultsBtn->arrowType() == Qt::DownArrow, "Seta de Resultados expandido deve voltar a apontar para baixo");
+    TEST_ASSERT(resultsTabs->isVisible(), "QTabWidget deve voltar a ficar visivel");
+    TEST_ASSERT(resultsDock->height() >= 140, "Dock de Resultados deve restaurar altura util");
+    verifySpinButtonPixels(inspectorBtn, UiTheme::Light, Qt::LeftArrow, "Seta expandida do Inspetor (Light) deve renderizar triangulo para esquerda");
+    verifySpinButtonPixels(resultsBtn, UiTheme::Light, Qt::DownArrow, "Seta expandida de Resultados (Light) deve renderizar triangulo inferior");
+
+    // 5) Recolhimento e expansão com dock flutuante.
+    resultsDock->setFloating(true);
+    pumpEvents(40);
+    resultsBtn->click();
+    pumpEvents(40);
+    TEST_ASSERT(w.isResultsDockCollapsed() && resultsDock->isFloating(), "Resultados flutuante deve permanecer flutuante ao recolher");
+    TEST_ASSERT(!resultsTabs->isVisible() && resultsDock->height() <= 55, "Resultados flutuante recolhido deve ficar compacto");
+    resultsBtn->click();
+    pumpEvents(40);
+    TEST_ASSERT(!w.isResultsDockCollapsed() && resultsTabs->isVisible() && resultsDock->height() >= 140,
+                "Resultados flutuante expandido deve restaurar altura e conteudo");
+    resultsDock->setFloating(false);
+    pumpEvents(40);
+
+    inspectorDock->setFloating(true);
+    pumpEvents(40);
+    inspectorBtn->click();
+    pumpEvents(40);
+    TEST_ASSERT(w.isInspectorDockCollapsed() && inspectorDock->isFloating(), "Inspetor flutuante deve permanecer flutuante ao recolher");
+    TEST_ASSERT(!inspectorScroll->isVisible() && inspectorDock->height() <= 55, "Inspetor flutuante recolhido deve ficar compacto");
+    // Reacopla enquanto ainda está recolhido -> deve voltar como faixa vertical na lateral esquerda.
+    inspectorDock->setFloating(false);
+    pumpEvents(50);
+    TEST_ASSERT(w.isInspectorDockCollapsed() && w.dockWidgetArea(inspectorDock) == Qt::LeftDockWidgetArea &&
+                inspectorDock->width() <= 45 && inspectorDock->height() >= 400,
+                "Inspetor reacoplado enquanto recolhido deve manter faixa vertical na lateral esquerda");
+    inspectorBtn->click();
+    pumpEvents(50);
+    TEST_ASSERT(!w.isInspectorDockCollapsed() && w.dockWidgetArea(inspectorDock) == Qt::LeftDockWidgetArea &&
+                inspectorDock->width() >= 320,
+                "Inspetor expandido apos reacoplamento deve voltar para area esquerda");
+
+    // 6) Tradução em tempo real (pt_BR <-> en_US) para títulos e tooltips.
+    TEST_ASSERT(traducao.definir_idioma(QStringLiteral("en_US")), "Deve alternar idioma para en_US");
+    pumpEvents(20);
+    auto* inspectorTitleLbl = inspectorDock->titleBarWidget()->findChild<QLabel*>(QStringLiteral("dockTitleLabel"));
+    auto* resultsTitleLbl = resultsDock->titleBarWidget()->findChild<QLabel*>(QStringLiteral("dockTitleLabel"));
+    TEST_ASSERT(inspectorTitleLbl && inspectorTitleLbl->text() == QStringLiteral("Inspector & Quick Input"),
+                "Titulo customizado do Inspetor deve atualizar para Ingles");
+    TEST_ASSERT(resultsTitleLbl && resultsTitleLbl->text() == QStringLiteral("Result Tables & Structural Diagnostics"),
+                "Titulo customizado de Resultados deve atualizar para Ingles");
+    TEST_ASSERT(inspectorBtn->toolTip() == QStringLiteral("Collapse panel"),
+                "Tooltip do botao expandido deve atualizar para Ingles");
+    resultsBtn->click();
+    pumpEvents(30);
+    TEST_ASSERT(resultsBtn->toolTip() == QStringLiteral("Expand panel"),
+                "Tooltip do botao recolhido deve atualizar para Ingles");
+
+    // GuidedSessionDialog::startSession deve expandir painéis quando recolhidos.
+    w.setInspectorDockCollapsed(true);
+    w.setResultsDockCollapsed(true);
+    pumpEvents(30);
+    TEST_ASSERT(w.isInspectorDockCollapsed() && w.isResultsDockCollapsed(), "Ambos os docks recolhidos antes do Tour");
+    TEST_ASSERT(QMetaObject::invokeMethod(&w, "onGuidedSession"), "onGuidedSession deve abrir o dialog guiado");
+    pumpEvents(40);
+    auto* guided = w.guidedSessionDialog();
+    TEST_ASSERT(guided != nullptr, "guidedSessionDialog deve existir apos onGuidedSession");
+    guided->startSession(120);
+    pumpEvents(40);
+    TEST_ASSERT(!w.isInspectorDockCollapsed() && !w.isResultsDockCollapsed(),
+                "GuidedSessionDialog::startSession deve expandir docks recolhidos");
+    guided->stopSession();
+    guided->close();
+
+    w.close();
+    pumpEvents(40);
+    ThemeManager::instance().setTheme(originalTheme);
+    traducao.definir_idioma(originalLang);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
 
-    std::cout << "[Test Phase 9] 1/8 Janelas UI (1-clique), resize e Z-Order...\n";
+    std::cout << "[Test Phase 9] 1/9 Janelas UI (1-clique), resize e Z-Order...\n";
     testSingleClickDialogsAndZOrder();
 
-    std::cout << "[Test Phase 9] 2/8 Malha 2D/3D e BoundingBox...\n";
+    std::cout << "[Test Phase 9] 2/9 Malha 2D/3D e BoundingBox...\n";
     testMeshBoundingBoxAndUiEnablement();
 
-    std::cout << "[Test Phase 9] 3/8 Casos & Combinacoes NBR e preservacao de selecao...\n";
+    std::cout << "[Test Phase 9] 3/9 Casos & Combinacoes NBR e preservacao de selecao...\n";
     testLoadCombinationsAutoCaptureAndSelection();
 
-    std::cout << "[Test Phase 9] 4/8 AnalysisSuiteDialog (Combos/Modal/Flamb/Harm/Espec/Sism/NL)...\n";
+    std::cout << "[Test Phase 9] 4/9 AnalysisSuiteDialog (Combos/Modal/Flamb/Harm/Espec/Sism/NL)...\n";
     testAnalysisSuiteEndToEnd();
 
-    std::cout << "[Test Phase 9] 5/8 PostProcess, Auditoria ABNT NBR, DCR e PDF...\n";
+    std::cout << "[Test Phase 9] 5/9 PostProcess, Auditoria ABNT NBR, DCR e PDF...\n";
     testPostProcessNbrAndPdfWorkflow();
 
-    std::cout << "[Test Phase 9] 6/8 Catalogos dos 3 Exemplos, Comboboxes do Inspetor e Reedicao Completa...\n";
+    std::cout << "[Test Phase 9] 6/9 Catalogos dos 3 Exemplos, Comboboxes do Inspetor e Reedicao Completa...\n";
     testExamplesCatalogComboAndReeditingWorkflow();
 
-    std::cout << "[Test Phase 9] 7/8 Sessao Guiada (Ajuda > Sessao Guiada) nos 3 Exemplos e Traducao Dinamica...\n";
+    std::cout << "[Test Phase 9] 7/9 Sessao Guiada (Ajuda > Sessao Guiada) nos 3 Exemplos e Traducao Dinamica...\n";
     testGuidedSessionWalkthroughAndTranslations();
 
-    std::cout << "[Test Phase 9] 8/8 Renderizacao de setas QComboBox/QSpinBox sem spin_*.png...\n";
+    std::cout << "[Test Phase 9] 8/9 Renderizacao de setas QComboBox/QSpinBox sem spin_*.png...\n";
     testThemedComboAndSpinArrowsRenderWithoutPngAssets();
+
+    std::cout << "[Test Phase 9] 9/9 Paineis dock recolhiveis com seta estilo spin button...\n";
+    testCollapsibleDocksWithSpinArrowButtons();
 
     std::cout << "[OK] Todos os testes de UI e workflows passaram com sucesso!\n";
     return 0;

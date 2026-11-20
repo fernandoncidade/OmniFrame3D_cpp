@@ -1,8 +1,8 @@
 # MANUAL DO USUÁRIO E GUIA DE ENGENHARIA FEA 3D — OMNIFRAME 3D
 # USER MANUAL AND 3D FEA ENGINEERING GUIDE — OMNIFRAME 3D
 
-**Versão / Version:** `2026.11.15.0`  
-**Data / Date:** `15 de novembro de 2027` / `November 15, 2027`  
+**Versão / Version:** `2026.11.16.0`  
+**Data / Date:** `16 de novembro de 2026` / `November 16, 2026`  
 **Ambiente Tecnológico / Tech Stack:** C++23 | Qt 6.11.1 | Eigen 3.4.0 Sparse Cholesky | OpenGL 3.3 Core Profile  
 **Plataforma / Platform:** Windows 11 / Windows 10 x64  
 **Autor / Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
@@ -66,6 +66,10 @@ A topologia da estrutura é definida no espaço tridimensional com histórico co
 3. **Rótulas nas Extremidades (Releases):** É possível liberar os momentos fletores e de torção nas extremidades inicial ou final, convertendo a barra em um elemento de treliça articulada.
 4. **Inspetor Lateral (`Elemento / Nó Selecionado`) & Reedição dos 3 Exemplos:** Todos os **3 exemplos pré-definidos** abrem por padrão no plano de trabalho **`XY (Planta)`** e permanecem 100% abertos para reedição, testes paramétricos e recálculo como exercício; ao selecionar nós ou barras, o inspetor libera edição direta de coordenadas/incrementos $\Delta$, atalhos de seleção em lote (**`Mesmo Material`** / **`Mesma Seção`**) e listas suspensas (**`Material:`** e **`Seção Transversal:`**) exibindo nomes limpos sem prefixos `#ID`.
 5. **Gerador Paramétrico de Malha (`Estrutura > Gerador de Malha 1D/2D/3D...` / `Malha 2D/3D...`):** Cria malhas `1D Linha Refinada (Line2)`, cascas (`Quad4`, `Quad8`, `Tri3`, `Polígono Delaunay (Tri3)`) e sólidos (`Hex8`, `Hex20`, `Tet4`, `Extrusão 2D -> 3D Hex8`) com configuração integrada de **`Material da Malha:`**, **`Espessura (Casca 2D):`**, **`Condição de Contorno:`**, **`Pressão / Carga Z (2D/3D):`**, acoplamento automático em nós coincidentes e resolução unificada 1D/2D/3D via **`Calcular Estrutura (F5)`**.
+6. **Recolhimento e Expansão dos Painéis Laterais/Inferior (`◀/▶` e `▼/▲`) e Campos Numéricos:**
+   - **Painel `Inspetor e Entrada Rápida` (Lateral Esquerda):** Clique no botão de seta estilo *spin button* apontado para a **esquerda (`◀`)** no canto superior direito do cabeçalho para recolher o painel para a lateral esquerda em uma faixa vertical compacta — seu rótulo é rotacionado automaticamente **90° no sentido anti-horário** ao longo da borda e o espaço liberado amplia horizontalmente o Viewport 3D. Clique na seta apontada para a **direita (`▶`)** no topo da faixa vertical para expandi-lo de volta.
+   - **Painel `Tabelas de Resultados e Diagnóstico Estrutural` (Base):** Clique na seta estilo *spin button* apontada para **baixo (`▼`)** no canto direito do cabeçalho para recolher as tabelas para a borda inferior (ampliando a altura útil do Viewport 3D); clique na seta apontada para **cima (`▲`)** para expandir as quatro abas novamente.
+   - Ambos os botões continuam funcionando quando o painel estiver destacado como janela flutuante, adaptam suas setas e dicas (*"Recolher painel"* / *"Expandir painel"*) ao tema (**Claro/Escuro**) e ao idioma (**pt-BR/en-US**), e são reabertos automaticamente sempre que a **Sessão Guiada (`F2`)** acessa seus controles ou tabelas. Todos os campos numéricos da interface exibem botões *spin* com cantos externos arredondados alinhados continuamente à moldura do campo.
 
 ---
 
@@ -281,6 +285,10 @@ Structural topology is defined in three-dimensional space with full multi-level 
 3. **End Releases (Hinges):** Bending and torsional moments may be released at the start or end node, converting the member into an articulated truss element.
 4. **Side Property Inspector (`Selected Node / Member`) & Built-in Example Re-Editing:** All **3 built-in examples** open in the **`XY (Plan)`** work plane by default and remain 100% open to live edits, parametric trials, and re-solving as hands-on practice; selecting nodes or members unlocks inline coordinate/offset ($\Delta$) controls, batch selection buttons (**`Same Material`** / **`Same Section`**), and clean **`Material:`** / **`Cross-Section:`** dropdown comboboxes without `#ID` prefixes.
 5. **Parametric Mesh Generator (`Structure > 1D/2D/3D Mesh Generator...` / `2D/3D Mesh...`):** Builds `1D Refined Line (Line2)`, shell (`Quad4`, `Quad8`, `Tri3`, `Delaunay Polygon (Tri3)`), and solid (`Hex8`, `Hex20`, `Tet4`, `Extrusion 2D -> 3D Hex8`) meshes with integrated **`Mesh Material:`**, **`Thickness (2D Shell):`**, **`Boundary Condition:`**, and **`Pressure / Z Load (2D/3D):`**, automatic coincident-node coupling, and unified 1D/2D/3D solving via **`Solve Structure (F5)`**.
+6. **Collapsible Dock Panels (`◀/▶` and `▼/▲`) & Numeric Spin Fields:**
+   - **`Inspector & Quick Input` Panel (Left Side):** Click the spin-button arrow pointing **left (`◀`)** in the panel header to collapse the inspector horizontally to the left edge as a slim vertical bar — its title label automatically rotates **90° counter-clockwise** along the edge while expanding the 3D Viewport horizontally. Click the arrow pointing **right (`▶`)** at the top of the vertical strip to expand it back.
+   - **`Result Tables & Structural Diagnostics` Panel (Bottom):** Click the spin-button arrow pointing **down (`▼`)** in the header to collapse the results dock down to its bottom title bar (giving the 3D Viewport more vertical height); click the arrow pointing **up (`▲`)** to restore all four tabs.
+   - Both collapse/expand controls also operate in floating window mode, dynamically update their vector arrows and tooltips (*"Collapse panel"* / *"Expand panel"*) across **Light/Dark** themes and **pt-BR/en-US** languages, and automatically expand whenever the **Guided Session (`F2`)** accesses dock controls or result tables. All numeric input boxes render flush spin buttons whose outer corners match the rounded control frame seamlessly.
 
 ---
 

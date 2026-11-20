@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
-Version: 2026.11.15.0 | Date: November 15, 2027 | Author: Fernando Nillsson Cidade
+Version: 2026.11.16.0 | Date: November 16, 2026 | Author: Fernando Nillsson Cidade
 Document Language: English (US) — Strict line-by-line correspondence with pt-BR
 ================================================================================
 
@@ -20,9 +20,12 @@ The main window organizes the engineering workflow into six integrated, resizabl
 • Left Dock Panel (Inspector & Quick Input): provides exact node insertion via Cartesian coordinates (X, Y, Z) together with the interactive Selected Element / Node panel featuring dropdown lists and direct editing buttons.
 • Bottom Dock Panel (Result Tables & Structural Diagnostics) and Status Bar: displays four synchronized tabs for Nodal Displacements, Support Reactions, Member Forces, and 2D/3D Forces (Shell/Solid), while the status bar continuously reports live 3D cursor coordinates, node/member/mesh counters, and diagnostic status messages.
 
-1.3 Dockable Panels (Docks) and Workspace Customization
-Both the left panel and the bottom panel are dockable widgets (QDockWidget) that can remain docked along the main window edges or be detached into independent floating windows using the undock button or by dragging their title bar.
-At any moment you can toggle panel visibility or move panels back into docked positions without losing active selections or solved analysis results.
+1.3 Dockable Panels (Docks), Lateral/Bottom Collapse and Workspace Customization
+Both the left panel and the bottom panel are dockable widgets (QDockWidget) that can remain docked along the main window edges or be detached into independent floating windows by dragging or double-clicking their title bar.
+At any moment you can collapse, expand, toggle, or detach each panel to free screen area for the 3D Viewport without losing active selections or solved analysis results:
+• Collapsing and Expanding "Inspector & Quick Input" (Left Side — Arrow ◀ / ▶): click the spin-button arrow pointing left (◀) in the header to collapse the inspector horizontally to the left edge as a compact vertical strip with its title label rotated 90° counter-clockwise; click the arrow pointing right (▶) at the top of that vertical strip to expand the panel back to full width.
+• Collapsing and Expanding "Result Tables & Structural Diagnostics" (Bottom — Arrow ▼ / ▲): click the spin-button arrow pointing down (▼) on the right side of the header to collapse the tables while keeping the full-width bottom title bar visible; click the arrow pointing up (▲) to restore all four results tabs.
+• Floating Mode, Theme, Language and Numeric Spinboxes: when either panel is floating, the same button collapses and expands the floating window cleanly while preserving compact behavior upon redocking; button tooltips ("Collapse panel" / "Expand panel"), rotated title, and arrows adapt live across Light/Dark themes and en-US/pt-BR languages, collapsed docks reopen automatically whenever Guided Session (F2) interacts with their controls, and all numeric input boxes render spin buttons whose outer corners follow the rounded control frame seamlessly.
 When a dock is floated as an independent window, it participates fully in visual layering management (Z-Order), allowing free focus switching among the floating dock, the main window, and any open child dialogs.
 
 1.4 Modeless Child Windows and Z-Order Management

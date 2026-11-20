@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Guia de Conformidade Normativa e Validação FEA
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -97,8 +97,8 @@ Para assegurar a máxima exatidão e confiabilidade, o kernel FEA e a suíte de 
 
 # OmniFrame 3D — Normative Compliance & FEA Verification Benchmarks
 
-**Version:** `2026.11.15.0`  
-**Date:** `November 15, 2027`  
+**Version:** `2026.11.16.0`  
+**Date:** `November 16, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---

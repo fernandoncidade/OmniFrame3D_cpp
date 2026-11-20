@@ -34,9 +34,14 @@
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
+#include <QBoxLayout>
 #include <QFileDialog>
+#include <QFontMetrics>
+#include <QFrame>
 #include <QMessageBox>
 #include <QHeaderView>
+#include <QLabel>
+#include <QPainter>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -45,10 +50,51 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QStyleOptionToolButton>
+#include <QToolButton>
 
 namespace omniframe {
 
 namespace {
+
+/// Botão em estilo spin button desenhado vetorialmente para recolher/expandir painéis dock.
+class SpinArrowButton final : public QToolButton {
+public:
+    explicit SpinArrowButton(const QString& objectName, QWidget* parent = nullptr)
+        : QToolButton(parent) {
+        setObjectName(objectName);
+        setFixedSize(24, 20);
+        setFocusPolicy(Qt::NoFocus);
+        setCursor(Qt::PointingHandCursor);
+        setAttribute(Qt::WA_Hover, true);
+        setArrowType(Qt::DownArrow);
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        Q_UNUSED(event);
+        QStyleOptionToolButton opt;
+        initStyleOption(&opt);
+        const bool enabled = isEnabled();
+        const bool hovered = enabled && (opt.state.testFlag(QStyle::State_MouseOver) || underMouse());
+        const bool pressed = enabled && (opt.state.testFlag(QStyle::State_Sunken) || isDown());
+
+        QPainter painter(this);
+        ThemeManager::instance().paintSpinArrowButton(
+            &painter, rect(), arrowType(), enabled, hovered, pressed);
+    }
+};
+
+struct ScopedBoolFlag final {
+    explicit ScopedBoolFlag(bool& target)
+        : m_target(target)
+        , m_previous(target) {
+        m_target = true;
+    }
+    ~ScopedBoolFlag() { m_target = m_previous; }
+    bool& m_target;
+    bool m_previous;
+};
 
 template <typename DialogT, typename FactoryFn, typename RefreshFn, typename AcceptedFn>
 void openManagedModelessDialog(QObject* receiver,
@@ -88,6 +134,251 @@ void openManagedInfoDialog(WindowZOrderManager* wm,
     slot = dlg;
     wm->prepareModelessDialog(dlg, resizable, true);
     wm->showAndRaise(dlg);
+}
+
+} // namespace
+
+/// Rótulo de título de dock com suporte a rotação de 90° no sentido anti-horário quando recolhido lateralmente.
+class RotatableTitleLabel final : public QLabel {
+public:
+    explicit RotatableTitleLabel(const QString& text, QWidget* parent = nullptr)
+        : QLabel(text, parent) {
+        setObjectName(QStringLiteral("dockTitleLabel"));
+        setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    }
+
+    void setVerticalRotated(bool vertical) {
+        if (m_verticalRotated == vertical) {
+            return;
+        }
+        m_verticalRotated = vertical;
+        setSizePolicy(QSizePolicy::Preferred,
+                      vertical ? QSizePolicy::Expanding : QSizePolicy::Preferred);
+        updateGeometry();
+        update();
+    }
+
+    QSize sizeHint() const override {
+        const QSize base = QLabel::sizeHint();
+        return m_verticalRotated ? QSize(qMax(20, base.height()), base.width()) : base;
+    }
+
+    QSize minimumSizeHint() const override {
+        if (!m_verticalRotated) {
+            return QLabel::minimumSizeHint();
+        }
+        const QSize base = QLabel::sizeHint();
+        return QSize(qMax(20, base.height()), 60);
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        if (!m_verticalRotated) {
+            QLabel::paintEvent(event);
+            return;
+        }
+        Q_UNUSED(event);
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::TextAntialiasing, true);
+        painter.setFont(font());
+        painter.setPen(palette().color(foregroundRole()));
+
+        const int availLen = qMax(10, height() - 8);
+        const QString drawn = QFontMetrics(font()).elidedText(text(), Qt::ElideRight, availLen);
+
+        // Rotaciona 90° no sentido anti-horário: leitura de baixo para cima alinhada próxima ao botão superior.
+        painter.translate(0, height());
+        painter.rotate(-90.0);
+        const QRect textRect(4, 0, availLen, width());
+        painter.drawText(textRect, Qt::AlignRight | Qt::AlignVCenter | Qt::TextSingleLine, drawn);
+    }
+
+private:
+    bool m_verticalRotated = false;
+};
+
+/// Barra de título customizada para QDockWidget com botão spin button de recolhimento/expansão.
+class DockTitleBar final : public QFrame {
+public:
+    DockTitleBar(const QString& title,
+                 const QString& buttonObjectName,
+                 Qt::ArrowType expandedArrow,
+                 Qt::ArrowType collapsedArrow,
+                 QWidget* parent = nullptr)
+        : QFrame(parent)
+        , m_expandedArrow(expandedArrow)
+        , m_collapsedArrow(collapsedArrow) {
+        setObjectName(QStringLiteral("dockTitleBar"));
+        setFrameShape(QFrame::NoFrame);
+
+        m_layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
+        m_layout->setContentsMargins(8, 4, 6, 4);
+        m_layout->setSpacing(6);
+
+        m_titleLabel = new RotatableTitleLabel(title, this);
+        m_collapseButton = new SpinArrowButton(buttonObjectName, this);
+
+        m_layout->addWidget(m_titleLabel, 1);
+        m_layout->addWidget(m_collapseButton, 0, Qt::AlignVCenter);
+
+        setCollapsed(false);
+    }
+
+    void setTitle(const QString& title) {
+        if (m_titleLabel) {
+            m_titleLabel->setText(title);
+            m_titleLabel->updateGeometry();
+            m_titleLabel->update();
+        }
+    }
+
+    void setCollapsed(bool collapsed) {
+        m_collapsed = collapsed;
+        if (m_collapseButton) {
+            m_collapseButton->setArrowType(collapsed ? m_collapsedArrow : m_expandedArrow);
+            retranslateToolTip();
+            m_collapseButton->update();
+        }
+    }
+
+    void setVertical(bool vertical) {
+        if (m_vertical == vertical || !m_layout) {
+            return;
+        }
+        m_vertical = vertical;
+        m_layout->removeWidget(m_titleLabel);
+        m_layout->removeWidget(m_collapseButton);
+
+        if (vertical) {
+            m_titleLabel->setVerticalRotated(true);
+            m_layout->setDirection(QBoxLayout::TopToBottom);
+            m_layout->setContentsMargins(4, 6, 4, 8);
+            m_layout->setSpacing(8);
+            m_layout->addWidget(m_collapseButton, 0, Qt::AlignHCenter);
+            m_layout->addWidget(m_titleLabel, 1);
+        } else {
+            m_titleLabel->setVerticalRotated(false);
+            m_layout->setDirection(QBoxLayout::LeftToRight);
+            m_layout->setContentsMargins(8, 4, 6, 4);
+            m_layout->setSpacing(6);
+            m_layout->addWidget(m_titleLabel, 1);
+            m_layout->addWidget(m_collapseButton, 0, Qt::AlignVCenter);
+        }
+        updateGeometry();
+        update();
+    }
+
+    void retranslateToolTip() {
+        if (m_collapseButton) {
+            m_collapseButton->setToolTip(locale::GerenciadorTraducao::trText(
+                m_collapsed ? "Expandir painel" : "Recolher painel"));
+        }
+    }
+
+    QToolButton* collapseButton() const { return m_collapseButton; }
+
+    int collapsedDockHeight(const QDockWidget* dock) const {
+        const int titleH = qMax(28, qMax(minimumSizeHint().height(), sizeHint().height()));
+        const QMargins margins = dock ? dock->contentsMargins() : QMargins();
+        return titleH + margins.top() + margins.bottom() + 2;
+    }
+
+    int collapsedDockWidth(const QDockWidget* dock) const {
+        const int titleW = qMax(30, qMax(minimumSizeHint().width(), sizeHint().width()));
+        const QMargins margins = dock ? dock->contentsMargins() : QMargins();
+        return titleW + margins.left() + margins.right() + 2;
+    }
+
+private:
+    QBoxLayout* m_layout = nullptr;
+    RotatableTitleLabel* m_titleLabel = nullptr;
+    SpinArrowButton* m_collapseButton = nullptr;
+    bool m_collapsed = false;
+    bool m_vertical = false;
+    Qt::ArrowType m_expandedArrow = Qt::DownArrow;
+    Qt::ArrowType m_collapsedArrow = Qt::UpArrow;
+};
+
+namespace {
+
+enum class DockCollapseAxis {
+    Vertical,
+    Horizontal
+};
+
+template <typename ToggleFn, typename TopLevelFn>
+DockTitleBar* attachCollapsibleTitleBar(QMainWindow* owner,
+                                        QDockWidget* dock,
+                                        const QString& buttonObjectName,
+                                        Qt::ArrowType expandedArrow,
+                                        Qt::ArrowType collapsedArrow,
+                                        ToggleFn&& onToggle,
+                                        TopLevelFn&& onTopLevelChanged) {
+    auto* titleBar = new DockTitleBar(
+        dock->windowTitle(), buttonObjectName, expandedArrow, collapsedArrow, dock);
+    dock->setTitleBarWidget(titleBar);
+    QObject::connect(dock, &QDockWidget::windowTitleChanged, titleBar, &DockTitleBar::setTitle);
+    QObject::connect(titleBar->collapseButton(), &QToolButton::clicked, owner, std::forward<ToggleFn>(onToggle));
+    QObject::connect(dock, &QDockWidget::topLevelChanged, owner, std::forward<TopLevelFn>(onTopLevelChanged));
+    return titleBar;
+}
+
+QWidget* createDockContentHost(QWidget* content, QWidget* parent) {
+    auto* host = new QWidget(parent);
+    host->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    auto* layout = new QVBoxLayout(host);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(content);
+    return host;
+}
+
+void setDockHostCollapsed(QDockWidget* dock, QWidget* content, DockCollapseAxis axis, bool collapsed) {
+    if (!dock || !content) {
+        return;
+    }
+    QWidget* host = dock->widget();
+    if (host && host != content) {
+        if (collapsed) {
+            content->setVisible(false);
+            if (axis == DockCollapseAxis::Horizontal) {
+                // Mantém o host ativo com largura 0 e expansão vertical para preencher toda a lateral recolhida.
+                host->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+                host->setMinimumSize(0, 0);
+                host->setMaximumSize(0, QWIDGETSIZE_MAX);
+            } else {
+                // Mantém o host ativo com altura 0 e expansão horizontal para preservar largura total do cabeçalho.
+                host->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+                host->setMinimumSize(0, 0);
+                host->setMaximumSize(QWIDGETSIZE_MAX, 0);
+            }
+        } else {
+            host->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+            host->setMinimumSize(0, 0);
+            host->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+            content->setVisible(true);
+        }
+        host->updateGeometry();
+    } else {
+        content->setVisible(!collapsed);
+    }
+}
+
+void clearCollapsedDockBounds(QDockWidget* dock) {
+    dock->setMinimumWidth(0);
+    dock->setMaximumWidth(QWIDGETSIZE_MAX);
+    dock->setMinimumHeight(0);
+    dock->setMaximumHeight(QWIDGETSIZE_MAX);
+}
+
+void applyCollapsedHeightClamp(QDockWidget* dock, const DockTitleBar* titleBar, int& outCollapsedHeight) {
+    outCollapsedHeight = titleBar->collapsedDockHeight(dock);
+    clearCollapsedDockBounds(dock);
+    dock->setMaximumHeight(outCollapsedHeight);
+    dock->updateGeometry();
 }
 
 } // namespace
@@ -644,7 +935,7 @@ void MainWindow::setupDocks() {
     // -------------------------------------------------------------
     // Dock Esquerdo: Inspetor de Propriedades e Entrada Numérica
     // -------------------------------------------------------------
-    m_inspectorDock = new QDockWidget("Inspetor e Entrada Rápida", this);
+    m_inspectorDock = new QDockWidget(locale::GerenciadorTraducao::trText("Inspetor e Entrada Rápida"), this);
     m_inspectorDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
 
     auto* leftContainer = new QWidget();
@@ -679,13 +970,21 @@ void MainWindow::setupDocks() {
     leftLayout->addStretch();
 
     leftContainer->setMinimumWidth(300);
-    auto* inspScroll = new QScrollArea(this);
-    inspScroll->setWidgetResizable(true);
-    inspScroll->setFrameShape(QFrame::NoFrame);
-    inspScroll->setWidget(leftContainer);
+    m_inspectorScroll = new QScrollArea(this);
+    m_inspectorScroll->setWidgetResizable(true);
+    m_inspectorScroll->setFrameShape(QFrame::NoFrame);
+    m_inspectorScroll->setWidget(leftContainer);
     m_inspectorDock->setMinimumWidth(320);
-    m_inspectorDock->setWidget(inspScroll);
+    m_inspectorDock->setWidget(createDockContentHost(m_inspectorScroll, m_inspectorDock));
     addDockWidget(Qt::LeftDockWidgetArea, m_inspectorDock);
+    m_inspectorTitleBar = attachCollapsibleTitleBar(
+        this,
+        m_inspectorDock,
+        QStringLiteral("inspectorCollapseButton"),
+        Qt::LeftArrow,
+        Qt::RightArrow,
+        [this]() { setInspectorDockCollapsed(!m_inspectorCollapsed); },
+        [this](bool floating) { handleInspectorDockTopLevelChanged(floating); });
 
     // -------------------------------------------------------------
     // Dock Inferior: Tabelas de Resultados e Diagnóstico
@@ -736,8 +1035,143 @@ void MainWindow::setupDocks() {
     m_continuumTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_resultsTabs->addTab(m_continuumTable, locale::GerenciadorTraducao::trText("Esforços 2D/3D (Casca/Sólido)"));
 
-    m_resultsDock->setWidget(m_resultsTabs);
+    m_resultsDock->setWidget(createDockContentHost(m_resultsTabs, m_resultsDock));
     addDockWidget(Qt::BottomDockWidgetArea, m_resultsDock);
+    m_resultsTitleBar = attachCollapsibleTitleBar(
+        this,
+        m_resultsDock,
+        QStringLiteral("resultsCollapseButton"),
+        Qt::DownArrow,
+        Qt::UpArrow,
+        [this]() { setResultsDockCollapsed(!m_resultsCollapsed); },
+        [this](bool floating) { handleResultsDockTopLevelChanged(floating); });
+}
+
+void MainWindow::applyInspectorCollapsedState() {
+    if (m_inspectorDock->isFloating()) {
+        m_inspectorTitleBar->setVertical(false);
+        m_inspectorDock->setFeatures(m_inspectorDock->features() & ~QDockWidget::DockWidgetVerticalTitleBar);
+        setDockHostCollapsed(m_inspectorDock, m_inspectorScroll, DockCollapseAxis::Vertical, true);
+
+        int collapsedH = 0;
+        applyCollapsedHeightClamp(m_inspectorDock, m_inspectorTitleBar, collapsedH);
+        m_inspectorDock->resize(qMax(320, m_inspectorSavedWidth), collapsedH);
+        return;
+    }
+
+    // Recolhe para a lateral esquerda (ou direita) com barra vertical e rótulo rotacionado -90°.
+    m_inspectorTitleBar->setVertical(true);
+    m_inspectorDock->setFeatures(m_inspectorDock->features() | QDockWidget::DockWidgetVerticalTitleBar);
+    setDockHostCollapsed(m_inspectorDock, m_inspectorScroll, DockCollapseAxis::Horizontal, true);
+
+    const int collapsedW = m_inspectorTitleBar->collapsedDockWidth(m_inspectorDock);
+    clearCollapsedDockBounds(m_inspectorDock);
+    m_inspectorDock->setMaximumWidth(collapsedW);
+    m_inspectorDock->updateGeometry();
+    resizeDocks({m_inspectorDock}, {collapsedW}, Qt::Horizontal);
+}
+
+void MainWindow::setInspectorDockCollapsed(bool collapsed) {
+    if (!m_inspectorDock || !m_inspectorScroll || !m_inspectorTitleBar || m_inspectorCollapsed == collapsed) {
+        return;
+    }
+
+    const ScopedBoolFlag guard(m_updatingDockCollapse);
+    m_inspectorCollapsed = collapsed;
+    m_inspectorTitleBar->setCollapsed(collapsed);
+
+    if (collapsed) {
+        if (m_inspectorDock->isVisible()) {
+            if (m_inspectorDock->width() >= 200) {
+                m_inspectorSavedWidth = qMax(320, m_inspectorDock->width());
+            }
+            if (m_inspectorDock->isFloating() && m_inspectorDock->height() >= 120) {
+                m_inspectorSavedFloatingHeight = qMax(260, m_inspectorDock->height());
+            }
+        }
+        applyInspectorCollapsedState();
+        return;
+    }
+
+    m_inspectorTitleBar->setVertical(false);
+    m_inspectorDock->setFeatures(m_inspectorDock->features() & ~QDockWidget::DockWidgetVerticalTitleBar);
+    clearCollapsedDockBounds(m_inspectorDock);
+    m_inspectorDock->setMinimumWidth(320);
+    setDockHostCollapsed(m_inspectorDock, m_inspectorScroll, DockCollapseAxis::Horizontal, false);
+    m_inspectorDock->updateGeometry();
+
+    if (m_inspectorDock->isFloating()) {
+        m_inspectorDock->resize(qMax(320, m_inspectorDock->width()), qMax(260, m_inspectorSavedFloatingHeight));
+    } else {
+        resizeDocks({m_inspectorDock}, {qMax(320, m_inspectorSavedWidth)}, Qt::Horizontal);
+    }
+}
+
+void MainWindow::setResultsDockCollapsed(bool collapsed) {
+    if (!m_resultsDock || !m_resultsTabs || !m_resultsTitleBar || m_resultsCollapsed == collapsed) {
+        return;
+    }
+
+    const ScopedBoolFlag guard(m_updatingDockCollapse);
+    m_resultsCollapsed = collapsed;
+    m_resultsTitleBar->setCollapsed(collapsed);
+
+    if (collapsed) {
+        if (m_resultsDock->isVisible() && m_resultsDock->height() >= 100) {
+            if (m_resultsDock->isFloating()) {
+                m_resultsSavedFloatingHeight = qMax(180, m_resultsDock->height());
+            } else {
+                m_resultsSavedDockedHeight = qMax(140, m_resultsDock->height());
+            }
+        }
+
+        setDockHostCollapsed(m_resultsDock, m_resultsTabs, DockCollapseAxis::Vertical, true);
+        int collapsedH = 0;
+        applyCollapsedHeightClamp(m_resultsDock, m_resultsTitleBar, collapsedH);
+
+        if (m_resultsDock->isFloating()) {
+            m_resultsDock->resize(m_resultsDock->width(), collapsedH);
+        } else {
+            resizeDocks({m_resultsDock}, {collapsedH}, Qt::Vertical);
+        }
+        return;
+    }
+
+    clearCollapsedDockBounds(m_resultsDock);
+    setDockHostCollapsed(m_resultsDock, m_resultsTabs, DockCollapseAxis::Vertical, false);
+    m_resultsDock->updateGeometry();
+
+    if (m_resultsDock->isFloating()) {
+        m_resultsDock->resize(m_resultsDock->width(), qMax(180, m_resultsSavedFloatingHeight));
+    } else {
+        resizeDocks({m_resultsDock}, {qMax(140, m_resultsSavedDockedHeight)}, Qt::Vertical);
+    }
+}
+
+void MainWindow::handleInspectorDockTopLevelChanged(bool floating) {
+    Q_UNUSED(floating);
+    if (m_updatingDockCollapse || !m_inspectorCollapsed || !m_inspectorDock || !m_inspectorTitleBar) {
+        return;
+    }
+
+    const ScopedBoolFlag guard(m_updatingDockCollapse);
+    applyInspectorCollapsedState();
+}
+
+void MainWindow::handleResultsDockTopLevelChanged(bool floating) {
+    if (m_updatingDockCollapse || !m_resultsCollapsed || !m_resultsDock || !m_resultsTitleBar) {
+        return;
+    }
+
+    const ScopedBoolFlag guard(m_updatingDockCollapse);
+    int collapsedH = 0;
+    applyCollapsedHeightClamp(m_resultsDock, m_resultsTitleBar, collapsedH);
+
+    if (floating) {
+        m_resultsDock->resize(qMax(360, m_resultsDock->width()), collapsedH);
+    } else {
+        resizeDocks({m_resultsDock}, {collapsedH}, Qt::Vertical);
+    }
 }
 
 void MainWindow::setupStatusBar() {
@@ -3103,11 +3537,13 @@ void MainWindow::retranslateUi() {
 
     // Docks & Tables
     if (m_inspectorDock) m_inspectorDock->setWindowTitle(GerenciadorTraducao::trText("Inspetor e Entrada Rápida"));
+    if (m_inspectorTitleBar) m_inspectorTitleBar->retranslateToolTip();
     if (m_entryGroup) m_entryGroup->setTitle(GerenciadorTraducao::trText("Adicionar Nó por Coordenadas"));
     if (m_btnAddNode) m_btnAddNode->setText(GerenciadorTraducao::trText("Adicionar Nó"));
     if (m_inspGroup) m_inspGroup->setTitle(GerenciadorTraducao::trText("Elemento / Nó Selecionado"));
 
     if (m_resultsDock) m_resultsDock->setWindowTitle(GerenciadorTraducao::trText("Tabelas de Resultados e Diagnóstico Estrutural"));
+    if (m_resultsTitleBar) m_resultsTitleBar->retranslateToolTip();
     if (m_resultsTabs) {
         m_resultsTabs->setTabText(0, GerenciadorTraducao::trText("Deslocamentos Nodais"));
         m_resultsTabs->setTabText(1, GerenciadorTraducao::trText("Reações de Apoio"));

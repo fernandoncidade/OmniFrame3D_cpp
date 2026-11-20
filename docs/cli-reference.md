@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Referência de Linha de Comando (CLI) e Utilitários
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -59,7 +59,7 @@ Compilado pelo preset `version-msvc-release` em `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.15.0 --date 2027-11-15 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.16.0 --date 2026-11-16 --apply --root .
 ```
 
 ---
@@ -136,8 +136,8 @@ omniframe-cli --check-windows-integration --json
 
 # OmniFrame 3D — Command Line Reference & Companion Utilities
 
-**Version:** `2026.11.15.0`  
-**Date:** `November 15, 2027`  
+**Version:** `2026.11.16.0`  
+**Date:** `November 16, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -181,7 +181,7 @@ Built by the `version-msvc-release` preset in `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.15.0 --date 2027-11-15 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.16.0 --date 2026-11-16 --apply --root .
 ```
 
 ---

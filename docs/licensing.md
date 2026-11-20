@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Licenciamento, Termos de Código Aberto e Esclarecimento Comercial
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Licença do Código-Fonte:** GNU Affero General Public License v3 (AGPLv3)  
 **Autor e Detentor dos Direitos Autorais:** Fernando Nillsson Cidade  
 
@@ -109,8 +109,8 @@ Este checklist resume o mapeamento documental exigido pelas diretrizes oficiais 
 
 # OmniFrame 3D — Licensing, Open Source Terms & Commercial Clarification
 
-**Version:** `2026.11.15.0`  
-**Date:** `November 15, 2027`  
+**Version:** `2026.11.16.0`  
+**Date:** `November 16, 2026`  
 **Source Code License:** GNU Affero General Public License v3 (AGPLv3)  
 **Author and Copyright Holder:** Fernando Nillsson Cidade  
 

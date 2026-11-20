@@ -28,6 +28,7 @@ class QGroupBox;
 class QMenu;
 class QProgressBar;
 class QPushButton;
+class QScrollArea;
 class QToolBar;
 
 namespace omniframe {
@@ -57,6 +58,8 @@ namespace ui {
 class ManualDialog;
 }
 
+class DockTitleBar;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
     friend class GuidedSessionDialog;
@@ -72,6 +75,11 @@ public:
 
     WindowZOrderManager* windowZOrderManager() const { return m_windowManager; }
     GuidedSessionDialog* guidedSessionDialog() const;
+
+    Q_INVOKABLE void setInspectorDockCollapsed(bool collapsed);
+    Q_INVOKABLE void setResultsDockCollapsed(bool collapsed);
+    bool isInspectorDockCollapsed() const { return m_inspectorCollapsed; }
+    bool isResultsDockCollapsed() const { return m_resultsCollapsed; }
 
 private slots:
     // Ações de Arquivo
@@ -162,6 +170,9 @@ private:
     void syncRenderSettingsMenuState();
     void setupToolbars();
     void setupDocks();
+    void applyInspectorCollapsedState();
+    void handleInspectorDockTopLevelChanged(bool floating);
+    void handleResultsDockTopLevelChanged(bool floating);
     void setupStatusBar();
     void applyDefaultExampleWorkPlane();
     void translateComboPreservingData();
@@ -195,6 +206,11 @@ private:
 
     // Dock Esquerdo (Inspetor)
     QDockWidget* m_inspectorDock = nullptr;
+    DockTitleBar* m_inspectorTitleBar = nullptr;
+    QScrollArea* m_inspectorScroll = nullptr;
+    bool m_inspectorCollapsed = false;
+    int m_inspectorSavedWidth = 320;
+    int m_inspectorSavedFloatingHeight = 520;
     QGroupBox* m_entryGroup = nullptr;
     QGroupBox* m_inspGroup = nullptr;
     QPushButton* m_btnAddNode = nullptr;
@@ -369,6 +385,10 @@ private:
 
     // Dock Inferior (Tabelas de Resultados)
     QDockWidget* m_resultsDock = nullptr;
+    DockTitleBar* m_resultsTitleBar = nullptr;
+    bool m_resultsCollapsed = false;
+    int m_resultsSavedDockedHeight = 200;
+    int m_resultsSavedFloatingHeight = 240;
     QTabWidget* m_resultsTabs = nullptr;
     QTableWidget* m_dispTable = nullptr;
     QTableWidget* m_reacTable = nullptr;
@@ -380,6 +400,7 @@ private:
     QLabel* m_modelStatsLabel = nullptr;
     QLabel* m_solverStatusLabel = nullptr;
     QProgressBar* m_statusProgress = nullptr;
+    bool m_updatingDockCollapse = false;
     bool m_solveInProgress = false;
     std::uint64_t m_modelRevision = 0;
     bool m_pendingResolve = false;

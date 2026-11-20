@@ -2,6 +2,8 @@
 
 #include <QObject>
 
+class QPainter;
+class QRect;
 class QWidget;
 
 namespace omniframe {
@@ -26,6 +28,12 @@ public:
     void setWindowTransitionsDisabled(QWidget* widget, bool disabled) const;
     void setWindowCloaked(QWidget* widget, bool cloaked) const;
     void applyAllTopLevelWindowChrome() const;
+    void paintSpinArrowButton(QPainter* painter,
+                              const QRect& rect,
+                              Qt::ArrowType arrowType,
+                              bool enabled,
+                              bool hovered,
+                              bool pressed) const;
 
 signals:
     void themeChanged(UiTheme newTheme);

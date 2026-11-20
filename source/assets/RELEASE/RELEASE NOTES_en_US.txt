@@ -1,4 +1,32 @@
 RELEASE NOTES — OMNIFRAME 3D
+Version: 2026.11.16.0
+Date: November 16, 2026
+
+Highlights of Version 2026.11.16.0:
+
+1. Collapsible "Inspector & Quick Input" Panel to the Left Edge
+- The header of the "Inspector & Quick Input" panel now features a directional arrow button to collapse and expand the side bar according to your workspace needs.
+- While the panel is expanded, the arrow points left to collapse it; once collapsed, the panel tucks cleanly against the left edge as a slim vertical strip with the "Inspector & Quick Input" label rotated 90 degrees counter-clockwise, freeing the remaining screen width for the 3D structural view.
+- While collapsed, the arrow at the top of the strip points right so a single click expands the panel back with all coordinate entry and quick property controls intact.
+- When detached as a floating window, the same button collapses and expands the floating panel smoothly, and automatically restores the vertical left-edge strip if the panel is re-docked while still collapsed.
+
+2. Collapsible "Result Tables & Structural Diagnostics" Panel at the Bottom
+- The header of the "Result Tables & Structural Diagnostics" panel now includes a directional arrow button to collapse and expand the results tabs at any time.
+- While the panel is open, the arrow points down to compact the tables into a clean bottom bar keeping the title visible across the full width of the screen, increasing vertical height for the 3D model.
+- While collapsed, the arrow points up to restore all four tabs for displacements, reactions, member forces, and shell/solid stresses immediately, working seamlessly in both docked and floating modes.
+
+3. Rounded Outer Corner Alignment on Numeric Field Adjustment Buttons
+- All numeric input fields across toolbars, inspectors, and engineering dialogs have been refined so their upper and lower increment/decrement buttons align flush with the field border.
+- The outer corners of these adjustment buttons now match the rounded frame curvature seamlessly in both Light and Dark themes, eliminating rectangular corner gaps while keeping internal separators crisp and aligned.
+
+4. Live Translation, Guided Session (F2) Integration & Updated Manual
+- Dock panel titles (including when rotated vertically on the left edge) and button tooltips ("Collapse panel" and "Expand panel") update automatically in real time when switching between Portuguese (Brazil) and English (US), as well as between Light and Dark visual themes.
+- Starting or stepping through parts of the Interactive Guided Session (F2) that rely on the inspector or result tables automatically expands collapsed panels so every highlighted step stays clearly visible.
+- The Operations Manual (F1) has been updated in both Portuguese and English with practical instructions for collapsing, expanding, and detaching the side and bottom panels along with the refined workspace controls.
+
+================================================================================
+
+RELEASE NOTES — OMNIFRAME 3D
 Version: 2026.11.15.0
 Date: November 15, 2026
 

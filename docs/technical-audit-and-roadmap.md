@@ -1,7 +1,7 @@
 # Auditoria Técnica, Decisões Arquiteturais, Matriz V&V e Roadmap / Technical Audit, ADRs & Roadmap — OmniFrame 3D
 
-**Versão:** `2026.11.15.0`  
-**Data:** `15 de novembro de 2027`  
+**Versão:** `2026.11.16.0`  
+**Data:** `16 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 Este documento consolida a auditoria técnica de engenharia estrutural, decisões arquiteturais (ADRs), matrizes de integração, verificação e validação (V&V), conformidade normativa, rastreabilidade, posicionamento técnico e roadmap do **OmniFrame 3D**, conforme os critérios de qualidade científica e rastreabilidade do projeto.
@@ -90,6 +90,7 @@ Cada recurso é classificado segundo o escopo estritamente verificado por códig
 | **Pós-Processamento 2D/3D na Viewport e UI** | Viewport voltada apenas a diagramas 1D/DCR | Adicionado `PostContourMode::VonMisesStress`, renderização de cascas/sólidos, apoios contínuos, deformada contínua e 4ª aba `"Esforços 2D/3D (Casca/Sólido)"`; corrigido `objectName` dos combos de pós-processamento | `test_Phase9UiAndWorkflows` | Aprovado em teste offscreen de UI e regressão de combos | Isolinhas de momento/tensão principal em corte 2D |
 | **Persistência `.omniframe`, VTK/CSV e Relatórios Seção 9** | VTK exportava apenas barras 1D `POLYDATA`; relatórios omitiam seção 2D/3D completa e fallback | Adicionado bloco `"surfaceMesh"` em JSON `2.1.0`; VTK promovido a `UNSTRUCTURED_GRID` (1D/2D/3D + `von_mises_kPa`); CSV e relatórios HTML/MD/PDF expandidos para os 20 itens da Seção 9 | `test_ProjectSerializer`, `test_Phase7MeshInteropCli`, `test_Phase8ComplianceAndReports` | Round-trip `.omniframe`, VTK/CSV contínuos e relatórios HTML/MD/PDF > 15 KB aprovados | Captura automatizada de imagem 3D diretamente na CLI headless sem OpenGL offscreen |
 | **Ativos de Interface (`QComboBox` / `QSpinBox` sem `spin_*.png`) em `OmniFrame.exe`** | Commit anterior `2041aa9` removeu 8 `spin_*.png` ainda referenciados em `CMakeLists.txt`, `ThemeManager.cpp` e `AboutDialog.cpp`, quebrando `qrc_omniframe_runtime_assets` | Removidas as referências em `CMakeLists.txt`, `OBSERVACAO.md` e substituídos os PNGs por setas vetoriais/CSS nativas em Qt (`ThemeManager.cpp`, `AboutDialog.cpp`), eliminando os 8 arquivos | Build `omniframe-msvc-release` + `test_Phase9UiAndWorkflows` | `OmniFrame.exe` compilado e renderização das setas verificada sem geração de `spin_*.png` | — |
+| **Painéis Recolhíveis e Cantos Arredondados de SpinBox** | Docks da janela principal só ocultavam via fechamento manual e `SC_SpinBoxUp`/`Down` ficavam recuados em blocos retangulares dentro da moldura | Adicionados `DockTitleBar`, `RotatableTitleLabel` (`-90°`), `SpinArrowButton` (`◀/▶` no Inspetor lateral e `▼/▲` nas Tabelas inferiores) + traduções `Expandir painel`/`Recolher painel`, auto-expansão na Sessão Guiada e `OmniFrameFusionStyle::subControlRect` com cantos externos arredondados rentes em todos os `QSpinBox`/`QDoubleSpinBox` | `test_Phase9UiAndWorkflows` (Subtestes 8/9 e 9/9) + inspeção pixel Dark/Light | Direção vetorial, rotação `-90°`, cantos externos arredondados dos spin buttons, modo flutuante e tradução `pt-BR`/`en-US` aprovados nos 20 testes CTest | — |
 
 ---
 

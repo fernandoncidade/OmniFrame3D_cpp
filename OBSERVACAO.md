@@ -16,8 +16,8 @@
 
 # OMNIFRAME 3D - OBSERVAÇÃO TÉCNICA E POSICIONAMENTO ESTRATÉGICO
 
-Versão documentada: `2026.11.15.0`  
-Data do snapshot técnico: `15 de novembro de 2027`  
+Versão documentada: `2026.11.16.0`  
+Data do snapshot técnico: `16 de novembro de 2026`  
 Repositório: `OmniFrame_cpp`  
 Autor identificado no projeto: `Fernando Nillsson Cidade`  
 Licença do repositório: `GNU AGPLv3 (GNU Affero General Public License v3)`  
@@ -34,7 +34,7 @@ Sua proposta de valor central responde diretamente à pergunta mais crítica no 
 
 O produto atua como uma solução soberana **100% Local-First** (sem nuvem, sem telemetria, sem criação de contas, sem rastreadores e sem dependência de serviços externos), operando com independência e integridade analítica garantida.
 
-## 2. Linha Técnica e Destaques da Versão 2026.11.15.0
+## 2. Linha Técnica e Destaques da Versão 2026.11.16.0
 
 Esta versão consolida a maturidade técnica da engine de cálculo e a estabilização completa dos subsistemas analíticos:
 
@@ -87,8 +87,8 @@ O projeto adota uma fronteira estrita de duplo licenciamento:
 
 # OMNIFRAME 3D - TECHNICAL OBSERVATION AND STRATEGIC POSITIONING
 
-Documented Version: `2026.11.15.0`  
-Technical Snapshot Date: `November 15, 2027`  
+Documented Version: `2026.11.16.0`  
+Technical Snapshot Date: `November 16, 2026`  
 Repository: `OmniFrame_cpp`  
 Author Identified in Project: `Fernando Nillsson Cidade`  
 Repository License: `GNU AGPLv3 (GNU Affero General Public License v3)`  
@@ -124,7 +124,7 @@ Validated layout across `source/` and `tests/`:
 | **Core** | `source/core/` | UI-neutral model bridge: `Node`, `Element`, `CrossSection`, `Material`, `StructuralModel`, and `Types.hpp` |
 | **Solver** | `source/solver/` | Orchestration bridge connecting `StructuralModel` to `OmniFrameKernel` (`FemSolver3D`) |
 | **Render** | `source/render/` | GLSL 330 shaders (`ShaderCollection`), orbital `Camera3D`, `RenderSettings`, and OpenGL 3.3 Core `Viewport3D` |
-| **UI** | `source/ui/` | `MainWindow` (Qt 6.11.1), dock inspectors/tables, `Dialogs`, `EngineeringDialogs` (6 engineering dialogs), `GuidedSessionDialog` (Guided Session `F2`), `ThemeManager`, `WindowZOrderManager`, `ManualDialog`, `AboutDialog` |
+| **UI** | `source/ui/` | `MainWindow` (Qt 6.11.1, collapsible lateral `-90°` / bottom dock inspector and tables with spin-button toggles), `Dialogs`, `EngineeringDialogs` (6 engineering dialogs), `GuidedSessionDialog` (Guided Session `F2`), `ThemeManager` (QProxyStyle rounded spin buttons & vector arrows), `WindowZOrderManager`, `ManualDialog`, `AboutDialog` |
 | **I/O** | `source/io/` | `ProjectSerializer` (`.omniframe` Schema `2.1.0`, HTML/MD reports), `DxfInterop`, `IfcInterop`, `Utf8Path`, and `PdfReportGenerator` (A4 PDF) |
 | **OS Integration** | `source/os/` | `WindowsCliIntegration` (CMD/PowerShell UTF-8 console, `CommandLineToArgvW`, HKCU `PATH`/`App Paths`/`.omniframe` registration, and GUI->CLI forwarding) |
 | **CLI** | `source/cli/` | Integrated native console executable `omniframe-cli.exe` (`main_cli.cpp`) sharing `OmniFrameCore`, `OmniFrameKernel`, examples, and NBR auditing |
@@ -416,7 +416,7 @@ OmniFrame_cpp/
 ├── 📝 compliance.md
 ├── 📝 licensing.md
 ├── 📝 privacy-policy.md
-├── 📝 release-v2026.11.15.0.md
+├── 📝 release-v2026.11.16.0.md
 ├── 📝 security-model.md
 ├── 📝 suggested-issues.md
 ├── 📝 technical-audit-and-roadmap.md

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(OmniFrame
-    VERSION 2026.11.15.0
+    VERSION 2026.11.16.0
     DESCRIPTION "OmniFrame 3D - Porticos e Trelicas Espaciais 3D via FEM (C++23 / Qt6 / OpenGL / Eigen3)"
     LANGUAGES CXX
 )

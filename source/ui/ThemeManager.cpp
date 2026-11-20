@@ -123,6 +123,9 @@ QString buildDarkApplicationStyleSheet() {
         "QToolButton:checked { background-color: #2b6cb0; border-color: #3182ce; color: #ffffff; }"
         "QDockWidget { titlebar-close-icon: url(); titlebar-normal-icon: url(); color: #e1e6eb; font-weight: bold; }"
         "QDockWidget::title { background-color: #23272f; color: #e1e6eb; padding: 6px; border: 1px solid #2d333f; text-align: left; }"
+        "QFrame#dockTitleBar { background-color: #23272f; border: 1px solid #2d333f; }"
+        "QLabel#dockTitleLabel { background: transparent; color: #e1e6eb; font-weight: bold; }"
+        "QFrame#dockTitleBar QToolButton { background: transparent; border: none; padding: 0px; }"
         "QGroupBox { border: 1px solid #334155; border-radius: 5px; margin-top: 10px; padding-top: 10px; color: #e2e8f0; font-weight: bold; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #93c5fd; }"
         "QTableWidget, QListWidget, QTreeView { background-color: #171a1f; alternate-background-color: #1d2229; color: #d0d7de; gridline-color: #2d333f; border: 1px solid #2d333f; selection-background-color: #2b6cb0; selection-color: #ffffff; }"
@@ -158,6 +161,9 @@ QString buildLightApplicationStyleSheet() {
         "QToolButton:checked { background-color: #2563eb; border-color: #1d4ed8; color: #ffffff; }"
         "QDockWidget { titlebar-close-icon: url(); titlebar-normal-icon: url(); color: #0f172a; font-weight: bold; }"
         "QDockWidget::title { background-color: #e2e8f0; color: #0f172a; padding: 6px; border: 1px solid #cbd5e1; text-align: left; }"
+        "QFrame#dockTitleBar { background-color: #e2e8f0; border: 1px solid #cbd5e1; }"
+        "QLabel#dockTitleLabel { background: transparent; color: #0f172a; font-weight: bold; }"
+        "QFrame#dockTitleBar QToolButton { background: transparent; border: none; padding: 0px; }"
         "QGroupBox { border: 1px solid #cbd5e1; border-radius: 5px; margin-top: 10px; padding-top: 10px; color: #0f172a; font-weight: bold; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #1d4ed8; }"
         "QTableWidget, QListWidget, QTreeView { background-color: #ffffff; alternate-background-color: #f8fafc; color: #0f172a; gridline-color: #e2e8f0; border: 1px solid #cbd5e1; selection-background-color: #2563eb; selection-color: #ffffff; }"
@@ -219,6 +225,85 @@ void setWindowsImmersiveDarkMode(QWidget* widget, bool dark) {
 }
 #endif
 
+QColor resolveSpinArrowColor(bool lightTheme, bool enabled, bool active) {
+    if (!enabled) {
+        return lightTheme ? QColor(0x94, 0xa3, 0xb8) : QColor(0x64, 0x74, 0x8b);
+    }
+    if (active) {
+        return Qt::white;
+    }
+    return lightTheme ? QColor(0x1e, 0x29, 0x3b) : QColor(0xe2, 0xe8, 0xf0);
+}
+
+QColor resolveSpinButtonBg(bool lightTheme, bool enabled, bool pressed, bool hovered) {
+    if (!enabled) {
+        return lightTheme ? QColor(0xf1, 0xf5, 0xf9) : QColor(0x1c, 0x22, 0x2b);
+    }
+    if (pressed) {
+        return lightTheme ? QColor(0x25, 0x63, 0xeb) : QColor(0x2b, 0x6c, 0xb0);
+    }
+    if (hovered) {
+        return lightTheme ? QColor(0xcb, 0xd5, 0xe1) : QColor(0x36, 0x43, 0x54);
+    }
+    return lightTheme ? QColor(0xe2, 0xe8, 0xf0) : QColor(0x28, 0x31, 0x3e);
+}
+
+QColor resolveSpinSeparatorColor(bool lightTheme, bool enabled, bool pressed, bool hovered) {
+    if (!enabled) {
+        return lightTheme ? QColor(0xcb, 0xd5, 0xe1) : QColor(0x2d, 0x37, 0x48);
+    }
+    if (pressed) {
+        return lightTheme ? QColor(0x1d, 0x4e, 0xd8) : QColor(0x3b, 0x82, 0xf6);
+    }
+    if (hovered) {
+        return QColor(0x64, 0x74, 0x8b);
+    }
+    return lightTheme ? QColor(0x94, 0xa3, 0xb8) : QColor(0x47, 0x55, 0x69);
+}
+
+void drawSpinTriangle(QPainter* painter, const QRectF& rect, Qt::ArrowType arrowType, const QColor& color) {
+    if (!painter || rect.isEmpty() || arrowType == Qt::NoArrow) {
+        return;
+    }
+
+    const qreal cx = rect.center().x();
+    const qreal cy = rect.center().y();
+    QPolygonF tri;
+
+    if (arrowType == Qt::LeftArrow || arrowType == Qt::RightArrow) {
+        const qreal baseSpan = qBound(6.0, qMin(rect.width(), rect.height()) * 0.45, 9.0);
+        const qreal depth = qBound(4.0, rect.width() * 0.35, 5.0);
+        if (arrowType == Qt::LeftArrow) {
+            tri << QPointF(cx - depth * 0.5, cy)
+                << QPointF(cx + depth * 0.5, cy - baseSpan * 0.5)
+                << QPointF(cx + depth * 0.5, cy + baseSpan * 0.5);
+        } else {
+            tri << QPointF(cx - depth * 0.5, cy - baseSpan * 0.5)
+                << QPointF(cx + depth * 0.5, cy)
+                << QPointF(cx - depth * 0.5, cy + baseSpan * 0.5);
+        }
+    } else {
+        const qreal triW = qBound(6.0, rect.width() * 0.45, 9.0);
+        const qreal triH = qBound(4.0, rect.height() * 0.40, 5.0);
+        if (arrowType == Qt::UpArrow) {
+            tri << QPointF(cx, cy - triH * 0.5)
+                << QPointF(cx + triW * 0.5, cy + triH * 0.5)
+                << QPointF(cx - triW * 0.5, cy + triH * 0.5);
+        } else {
+            tri << QPointF(cx - triW * 0.5, cy - triH * 0.5)
+                << QPointF(cx + triW * 0.5, cy - triH * 0.5)
+                << QPointF(cx, cy + triH * 0.5);
+        }
+    }
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(color);
+    painter->drawPolygon(tri);
+    painter->restore();
+}
+
 class OmniFrameFusionStyle final : public QProxyStyle {
 public:
     explicit OmniFrameFusionStyle(bool lightTheme)
@@ -246,18 +331,69 @@ public:
         return sz;
     }
 
+    QRect subControlRect(ComplexControl control,
+                         const QStyleOptionComplex* option,
+                         SubControl subControl,
+                         const QWidget* widget) const override {
+        if (control == CC_SpinBox && option) {
+            const auto* sb = qstyleoption_cast<const QStyleOptionSpinBox*>(option);
+            if (sb && sb->frame && sb->buttonSymbols != QAbstractSpinBox::NoButtons &&
+                sb->rect.width() > 36 && sb->rect.height() >= 16) {
+                const QRect inner = sb->rect.adjusted(1, 1, -1, -1);
+                const QRect baseUp = QProxyStyle::subControlRect(CC_SpinBox, sb, SC_SpinBoxUp, widget);
+                const QRect baseDown = QProxyStyle::subControlRect(CC_SpinBox, sb, SC_SpinBoxDown, widget);
+                const int rawLeft = (baseUp.isValid() && baseDown.isValid())
+                    ? qMin(baseUp.left(), baseDown.left())
+                    : (inner.right() - 18);
+                const int btnWidth = qBound(18, inner.right() - rawLeft + 1, 22);
+                const int btnLeft = inner.right() - btnWidth + 1;
+                const int upHeight = inner.height() / 2;
+
+                if (subControl == SC_SpinBoxUp) {
+                    return visualRect(sb->direction, sb->rect,
+                                      QRect(btnLeft, inner.top(), btnWidth, upHeight));
+                }
+                if (subControl == SC_SpinBoxDown) {
+                    return visualRect(sb->direction, sb->rect,
+                                      QRect(btnLeft, inner.top() + upHeight, btnWidth, inner.height() - upHeight));
+                }
+                if (subControl == SC_SpinBoxEditField) {
+                    QRect editRect = QProxyStyle::subControlRect(CC_SpinBox, sb, SC_SpinBoxEditField, widget);
+                    if (editRect.isValid()) {
+                        if (sb->direction == Qt::LeftToRight) {
+                            editRect.setRight(qMin(editRect.right(), btnLeft - 2));
+                        } else {
+                            const int mirrorRight = sb->rect.left() + btnWidth + 2;
+                            editRect.setLeft(qMax(editRect.left(), mirrorRight));
+                        }
+                    }
+                    return editRect;
+                }
+            }
+        }
+        return QProxyStyle::subControlRect(control, option, subControl, widget);
+    }
+
     void drawPrimitive(PrimitiveElement element,
                        const QStyleOption* option,
                        QPainter* painter,
                        const QWidget* widget) const override {
         if ((element == PE_IndicatorArrowDown || element == PE_IndicatorArrowUp ||
+             element == PE_IndicatorArrowLeft || element == PE_IndicatorArrowRight ||
              element == PE_IndicatorSpinDown || element == PE_IndicatorSpinUp) &&
             option && painter && !option->rect.isEmpty()) {
-            const bool pointUp = (element == PE_IndicatorArrowUp || element == PE_IndicatorSpinUp);
+            Qt::ArrowType arrowDir = Qt::DownArrow;
+            if (element == PE_IndicatorArrowUp || element == PE_IndicatorSpinUp) {
+                arrowDir = Qt::UpArrow;
+            } else if (element == PE_IndicatorArrowLeft) {
+                arrowDir = Qt::LeftArrow;
+            } else if (element == PE_IndicatorArrowRight) {
+                arrowDir = Qt::RightArrow;
+            }
             const bool enabled = option->state.testFlag(QStyle::State_Enabled);
             const bool active = option->state.testFlag(QStyle::State_Sunken) ||
                                 option->state.testFlag(QStyle::State_On);
-            drawTriangle(painter, QRectF(option->rect), pointUp, resolveArrowColor(enabled, active));
+            drawSpinTriangle(painter, QRectF(option->rect), arrowDir, resolveSpinArrowColor(m_lightTheme, enabled, active));
             return;
         }
         QProxyStyle::drawPrimitive(element, option, painter, widget);
@@ -282,20 +418,19 @@ public:
                     if (arrowRect.width() < 20 && cb->rect.width() > 36) {
                         arrowRect = QRect(cb->rect.right() - 21, cb->rect.top() + 1, 21, cb->rect.height() - 2);
                     }
-                    const QColor bg = resolveButtonBg(enabled, pressed, hovered);
-                    const QColor sep = resolveSeparatorColor(enabled, pressed, hovered);
+                    const QColor bg = resolveSpinButtonBg(m_lightTheme, enabled, pressed, hovered);
+                    const QColor sep = resolveSpinSeparatorColor(m_lightTheme, enabled, pressed, hovered);
 
                     painter->save();
                     painter->setRenderHint(QPainter::Antialiasing, true);
-                    QPainterPath clipPath;
-                    clipPath.addRoundedRect(QRectF(cb->rect).adjusted(1.0, 1.0, -1.0, -1.0), 3.0, 3.0);
-                    painter->setClipPath(clipPath);
+                    painter->setClipPath(innerControlClipPath(cb->rect));
                     painter->fillRect(arrowRect, bg);
                     painter->setPen(sep);
-                    painter->drawLine(arrowRect.topLeft(), arrowRect.bottomLeft());
+                    painter->drawLine(QLineF(arrowRect.left() + 0.5, arrowRect.top(),
+                                             arrowRect.left() + 0.5, arrowRect.bottom() + 1.0));
                     painter->restore();
 
-                    drawTriangle(painter, QRectF(arrowRect), false, resolveArrowColor(enabled, pressed));
+                    drawSpinTriangle(painter, QRectF(arrowRect), Qt::DownArrow, resolveSpinArrowColor(m_lightTheme, enabled, pressed));
                 }
                 return;
             }
@@ -325,31 +460,32 @@ public:
 
                     painter->save();
                     painter->setRenderHint(QPainter::Antialiasing, true);
-                    QPainterPath clipPath;
-                    clipPath.addRoundedRect(QRectF(sb->rect).adjusted(1.0, 1.0, -1.0, -1.0), 3.0, 3.0);
-                    painter->setClipPath(clipPath);
+                    painter->setClipPath(innerControlClipPath(sb->rect));
 
                     if (sb->subControls.testFlag(SC_SpinBoxUp) && upRect.isValid()) {
-                        painter->fillRect(upRect, resolveButtonBg(upEnabled, upPressed, upHovered));
-                        painter->setPen(resolveSeparatorColor(upEnabled, upPressed, upHovered));
-                        painter->drawLine(upRect.topLeft(), upRect.bottomLeft());
+                        painter->fillRect(upRect, resolveSpinButtonBg(m_lightTheme, upEnabled, upPressed, upHovered));
+                        painter->setPen(resolveSpinSeparatorColor(m_lightTheme, upEnabled, upPressed, upHovered));
+                        painter->drawLine(QLineF(upRect.left() + 0.5, upRect.top(),
+                                                 upRect.left() + 0.5, upRect.bottom() + 1.0));
                     }
                     if (sb->subControls.testFlag(SC_SpinBoxDown) && downRect.isValid()) {
-                        painter->fillRect(downRect, resolveButtonBg(downEnabled, downPressed, downHovered));
-                        painter->setPen(resolveSeparatorColor(downEnabled, downPressed, downHovered));
-                        painter->drawLine(downRect.topLeft(), downRect.bottomLeft());
+                        painter->fillRect(downRect, resolveSpinButtonBg(m_lightTheme, downEnabled, downPressed, downHovered));
+                        painter->setPen(resolveSpinSeparatorColor(m_lightTheme, downEnabled, downPressed, downHovered));
+                        painter->drawLine(QLineF(downRect.left() + 0.5, downRect.top(),
+                                                 downRect.left() + 0.5, downRect.bottom() + 1.0));
                     }
                     if (upRect.isValid() && downRect.isValid()) {
                         painter->setPen(m_lightTheme ? QColor(0xcb, 0xd5, 0xe1) : QColor(0x3b, 0x47, 0x58));
-                        painter->drawLine(upRect.bottomLeft(), upRect.bottomRight());
+                        painter->drawLine(QLineF(upRect.left() + 1.0, downRect.top(),
+                                                 upRect.right() + 1.0, downRect.top()));
                     }
                     painter->restore();
 
                     if (sb->subControls.testFlag(SC_SpinBoxUp) && upRect.isValid()) {
-                        drawTriangle(painter, QRectF(upRect), true, resolveArrowColor(upEnabled, upPressed));
+                        drawSpinTriangle(painter, QRectF(upRect), Qt::UpArrow, resolveSpinArrowColor(m_lightTheme, upEnabled, upPressed));
                     }
                     if (sb->subControls.testFlag(SC_SpinBoxDown) && downRect.isValid()) {
-                        drawTriangle(painter, QRectF(downRect), false, resolveArrowColor(downEnabled, downPressed));
+                        drawSpinTriangle(painter, QRectF(downRect), Qt::DownArrow, resolveSpinArrowColor(m_lightTheme, downEnabled, downPressed));
                     }
                 }
                 return;
@@ -360,42 +496,11 @@ public:
     }
 
 private:
-    QColor resolveArrowColor(bool enabled, bool active) const {
-        if (!enabled) {
-            return m_lightTheme ? QColor(0x94, 0xa3, 0xb8) : QColor(0x64, 0x74, 0x8b);
-        }
-        if (active) {
-            return Qt::white;
-        }
-        return m_lightTheme ? QColor(0x1e, 0x29, 0x3b) : QColor(0xe2, 0xe8, 0xf0);
+    static QPainterPath innerControlClipPath(const QRect& rect) {
+        QPainterPath path;
+        path.addRoundedRect(QRectF(rect).adjusted(1.0, 1.0, -1.0, -1.0), 3.5, 3.5);
+        return path;
     }
-
-    QColor resolveButtonBg(bool enabled, bool pressed, bool hovered) const {
-        if (!enabled) {
-            return m_lightTheme ? QColor(0xf1, 0xf5, 0xf9) : QColor(0x1c, 0x22, 0x2b);
-        }
-        if (pressed) {
-            return m_lightTheme ? QColor(0x25, 0x63, 0xeb) : QColor(0x2b, 0x6c, 0xb0);
-        }
-        if (hovered) {
-            return m_lightTheme ? QColor(0xcb, 0xd5, 0xe1) : QColor(0x36, 0x43, 0x54);
-        }
-        return m_lightTheme ? QColor(0xe2, 0xe8, 0xf0) : QColor(0x28, 0x31, 0x3e);
-    }
-
-    QColor resolveSeparatorColor(bool enabled, bool pressed, bool hovered) const {
-        if (!enabled) {
-            return m_lightTheme ? QColor(0xcb, 0xd5, 0xe1) : QColor(0x2d, 0x37, 0x48);
-        }
-        if (pressed) {
-            return m_lightTheme ? QColor(0x1d, 0x4e, 0xd8) : QColor(0x3b, 0x82, 0xf6);
-        }
-        if (hovered) {
-            return QColor(0x64, 0x74, 0x8b);
-        }
-        return m_lightTheme ? QColor(0x94, 0xa3, 0xb8) : QColor(0x47, 0x55, 0x69);
-    }
-
     void drawControlFrame(QPainter* painter, const QRect& rect, bool enabled, bool focused, bool hovered) const {
         QColor bg;
         QColor border;
@@ -418,31 +523,6 @@ private:
         painter->setPen(border);
         painter->setBrush(bg);
         painter->drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), 4.0, 4.0);
-        painter->restore();
-    }
-
-    static void drawTriangle(QPainter* painter, const QRectF& rect, bool pointUp, const QColor& color) {
-        const qreal triW = qBound(6.0, rect.width() * 0.45, 9.0);
-        const qreal triH = qBound(4.0, rect.height() * 0.40, 5.0);
-        const qreal cx = rect.center().x();
-        const qreal cy = rect.center().y();
-
-        QPolygonF tri;
-        if (pointUp) {
-            tri << QPointF(cx, cy - triH * 0.5)
-                << QPointF(cx + triW * 0.5, cy + triH * 0.5)
-                << QPointF(cx - triW * 0.5, cy + triH * 0.5);
-        } else {
-            tri << QPointF(cx - triW * 0.5, cy - triH * 0.5)
-                << QPointF(cx + triW * 0.5, cy - triH * 0.5)
-                << QPointF(cx, cy + triH * 0.5);
-        }
-
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, true);
-        painter->setPen(Qt::NoPen);
-        painter->setBrush(color);
-        painter->drawPolygon(tri);
         painter->restore();
     }
 
@@ -560,6 +640,31 @@ void ThemeManager::applyApplicationStyle() const {
     QApplication::setStyle(new OmniFrameFusionStyle(isLight()));
     QApplication::setPalette(isLight() ? buildLightPalette() : buildDarkPalette());
     qApp->setStyleSheet(isLight() ? buildLightApplicationStyleSheet() : buildDarkApplicationStyleSheet());
+}
+
+void ThemeManager::paintSpinArrowButton(QPainter* painter,
+                                        const QRect& rect,
+                                        Qt::ArrowType arrowType,
+                                        bool enabled,
+                                        bool hovered,
+                                        bool pressed) const {
+    if (!painter || rect.isEmpty()) {
+        return;
+    }
+
+    const bool light = isLight();
+    const QColor bg = resolveSpinButtonBg(light, enabled, pressed, hovered);
+    const QColor border = resolveSpinSeparatorColor(light, enabled, pressed, hovered);
+    const QColor arrow = resolveSpinArrowColor(light, enabled, pressed);
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+    painter->setPen(border);
+    painter->setBrush(bg);
+    painter->drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), 3.0, 3.0);
+    painter->restore();
+
+    drawSpinTriangle(painter, QRectF(rect), arrowType, arrow);
 }
 
 } // namespace omniframe

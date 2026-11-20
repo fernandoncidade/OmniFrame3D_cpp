@@ -1,4 +1,4 @@
-# Release Notes — OmniFrame 3D v2026.11.15.0
+# Release Notes — OmniFrame 3D v2026.11.16.0
 
 <p align="center">
   <b>Selecione o idioma / Select language:</b><br>
@@ -12,9 +12,9 @@
 <details>
 <summary>Clique para expandir / recolher notas de lançamento em português</summary><br>
 
-# OmniFrame 3D — Versão 2026.11.15.0 (Release Inicial)
+# OmniFrame 3D — Versão 2026.11.16.0 (Release Inicial)
 
-**Data de Lançamento:** 15 de novembro de 2027  
+**Data de Lançamento:** 16 de novembro de 2026  
 **Autor:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
 **Repositório:** `fernandoncidade/OmniFrame_cpp`  
 **Licenciamento:** GNU AGPLv3 (Código Aberto) / EULA (Microsoft Store)  
@@ -36,7 +36,8 @@
 
 ### 3. Interface Qt 6.11.1 Polida, Sessão Guiada (`F2`), Janelas sem Flash & Vetores Nativos
 - **Eliminação Total de Janelas Fantasmas em Cliques de Diálogos Filhos:** `WindowZOrderManager` prepara alças nativas ocultas (`Qt::WA_DontShowOnScreen`) antes do primeiro mapeamento em tela, removendo flashes rápidos de moldura vazia ao abrir qualquer diálogo filho e preservando operação **modeless** com **Z-Order** gerenciado e abertura por clique único.
-- **Setas Vetoriais Nativas sem Geração de `spin_*.png`:** `ThemeManager` desenha setas de `QComboBox` e `QSpinBox` via `QProxyStyle::drawPrimitive`, adaptando cores automaticamente ao tema ativo sem gerar arquivos PNG temporários em disco.
+- **Setas Vetoriais Nativas e Cantos Arredondados em Campos Numéricos:** `ThemeManager` (`OmniFrameFusionStyle`) desenha setas de `QComboBox`, `QSpinBox` e `QDoubleSpinBox` diretamente no tema ativo sem gerar PNGs temporários, com `subControlRect` e recorte interno sincronizados para que os cantos externos dos *spin buttons* acompanhem exatamente o arredondamento da moldura.
+- **Painéis Acopláveis Recolhíveis Lateral e Inferiormente (`MainWindow`):** Cabeçalhos customizados (`DockTitleBar` com `SpinArrowButton`) permitem recolher e expandir **`Inspetor e Entrada Rápida`** para a lateral esquerda com setas **`◀`/`▶`** e rótulo rotacionado em **`-90°`** (`RotatableTitleLabel`), além de recolher e expandir **`Tabelas de Resultados e Diagnóstico Estrutural`** na base com setas **`▼`/`▲`**, com suporte a modo flutuante, temas Claro/Escuro, tradução ao vivo e expansão automática pela Sessão Guiada (`F2`).
 - **Sessão Guiada (`Ajuda > Sessão Guiada...`, `F2`) Dimensionada & Integrada E2E:** Janela ampliada com barra de controles em duas linhas exibindo integralmente todos os botões e rótulos; percorre os **3 exemplos no plano `XY (Planta)`** cobrindo malhas 2D/3D, contorno `Tensão de von Mises`, imperfeição de flambagem e dinâmica/não linearidade, com 4 perfis de PPM, callout unificado em duas fases sem sobreposição, tradução dinâmica integral (`.ts`/`.qm`) e restauração automática ao estado inicial.
 
 ### 4. Persistência 2.1.0, Exportações 1D/2D/3D, CLI (`omniframe-cli.exe`) & 20 Suítes CTest
@@ -52,9 +53,9 @@
 <details>
 <summary>Click to expand / collapse release notes in English</summary><br>
 
-# OmniFrame 3D — Version 2026.11.15.0 (Initial Release)
+# OmniFrame 3D — Version 2026.11.16.0 (Initial Release)
 
-**Release Date:** November 15, 2027  
+**Release Date:** November 16, 2026  
 **Author:** Fernando Nillsson Cidade (`linceu_lighthouse@outlook.com`)  
 **Repository:** `fernandoncidade/OmniFrame_cpp`  
 **Licensing:** GNU AGPLv3 (Open Source) / EULA (Microsoft Store)  
@@ -76,7 +77,8 @@
 
 ### 3. Refined Qt 6.11.1 Workspace, Enlarged Guided Session (`F2`), Zero-Ghost Dialogs & Vector Styling
 - **Zero-Ghost-Flash Child Window Creation:** `WindowZOrderManager` prepares hidden native window handles (`Qt::WA_DontShowOnScreen`) prior to first on-screen mapping, eliminating brief blank frame flashes when launching any child dialog while keeping **modeless** workflow, single-click launch, and managed **Z-Order**.
-- **Native Vector Combo/Spin Arrows Without `spin_*.png` Generation:** `ThemeManager` renders combo and spinbox arrows directly via `QProxyStyle::drawPrimitive`, matching Light/Dark themes in real time without emitting temporary PNG files on disk.
+- **Native Vector Combo/Spin Arrows & Rounded Outer Spin-Button Corners:** `ThemeManager` (`OmniFrameFusionStyle`) renders `QComboBox`, `QSpinBox`, and `QDoubleSpinBox` arrows cleanly per active Light/Dark theme without writing temporary PNG files on disk, aligning `subControlRect` and inner clipping so spin-button outer corners match the rounded field frame seamlessly.
+- **Collapsible Lateral & Bottom Dock Panels (`MainWindow`):** Custom dock headers (`DockTitleBar` with `SpinArrowButton`) collapse and expand **`Inspector & Quick Input`** horizontally to the left edge using **`◀`/`▶`** arrows and a **`-90°` rotated vertical label** (`RotatableTitleLabel`), and collapse/expand **`Result Tables & Structural Diagnostics`** along the bottom edge using **`▼`/`▲`** arrows, supporting floating mode, Light/Dark themes, live translation, and automatic expansion by Guided Session (`F2`).
 - **Enlarged & End-to-End Integrated Guided Session (`Help > Guided Session...`, `F2`):** Two-row transport layout displaying all button labels without clipping; walks through all **3 examples in the default `XY (Plan)` work plane** including 2D/3D meshing, `von Mises Stress` contours, buckling imperfection, and dynamic/nonlinear solvers across 4 reading-pace WPM profiles, two-phase non-overlapping callout, complete runtime translation (`.ts`/`.qm`), and automatic example state restoration.
 
 ### 4. `.omniframe` 2.1.0, 1D/2D/3D Exports, Headless CLI (`omniframe-cli.exe`) & 20 CTest Suites

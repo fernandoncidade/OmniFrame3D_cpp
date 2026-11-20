@@ -1332,6 +1332,10 @@
             <translation>Expand</translation>
         </message>
         <message>
+            <source>Expandir painel</source>
+            <translation>Expand panel</translation>
+        </message>
+        <message>
             <source>Exportar BIM IFC4...</source>
             <translation>Export BIM IFC4...</translation>
         </message>
@@ -2410,6 +2414,10 @@
         <message>
             <source>Recolher</source>
             <translation>Collapse</translation>
+        </message>
+        <message>
+            <source>Recolher painel</source>
+            <translation>Collapse panel</translation>
         </message>
         <message>
             <source>Refazer</source>
