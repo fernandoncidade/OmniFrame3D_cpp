@@ -9,6 +9,7 @@
 
 #include <QImage>
 #include <QString>
+#include <memory>
 #include <vector>
 
 namespace omniframe::io {
@@ -88,9 +89,10 @@ struct PdfReportOptions {
     bool includeNbrAudit = true;
     QImage viewportSnapshot;
 
-    const kernel::ModalResult* modalResult = nullptr;
-    const kernel::BucklingResult* bucklingResult = nullptr;
-    const kernel::NonlinearResult* nonlinearResult = nullptr;
+    // Snapshots imutáveis com posse compartilhada para uso seguro em diálogos não modais ([AUD-005])
+    std::shared_ptr<const kernel::ModalResult> modalResult;
+    std::shared_ptr<const kernel::BucklingResult> bucklingResult;
+    std::shared_ptr<const kernel::NonlinearResult> nonlinearResult;
 };
 
 class PdfReportGenerator {

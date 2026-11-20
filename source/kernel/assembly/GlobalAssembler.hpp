@@ -16,6 +16,7 @@ struct AssembledSystem {
 
 struct ReducedLinearSystem {
     SpMat K_ff;
+    SpMat K_red;
     VecX rhs_f;
     SpMat T_mpc;
     VecX U_offset;
@@ -38,6 +39,13 @@ public:
                                          SpMat& K_full,
                                          VecX& F_full,
                                          std::string* errorMsg = nullptr);
+
+    static bool assembleLoadOnly(const DofManager& dofMgr,
+                                 const std::vector<std::shared_ptr<IFiniteElement>>& elements,
+                                 const std::unordered_map<ElementId, ElementLoadInput>& elementLoads,
+                                 const std::unordered_map<NodeId, Eigen::Matrix<double, NODAL_MAX_DOFS, 1>>& nodalLoads,
+                                 VecX& F_full,
+                                 std::string* errorMsg = nullptr);
 
     static bool assembleMass(const DofManager& dofMgr,
                              const std::vector<std::shared_ptr<IFiniteElement>>& elements,

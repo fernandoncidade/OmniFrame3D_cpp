@@ -4,6 +4,7 @@
 #include "../core/KernelTypes.hpp"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <stop_token>
 #include <string>
 #include <vector>
 
@@ -36,7 +37,8 @@ public:
     static BucklingResult solve(const SpMat& K_ff,
                                 const SpMat& Kg_ff,
                                 const ReducedLinearSystem& redSys,
-                                const BucklingOptions& opts = {});
+                                const BucklingOptions& opts = {},
+                                const std::stop_token& stopToken = {});
 
     /**
      * Calcula coordenadas iniciais imperfeitas perturbando o modelo na direção

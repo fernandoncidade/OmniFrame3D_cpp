@@ -6,6 +6,7 @@
 #include "../solver/LinearSolverSuite.hpp"
 #include <array>
 #include <memory>
+#include <stop_token>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -67,10 +68,21 @@ struct NonlinearResult {
     double achievedLoadFactor = 0.0;
     int totalSteps = 0;
     int totalIterations = 0;
+    int lineSearchBacktrackCount = 0;
+    double minLineSearchAlpha = 1.0;
     VecX finalU_full;
     VecX finalReactionsFull;
     std::vector<NonlinearStepRecord> history;
     std::string convergenceDiagnostic;
+
+    // [AUD-010] Verificação real de equilíbrio estático global no estado final
+    Vec3 sumAppliedForces = Vec3::Zero();
+    Vec3 sumReactions = Vec3::Zero();
+    Vec3 sumAppliedMoments = Vec3::Zero();
+    Vec3 sumReactionMoments = Vec3::Zero();
+    Vec3 residualForces = Vec3::Zero();
+    Vec3 residualMoments = Vec3::Zero();
+    bool equilibriumBalanced = false;
 };
 
 /**
@@ -107,6 +119,8 @@ public:
 
     virtual void commitStep() = 0;
     virtual void revertStepToCommitted() = 0;
+    virtual void saveIterationTrialState() {}
+    virtual void restoreIterationTrialState() {}
     virtual void resetAll() = 0;
 };
 
@@ -156,6 +170,8 @@ public:
 
     void commitStep() override;
     void revertStepToCommitted() override;
+    void saveIterationTrialState() override;
+    void restoreIterationTrialState() override;
     void resetAll() override;
 
     const std::vector<Corotational1DEvalResult>& lastElementResults() const { return m_lastEval; }
@@ -169,6 +185,7 @@ private:
 
     std::vector<Corotational1DState> m_committedStates;
     std::vector<Corotational1DState> m_trialStates;
+    std::vector<Corotational1DState> m_savedIterTrialStates;
     std::vector<Corotational1DEvalResult> m_lastEval;
     std::vector<std::array<int, 12>> m_elemDofs;
 };
@@ -181,7 +198,9 @@ private:
  */
 class NonlinearSolver {
 public:
-    static NonlinearResult solve(INonlinearModel& model, const NonlinearOptions& opts = {});
+    static NonlinearResult solve(INonlinearModel& model,
+                                 const NonlinearOptions& opts = {},
+                                 std::stop_token stopToken = {});
 };
 
 } // namespace omniframe::kernel

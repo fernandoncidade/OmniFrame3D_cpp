@@ -245,7 +245,9 @@ Material MaterialDialog::getMaterial(MaterialId id) const {
 // ==========================================
 SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     : QDialog(parent),
-      m_isEditing(sec != nullptr) {
+      m_isEditing(sec != nullptr),
+      m_hasOriginalSection(sec != nullptr),
+      m_originalSection(sec ? *sec : CrossSection{}) {
     configureModelessDialogWindow(this, 400);
 
     auto* mainLayout = new QVBoxLayout(this);
@@ -274,6 +276,10 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::TShape));
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::WeldedIShape));
     m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::Generic));
+    if (sec && (sec->shape == SectionShape::Polygon || sec->shape == SectionShape::Composite)) {
+        m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::Polygon));
+        m_shapeCombo->addItem(QString(), static_cast<int>(SectionShape::Composite));
+    }
     if (sec) {
         const int idx = m_shapeCombo->findData(static_cast<int>(sec->shape));
         if (idx >= 0) m_shapeCombo->setCurrentIndex(idx);
@@ -284,12 +290,16 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dimGroup = new QGroupBox(this);
     auto* dimLayout = new QFormLayout(m_dimGroup);
 
+    const bool hasParamDims = sec && (sec->shape != SectionShape::Generic &&
+                                      sec->shape != SectionShape::Polygon &&
+                                      sec->shape != SectionShape::Composite);
+
     m_dim1Label = new QLabel(m_dimGroup);
     m_dim1Spin = new QDoubleSpinBox(m_dimGroup);
     m_dim1Spin->setRange(0.001, 20.0);
     m_dim1Spin->setDecimals(4);
     m_dim1Spin->setSingleStep(0.05);
-    m_dim1Spin->setValue(sec ? sec->dim1 : 0.20);
+    m_dim1Spin->setValue((hasParamDims && sec->dim1 > 0.0) ? sec->dim1 : 0.20);
     dimLayout->addRow(m_dim1Label, m_dim1Spin);
 
     m_dim2Label = new QLabel(m_dimGroup);
@@ -297,7 +307,7 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dim2Spin->setRange(0.001, 20.0);
     m_dim2Spin->setDecimals(4);
     m_dim2Spin->setSingleStep(0.05);
-    m_dim2Spin->setValue(sec ? sec->dim2 : 0.40);
+    m_dim2Spin->setValue((hasParamDims && sec->dim2 > 0.0) ? sec->dim2 : 0.40);
     dimLayout->addRow(m_dim2Label, m_dim2Spin);
 
     m_dim3Label = new QLabel(m_dimGroup);
@@ -305,7 +315,7 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dim3Spin->setRange(0.0001, 5.0);
     m_dim3Spin->setDecimals(4);
     m_dim3Spin->setSingleStep(0.005);
-    m_dim3Spin->setValue(sec ? sec->dim3 : 0.01);
+    m_dim3Spin->setValue((hasParamDims && sec->dim3 > 0.0) ? sec->dim3 : 0.01);
     dimLayout->addRow(m_dim3Label, m_dim3Spin);
 
     m_dim4Label = new QLabel(m_dimGroup);
@@ -313,7 +323,7 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dim4Spin->setRange(0.0001, 5.0);
     m_dim4Spin->setDecimals(4);
     m_dim4Spin->setSingleStep(0.005);
-    m_dim4Spin->setValue(sec ? sec->dim4 : 0.01);
+    m_dim4Spin->setValue((hasParamDims && sec->dim4 > 0.0) ? sec->dim4 : 0.01);
     dimLayout->addRow(m_dim4Label, m_dim4Spin);
 
     m_dim5Label = new QLabel(m_dimGroup);
@@ -321,7 +331,7 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dim5Spin->setRange(0.001, 20.0);
     m_dim5Spin->setDecimals(4);
     m_dim5Spin->setSingleStep(0.05);
-    m_dim5Spin->setValue(sec ? sec->dim5 : 0.165);
+    m_dim5Spin->setValue((hasParamDims && sec->dim5 > 0.0) ? sec->dim5 : 0.165);
     dimLayout->addRow(m_dim5Label, m_dim5Spin);
 
     m_dim6Label = new QLabel(m_dimGroup);
@@ -329,7 +339,7 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     m_dim6Spin->setRange(0.0001, 5.0);
     m_dim6Spin->setDecimals(4);
     m_dim6Spin->setSingleStep(0.005);
-    m_dim6Spin->setValue(sec ? sec->dim6 : 0.0102);
+    m_dim6Spin->setValue((hasParamDims && sec->dim6 > 0.0) ? sec->dim6 : 0.0102);
     dimLayout->addRow(m_dim6Label, m_dim6Spin);
 
     mainLayout->addWidget(m_dimGroup);
@@ -384,7 +394,14 @@ SectionDialog::SectionDialog(QWidget* parent, const CrossSection* sec)
     connect(m_dim5Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
     connect(m_dim6Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &SectionDialog::updateCalculatedProps);
 
-    m_btnBox = createOkCancelBox(this);
+    m_btnBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    connect(m_btnBox, &QDialogButtonBox::accepted, this, [this]() {
+        if (!validateDimensions()) {
+            return;
+        }
+        accept();
+    });
+    connect(m_btnBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     mainLayout->addWidget(m_btnBox);
 
     retranslateUi();
@@ -433,6 +450,12 @@ void SectionDialog::retranslateUi() {
     m_shapeCombo->setItemText(7, GerenciadorTraducao::trText("Perfil T"));
     m_shapeCombo->setItemText(8, GerenciadorTraducao::trText("Perfil I Soldado (Assimétrico)"));
     m_shapeCombo->setItemText(9, GerenciadorTraducao::trText("Genérica (Manual)"));
+    if (m_shapeCombo->count() > 10) {
+        m_shapeCombo->setItemText(10, GerenciadorTraducao::trText("Poligonal Customizada"));
+    }
+    if (m_shapeCombo->count() > 11) {
+        m_shapeCombo->setItemText(11, GerenciadorTraducao::trText("Seção Composta"));
+    }
     m_shapeCombo->blockSignals(false);
 
     m_dimGroup->setTitle(GerenciadorTraducao::trText("Dimensões Geométricas"));
@@ -490,12 +513,14 @@ void SectionDialog::applyPreset(int index) {
 }
 
 void SectionDialog::updateShapeDimensionUi(SectionShape shape) {
-    const bool isGeneric = (shape == SectionShape::Generic);
+    const bool isManualProps = (shape == SectionShape::Generic ||
+                                shape == SectionShape::Polygon ||
+                                shape == SectionShape::Composite);
 
-    m_aSpin->setReadOnly(!isGeneric);
-    m_iySpin->setReadOnly(!isGeneric);
-    m_izSpin->setReadOnly(!isGeneric);
-    m_jSpin->setReadOnly(!isGeneric);
+    m_aSpin->setReadOnly(!isManualProps);
+    m_iySpin->setReadOnly(!isManualProps);
+    m_izSpin->setReadOnly(!isManualProps);
+    m_jSpin->setReadOnly(!isManualProps);
 
     auto setVis = [](QLabel* lbl, QDoubleSpinBox* sp, bool visible, const char* text = nullptr) {
         lbl->setVisible(visible);
@@ -579,6 +604,8 @@ void SectionDialog::updateShapeDimensionUi(SectionShape shape) {
             setVis(m_dim6Label, m_dim6Spin, true, "Esp. Mesa Inf. tf2 (m):");
             break;
         case SectionShape::Generic:
+        case SectionShape::Polygon:
+        case SectionShape::Composite:
             setVis(m_dim1Label, m_dim1Spin, false);
             setVis(m_dim2Label, m_dim2Spin, false);
             setVis(m_dim3Label, m_dim3Spin, false);
@@ -603,16 +630,81 @@ void SectionDialog::onShapeChanged(int index) {
     updateCalculatedProps();
 }
 
+bool SectionDialog::validateDimensions(QString* outError) const {
+    const auto shape = static_cast<SectionShape>(m_shapeCombo->currentData().toInt());
+    const double d1 = m_dim1Spin->value();
+    const double d2 = m_dim2Spin->value();
+    const double d3 = m_dim3Spin->value();
+    const double d4 = m_dim4Spin->value();
+    const double d5 = m_dim5Spin->value();
+    const double d6 = m_dim6Spin->value();
+
+    auto fail = [&](const QString& msg) {
+        if (outError != nullptr) {
+            *outError = msg;
+        }
+        return false;
+    };
+
+    switch (shape) {
+        case SectionShape::CircularTube:
+            if (d2 >= 0.5 * d1) {
+                return fail(GerenciadorTraducao::trText("Espessura do tubo circular (t) deve ser menor que o raio externo (D/2)."));
+            }
+            break;
+        case SectionShape::IShape:
+        case SectionShape::ChannelC:
+            if (2.0 * d3 >= d1) {
+                return fail(GerenciadorTraducao::trText("A soma das espessuras das mesas (2·tf) deve ser menor que a altura total (h)."));
+            }
+            if (d4 >= d2) {
+                return fail(GerenciadorTraducao::trText("A espessura da alma (tw) deve ser menor que a largura da mesa (bf)."));
+            }
+            break;
+        case SectionShape::BoxRHS:
+            if (2.0 * d3 >= d1) {
+                return fail(GerenciadorTraducao::trText("A soma das espessuras das mesas (2·tf) deve ser menor que a altura total (h)."));
+            }
+            if (2.0 * d4 >= d2) {
+                return fail(GerenciadorTraducao::trText("A soma das espessuras das almas (2·tw) deve ser menor que a largura (b)."));
+            }
+            break;
+        case SectionShape::AngleL:
+            if (d3 >= d1 || d3 >= d2) {
+                return fail(GerenciadorTraducao::trText("A espessura da cantoneira (t) deve ser menor que o comprimento das abas (h e b)."));
+            }
+            break;
+        case SectionShape::TShape:
+            if (d3 >= d1) {
+                return fail(GerenciadorTraducao::trText("A espessura da mesa (tf) deve ser menor que a altura total (h)."));
+            }
+            if (d4 >= d2) {
+                return fail(GerenciadorTraducao::trText("A espessura da alma (tw) deve ser menor que a largura da mesa (bf)."));
+            }
+            break;
+        case SectionShape::WeldedIShape:
+            if (d3 + d6 >= d1) {
+                return fail(GerenciadorTraducao::trText("A soma das espessuras das mesas (tf1 + tf2) deve ser menor que a altura total (h)."));
+            }
+            if (d4 >= std::min(d2, d5)) {
+                return fail(GerenciadorTraducao::trText("A espessura da alma (tw) deve ser menor que a largura das mesas (bf1 e bf2)."));
+            }
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+
 void SectionDialog::updateCalculatedProps() {
     const auto shape = static_cast<SectionShape>(m_shapeCombo->currentData().toInt());
-    if (shape == SectionShape::Generic) return;
+    if (shape == SectionShape::Generic ||
+        shape == SectionShape::Polygon ||
+        shape == SectionShape::Composite) {
+        return;
+    }
 
-    CrossSection temp(1, "temp", shape,
-                      m_dim1Spin->value(), m_dim2Spin->value(),
-                      m_dim3Spin->value(), m_dim4Spin->value(),
-                      m_dim5Spin->value(), m_dim6Spin->value());
-    temp.computeProperties();
-
+    CrossSection temp = getSection(1);
     m_aSpin->setValue(temp.A);
     m_iySpin->setValue(temp.Iy);
     m_izSpin->setValue(temp.Iz);
@@ -620,10 +712,42 @@ void SectionDialog::updateCalculatedProps() {
 }
 
 CrossSection SectionDialog::getSection(SectionId id) const {
-    CrossSection sec;
+    const auto selectedShape = static_cast<SectionShape>(m_shapeCombo->currentData().toInt());
+    CrossSection sec = (m_hasOriginalSection && m_originalSection.shape == selectedShape)
+        ? m_originalSection
+        : CrossSection{};
     sec.id = id;
     sec.name = m_nameEdit->text().toStdString();
-    sec.shape = static_cast<SectionShape>(m_shapeCombo->currentData().toInt());
+    sec.shape = selectedShape;
+
+    if (sec.shape == SectionShape::Generic) {
+        sec.dim1 = 0.0;
+        sec.dim2 = 0.0;
+        sec.dim3 = 0.0;
+        sec.dim4 = 0.0;
+        sec.dim5 = 0.0;
+        sec.dim6 = 0.0;
+        sec.A = m_aSpin->value();
+        sec.Iy = m_iySpin->value();
+        sec.Iz = m_izSpin->value();
+        sec.J = m_jSpin->value();
+        return sec;
+    }
+
+    if (sec.shape == SectionShape::Polygon || sec.shape == SectionShape::Composite) {
+        if (!m_hasOriginalSection || m_originalSection.shape != sec.shape ||
+            std::abs(m_aSpin->value() - m_originalSection.A) > 1e-9 ||
+            std::abs(m_iySpin->value() - m_originalSection.Iy) > 1e-12 ||
+            std::abs(m_izSpin->value() - m_originalSection.Iz) > 1e-12 ||
+            std::abs(m_jSpin->value() - m_originalSection.J) > 1e-12) {
+            sec.A = m_aSpin->value();
+            sec.Iy = m_iySpin->value();
+            sec.Iz = m_izSpin->value();
+            sec.J = m_jSpin->value();
+        }
+        return sec;
+    }
+
     sec.dim1 = m_dim1Spin->value();
     sec.dim2 = m_dim2Spin->value();
     sec.dim3 = m_dim3Spin->value();
@@ -631,14 +755,39 @@ CrossSection SectionDialog::getSection(SectionId id) const {
     sec.dim5 = m_dim5Spin->value();
     sec.dim6 = m_dim6Spin->value();
 
-    if (sec.shape == SectionShape::Generic) {
-        sec.A = m_aSpin->value();
-        sec.Iy = m_iySpin->value();
-        sec.Iz = m_izSpin->value();
-        sec.J = m_jSpin->value();
-    } else {
-        sec.computeProperties();
+    // [AUD-014] Saneamento de limites geométricos físicos antes de computeProperties()
+    switch (sec.shape) {
+        case SectionShape::CircularTube:
+            sec.dim2 = std::min(sec.dim2, 0.49 * sec.dim1);
+            break;
+        case SectionShape::IShape:
+        case SectionShape::ChannelC:
+            sec.dim3 = std::min(sec.dim3, 0.45 * sec.dim1);
+            sec.dim4 = std::min(sec.dim4, 0.90 * sec.dim2);
+            break;
+        case SectionShape::BoxRHS:
+            sec.dim3 = std::min(sec.dim3, 0.45 * sec.dim1);
+            sec.dim4 = std::min(sec.dim4, 0.45 * sec.dim2);
+            break;
+        case SectionShape::AngleL:
+            sec.dim3 = std::min({sec.dim3, 0.90 * sec.dim1, 0.90 * sec.dim2});
+            break;
+        case SectionShape::TShape:
+            sec.dim3 = std::min(sec.dim3, 0.90 * sec.dim1);
+            sec.dim4 = std::min(sec.dim4, 0.90 * sec.dim2);
+            break;
+        case SectionShape::WeldedIShape:
+            if (sec.dim3 + sec.dim6 >= 0.90 * sec.dim1) {
+                const double scale = (0.90 * sec.dim1) / std::max(1e-9, sec.dim3 + sec.dim6);
+                sec.dim3 *= scale;
+                sec.dim6 *= scale;
+            }
+            sec.dim4 = std::min(sec.dim4, 0.90 * std::min(sec.dim2, sec.dim5));
+            break;
+        default:
+            break;
     }
+    sec.computeProperties();
     return sec;
 }
 
@@ -1310,9 +1459,10 @@ void prepareAndShowSubDialog(QDialog* subDlg, QWidget* ownerCatalog, WindowZOrde
         wm->prepareModelessDialog(subDlg, false, true);
         if (ownerCatalog) {
             QPointer<QWidget> ownerPtr(ownerCatalog);
-            QObject::connect(subDlg, &QDialog::finished, ownerCatalog, [wm, ownerPtr](int) {
-                if (ownerPtr && ownerPtr->isVisible()) {
-                    wm->showAndRaise(ownerPtr.data());
+            QPointer<WindowZOrderManager> wmPtr(wm);
+            QObject::connect(subDlg, &QDialog::finished, ownerCatalog, [wmPtr, ownerPtr](int) {
+                if (wmPtr && ownerPtr && ownerPtr->isVisible()) {
+                    wmPtr->showAndRaise(ownerPtr.data());
                 }
             }, Qt::QueuedConnection);
         }
@@ -1396,12 +1546,12 @@ void MaterialCatalogDialog::refreshList() {
     for (int i = 0; i < static_cast<int>(mats.size()); ++i) {
         const auto& m = mats[i];
         QString label = QString("#%1 — %2 | E=%3 GPa | ν=%4 | α=%5×10⁻⁵/°C | γ=%6 kN/m³")
-                            .arg(m.id)
-                            .arg(GerenciadorTraducao::trText(QString::fromStdString(m.name)))
-                            .arg(m.E / 1.0e6, 0, 'f', 2)
-                            .arg(m.nu, 0, 'f', 2)
-                            .arg(m.alpha * 1.0e5, 0, 'f', 2)
-                            .arg(m.gamma, 0, 'f', 1);
+                            .arg(QString::number(m.id),
+                                 GerenciadorTraducao::trText(QString::fromStdString(m.name)),
+                                 QString::number(m.E / 1.0e6, 'f', 2),
+                                 QString::number(m.nu, 'f', 2),
+                                 QString::number(m.alpha * 1.0e5, 'f', 2),
+                                 QString::number(m.gamma, 'f', 1));
         auto* item = new QListWidgetItem(label, m_listWidget);
         item->setData(Qt::UserRole, m.id);
         if (m.id == focusId) targetRow = i;
@@ -1476,7 +1626,17 @@ void MaterialCatalogDialog::onDeleteMaterial() {
                 m_windowManager,
                 GerenciadorTraducao::trText("Material em Uso"),
                 GerenciadorTraducao::trText("Não é possível excluir o material #%1 porque ele está atribuído à Barra %2.")
-                    .arg(mid).arg(e.id));
+                    .arg(QString::number(mid), QString::number(e.id)));
+            return;
+        }
+    }
+    for (const auto& me : m_model->surfaceMesh().elements) {
+        if (static_cast<MaterialId>(me.materialId) == mid) {
+            showCatalogWarning(
+                m_windowManager,
+                GerenciadorTraducao::trText("Material em Uso"),
+                GerenciadorTraducao::trText("Não é possível excluir o material #%1 porque ele está atribuído ao Elemento de Malha 2D/3D #%2.")
+                    .arg(QString::number(mid), QString::number(me.id)));
             return;
         }
     }
@@ -1572,12 +1732,12 @@ void SectionCatalogDialog::refreshList() {
     for (int i = 0; i < static_cast<int>(secs.size()); ++i) {
         const auto& s = secs[i];
         QString label = QString("#%1 — %2 | A=%3 cm² | Iy=%4 m⁴ | Iz=%5 m⁴ | J=%6 m⁴")
-                            .arg(s.id)
-                            .arg(GerenciadorTraducao::trText(QString::fromStdString(s.name)))
-                            .arg(s.A * 1.0e4, 0, 'f', 1)
-                            .arg(s.Iy, 0, 'e', 2)
-                            .arg(s.Iz, 0, 'e', 2)
-                            .arg(s.J, 0, 'e', 2);
+                            .arg(QString::number(s.id),
+                                 GerenciadorTraducao::trText(QString::fromStdString(s.name)),
+                                 QString::number(s.A * 1.0e4, 'f', 1),
+                                 QString::number(s.Iy, 'e', 2),
+                                 QString::number(s.Iz, 'e', 2),
+                                 QString::number(s.J, 'e', 2));
         auto* item = new QListWidgetItem(label, m_listWidget);
         item->setData(Qt::UserRole, s.id);
         if (s.id == focusId) targetRow = i;

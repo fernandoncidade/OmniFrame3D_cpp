@@ -1,6 +1,8 @@
 #pragma once
 
+#include "AsyncAnalysisExecutor.hpp"
 #include "ResultTableConfigurator.hpp"
+#include "ResultTableModel.hpp"
 #include "ThemeManager.hpp"
 #include "core/StructuralModel.hpp"
 #include "io/ProjectRecoveryStore.hpp"
@@ -15,7 +17,7 @@
 #include <QMessageBox>
 #include <QSlider>
 #include <QSplitter>
-#include <QTableWidget>
+#include <QTableView>
 #include <QTabWidget>
 #include <QLabel>
 #include <QLineEdit>
@@ -26,7 +28,9 @@
 #include <QVBoxLayout>
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <unordered_map>
+#include <vector>
 
 class QCloseEvent;
 class QDialog;
@@ -84,6 +88,9 @@ public:
 
     WindowZOrderManager* windowZOrderManager() const { return m_windowManager; }
     ui::ResultTableConfigurator* resultTableConfigurator() const { return m_tableConfigurator; }
+    ui::ResultTableModel* resultTableModel(ui::ResultTableKind kind) const noexcept {
+        return m_resultTableModels[static_cast<std::size_t>(kind)];
+    }
     GuidedSessionDialog* guidedSessionDialog() const;
 
     Q_INVOKABLE void setInspectorDockCollapsed(bool collapsed);
@@ -101,12 +108,18 @@ public:
     static QString appLocalDataDirectory();
     static QString userPreferencesFilePath();
     void saveUserPreferences() const;
+    void flushUserPreferencesSync() const;
     bool loadUserPreferences();
     void restoreAllDefaultSettings();
     bool preferredStartMaximized() const { return m_preferredStartMaximized; }
     QSplitter* resultsSplitter() const { return m_resultsSplitter; }
     QTabWidget* resultsLayoutTabWidget(int layoutIndex) const;
     bool hasUnsavedEdits() const { return m_hasUnsavedEdits; }
+    bool isSolveInProgress() const { return m_solveInProgress; }
+    bool hasValidStaticResultForCurrentRevision() const noexcept;
+    const SolverResult& lastSolverResult() const noexcept { return m_lastSolverResult; }
+    ui::AsyncAnalysisExecutor* analysisExecutor() const noexcept { return m_analysisExecutor; }
+    std::uint64_t modelRevision() const noexcept { return m_modelRevision; }
     QString currentProjectFilePath() const { return m_currentProjectFilePath; }
     bool saveProjectToPath(const QString& path);
     bool recoverPreviousSession();
@@ -114,6 +127,10 @@ public:
     bool confirmUnsavedOnClose() const { return m_confirmUnsavedOnClose; }
     void setStartupSessionBehavior(io::StartupSessionBehavior behavior);
     void setConfirmUnsavedOnClose(bool enabled);
+    void setUninstallWindowsCliIntegrationHandler(std::function<bool(const QString&, QString*)> handler);
+
+signals:
+    void backgroundSolverFinished(bool success);
 
 private slots:
     // Ações de Arquivo
@@ -179,16 +196,16 @@ private slots:
     void onManual();
     void onGuidedSession();
     void onAbout();
-    void onApplyRenderPreset(QualityPreset preset);
+    void onApplyRenderPreset(omniframe::QualityPreset preset);
     void onOpenRenderSettingsDialog();
     void onRestoreDefaultRenderSettings();
     void onSaveAllSettingsNow();
     void onReloadSavedSettings();
     void onRestoreAllDefaultSettings();
-    void onChangeGuiTheme(UiTheme theme);
-    void onChangeUiStyleMode(UiStyleMode mode);
+    void onChangeGuiTheme(omniframe::UiTheme theme);
+    void onChangeUiStyleMode(omniframe::UiStyleMode mode);
     void onChangeLanguage(const QString& langCode);
-    void onChangeStartupSessionBehavior(io::StartupSessionBehavior behavior);
+    void onChangeStartupSessionBehavior(omniframe::io::StartupSessionBehavior behavior);
     void onToggleConfirmUnsavedOnClose(bool checked);
     void onOpenStartupSessionDialog();
     void onOpenLogDirectory();
@@ -210,7 +227,8 @@ private:
     void syncStartupSessionMenuState();
     void refreshReactionSummaryRowTheme();
     bool runSolver(bool interactive);
-    bool ensureStaticSolvedSync();
+    void completeBackgroundStaticSolve(bool ok);
+    void ensureStaticSolvedAsync(std::function<void(bool)> onFinished);
     std::unordered_map<ElementId, double> computeModelDcrMap() const;
     void updateUndoRedoActions();
     void setupMenus();
@@ -472,10 +490,11 @@ private:
     int m_resultsSavedDockedHeight = 200;
     int m_resultsSavedFloatingHeight = 240;
     QTabWidget* m_resultsTabs = nullptr;
-    QTableWidget* m_dispTable = nullptr;
-    QTableWidget* m_reacTable = nullptr;
-    QTableWidget* m_forcesTable = nullptr;
-    QTableWidget* m_continuumTable = nullptr;
+    QTableView* m_dispTable = nullptr;
+    QTableView* m_reacTable = nullptr;
+    QTableView* m_forcesTable = nullptr;
+    QTableView* m_continuumTable = nullptr;
+    std::array<ui::ResultTableModel*, 4> m_resultTableModels{};
     ui::ResultTableConfigurator* m_tableConfigurator = nullptr;
 
     // Labels da Barra de Status
@@ -486,9 +505,14 @@ private:
     bool m_updatingDockCollapse = false;
     bool m_solveInProgress = false;
     std::uint64_t m_modelRevision = 0;
+    std::uint64_t m_lastSolvedRevision = ~std::uint64_t{0};
     bool m_pendingResolve = false;
     bool m_pendingResolveInteractive = false;
-    QPointer<QThread> m_activeSolverThread;
+    ui::AsyncAnalysisExecutor* m_analysisExecutor = nullptr;
+    std::uint64_t m_activeStaticJobId = 0;
+    std::uint64_t m_activeStaticRevision = ~std::uint64_t{0};
+    std::vector<std::function<void(bool)>> m_staticSolveContinuations;
+    QPointer<QThread> m_activeAutoSaveThread;
 
     // Layouts múltiplos do Painel de Tabelas de Resultados
     QMenu* m_resultsLayoutsMenu = nullptr;
@@ -501,7 +525,7 @@ private:
     QSplitter* m_resultsSplitter = nullptr;
     QWidget* m_hiddenTablesHost = nullptr;
     std::array<QTabWidget*, 4> m_resultsLayoutTabWidgets{};
-    std::array<std::array<QTableWidget*, 4>, 4> m_extraLayoutTables{};
+    std::array<std::array<QTableView*, 4>, 4> m_extraLayoutTables{};
     int m_resultsLayoutCount = 1;
     std::array<std::array<std::array<bool, 4>, 4>, 4> m_resultsModeTableAssign{};
     mutable std::array<QList<int>, 4> m_resultsSplitterSizesByMode{};
@@ -537,7 +561,9 @@ private:
     bool m_userRequestedQuit = false;
     bool m_closingConfirmed = false;
     bool m_closePendingAfterSave = false;
+    bool m_sessionStatePersistedOnClose = false;
     QTimer* m_autoSaveTimer = nullptr;
+    mutable QTimer* m_prefsSaveTimer = nullptr;
     io::ProjectRecoveryInfo m_recoveryPromptInfo;
     QPointer<QMessageBox> m_recoveryPromptBox;
     QPointer<QPushButton> m_recoveryPromptBtnAccept;
@@ -546,6 +572,7 @@ private:
     QPointer<QPushButton> m_closeBtnSave;
     QPointer<QPushButton> m_closeBtnExitKeep;
     QPointer<QPushButton> m_closeBtnCancel;
+    std::function<bool(const QString&, QString*)> m_uninstallCliHandler;
 };
 
 } // namespace omniframe

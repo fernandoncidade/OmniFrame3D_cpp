@@ -117,6 +117,63 @@ bool GlobalAssembler::assembleStiffnessAndLoad(
     return true;
 }
 
+bool GlobalAssembler::assembleLoadOnly(
+    const DofManager& dofMgr,
+    const std::vector<std::shared_ptr<IFiniteElement>>& elements,
+    const std::unordered_map<ElementId, ElementLoadInput>& elementLoads,
+    const std::unordered_map<NodeId, Eigen::Matrix<double, NODAL_MAX_DOFS, 1>>& nodalLoads,
+    VecX& F_full,
+    std::string* errorMsg)
+{
+    const int nDofs = dofMgr.totalDofs();
+    if (nDofs <= 0) {
+        if (errorMsg) *errorMsg = "Zero global DOFs registered.";
+        return false;
+    }
+
+    F_full = VecX::Zero(nDofs);
+
+    if (!elementLoads.empty()) {
+        std::vector<int> dofMap;
+        for (const auto& elem : elements) {
+            auto lit = elementLoads.find(elem->id());
+            if (lit == elementLoads.end()) continue;
+
+            fillElementDofIndices(dofMgr, *elem, dofMap);
+            const int nd = static_cast<int>(dofMap.size());
+            const VecX fe = elem->computeGlobalLoadVector(lit->second);
+            if (fe.size() != nd || !fe.allFinite()) {
+                if (errorMsg) *errorMsg = "Invalid or non-finite load vector for element " + std::to_string(elem->id());
+                return false;
+            }
+            for (int r = 0; r < nd; ++r) {
+                if (dofMap[r] >= 0) {
+                    F_full(dofMap[r]) += fe(r);
+                }
+            }
+        }
+    }
+
+    if (!nodalLoads.empty()) {
+        for (const auto& ns : dofMgr.nodeStates()) {
+            auto nit = nodalLoads.find(ns.nodeId);
+            if (nit == nodalLoads.end()) continue;
+            for (int d = 0; d < NODAL_MAX_DOFS; ++d) {
+                const int g = ns.globalDof[d];
+                if (g >= 0) {
+                    F_full(g) += nit->second(d);
+                }
+            }
+        }
+    }
+
+    if (!F_full.allFinite()) {
+        if (errorMsg) *errorMsg = "Global force vector contains non-finite values.";
+        return false;
+    }
+    return true;
+}
+
 bool GlobalAssembler::assembleMass(
     const DofManager& dofMgr,
     const std::vector<std::shared_ptr<IFiniteElement>>& elements,
@@ -242,11 +299,13 @@ bool GlobalAssembler::buildReducedSystem(const DofManager& dofMgr,
             return false;
         }
         K_red = (outSys.T_mpc.transpose() * K_full * outSys.T_mpc).pruned();
+        outSys.K_red = K_red;
         F_red = outSys.T_mpc.transpose() * (F_full - K_full * outSys.U_offset);
     } else {
         outSys.reducedDofs = outSys.fullDofs;
         outSys.fullToReducedMap.resize(outSys.fullDofs);
         for (int g = 0; g < outSys.fullDofs; ++g) outSys.fullToReducedMap[g] = g;
+        outSys.K_red.resize(0, 0);
         K_red = K_full;
         F_red = F_full;
     }
@@ -256,7 +315,15 @@ bool GlobalAssembler::buildReducedSystem(const DofManager& dofMgr,
 
     for (int g = 0; g < outSys.fullDofs; ++g) {
         const int rd = outSys.fullToReducedMap[g];
-        if (rd < 0) continue;
+        if (rd < 0) {
+            if (cls.isRestrained[g]) {
+                if (errorMsg) {
+                    *errorMsg = "Conflito entre apoio Dirichlet e DOF escravo de restrição MPC.";
+                }
+                return false;
+            }
+            continue;
+        }
         if (cls.isRestrained[g]) {
             redFixed[rd] = true;
             redFixedVal(rd) = cls.prescribedValue[g];
@@ -327,13 +394,30 @@ bool GlobalAssembler::buildReducedRightHandSide(const DofManager& dofMgr,
         return true;
     }
 
+    const bool hasOffset =
+        (cachedSys.U_offset.size() == cachedSys.fullDofs) &&
+        (cachedSys.U_offset.array() != 0.0).any();
+    const bool hasFixed =
+        (cachedSys.U_fixed_red.size() == cachedSys.reducedDofs) &&
+        (cachedSys.U_fixed_red.array() != 0.0).any();
+
     VecX rhsFullRed;
     if (cachedSys.hasMpc) {
-        const SpMat K_red = (cachedSys.T_mpc.transpose() * K_full * cachedSys.T_mpc).pruned();
-        const VecX F_red = cachedSys.T_mpc.transpose() * (F_full - K_full * cachedSys.U_offset);
-        rhsFullRed = F_red - K_red * cachedSys.U_fixed_red;
+        const VecX F_red = hasOffset
+            ? VecX(cachedSys.T_mpc.transpose() * (F_full - K_full * cachedSys.U_offset))
+            : VecX(cachedSys.T_mpc.transpose() * F_full);
+        if (hasFixed) {
+            if (cachedSys.K_red.rows() == cachedSys.reducedDofs && cachedSys.K_red.cols() == cachedSys.reducedDofs) {
+                rhsFullRed = F_red - cachedSys.K_red * cachedSys.U_fixed_red;
+            } else {
+                const SpMat K_red = (cachedSys.T_mpc.transpose() * K_full * cachedSys.T_mpc).pruned();
+                rhsFullRed = F_red - K_red * cachedSys.U_fixed_red;
+            }
+        } else {
+            rhsFullRed = F_red;
+        }
     } else {
-        rhsFullRed = F_full - K_full * cachedSys.U_fixed_red;
+        rhsFullRed = hasFixed ? VecX(F_full - K_full * cachedSys.U_fixed_red) : F_full;
     }
 
     outRhs_f.resize(cachedSys.freeDofs);

@@ -5,6 +5,7 @@
 #include <QMessageBox>
 #include <QObject>
 #include <QPointer>
+#include <QWidget>
 
 #include <functional>
 
@@ -56,7 +57,7 @@ public:
     QWidget* topWindow() const;
 
 signals:
-    void zOrderChanged(const QList<QWidget*>& stackBottomToTop);
+    void zOrderChanged(const QWidgetList& stackBottomToTop);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

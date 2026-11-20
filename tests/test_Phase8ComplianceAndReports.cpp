@@ -173,6 +173,85 @@ void testSteelMemberNbr8800() {
               << ", Nc_Rd=" << okRes.Nc_Rd_kN << " kN, Mx_Rd=" << okRes.Mx_Rd_kNm << " kNm)\n";
 }
 
+void testNbr8800FltMonotonicityAndCapWithCb() {
+    auto verifyFltSweep = [](const SteelSectionSpec& baseSpec, double lbMin, double lbMax, const char* label) {
+        SteelDesignForces zeroF;
+        // Teto M_cap = Mx_Rd no limite plastico (Lb -> 0)
+        SteelSectionSpec capSpec = baseSpec;
+        capSpec.Lb_m = 1e-4;
+        capSpec.Cb = 1.0;
+        const double mCap_kNm = NbrCodeChecks::checkSteelMember8800(capSpec, zeroF).Mx_Rd_kNm;
+        TEST_ASSERT(mCap_kNm > 1.0, "Capacidade plastica M_cap deve ser positiva");
+
+        constexpr int N = 40;
+        for (double cb : {1.0, 1.67, 2.5}) {
+            double prevMx = 1e30;
+            double maxObserved = 0.0;
+            for (int i = 0; i <= N; ++i) {
+                const double t = static_cast<double>(i) / static_cast<double>(N);
+                SteelSectionSpec sp = baseSpec;
+                sp.Lb_m = lbMin + t * (lbMax - lbMin);
+                sp.Cb = cb;
+                const auto res = NbrCodeChecks::checkSteelMember8800(sp, zeroF);
+                const double mx = res.Mx_Rd_kNm;
+                TEST_ASSERT(std::isfinite(mx) && mx > 0.0, label);
+                TEST_ASSERT(mx <= mCap_kNm + 1e-9,
+                            "NBR 8800 FLT: M_n nao pode exceder o teto M_cap mesmo para Cb > 1 ([AUD-004])");
+                TEST_ASSERT(mx <= prevMx + 1e-9,
+                            "NBR 8800 FLT: M_n deve ser monotonicamente nao crescente com lambda/Lb ([AUD-004])");
+                prevMx = mx;
+                maxObserved = std::max(maxObserved, mx);
+            }
+            TEST_ASSERT(maxObserved <= mCap_kNm + 1e-9, label);
+        }
+    };
+
+    // 1. IShapeRolled compacto
+    {
+        SteelSectionSpec sp;
+        sp.kind = SteelSectionKind::IShapeRolled;
+        sp.d_m = 0.400; sp.bf_m = 0.200; sp.tf_m = 0.020; sp.tw_m = 0.010; sp.fillet_m = 0.012;
+        sp.fy_MPa = 345.0; sp.fu_MPa = 450.0; sp.E_MPa = 200000.0; sp.G_MPa = 76923.0769;
+        sp.Lx_m = 1.0; sp.Ly_m = 1.0; sp.Lz_m = 1.0;
+        // ry ~= 0.048m; lamP ~= 42 -> Lb_P ~= 2.0m; lamR ~= 140 -> Lb_R ~= 6.7m
+        verifyFltSweep(sp, 0.5 * 2.0, 2.0 * 7.0, "IShapeRolled FLT sweep");
+    }
+
+    // 2. IShapeWelded de alma esbelta (Anexo E)
+    {
+        SteelSectionSpec sp;
+        sp.kind = SteelSectionKind::IShapeWelded;
+        sp.d_m = 1.200; sp.bf_m = 0.300; sp.tf_m = 0.025; sp.tw_m = 0.006; sp.fillet_m = 0.0;
+        sp.fy_MPa = 345.0; sp.fu_MPa = 450.0; sp.E_MPa = 200000.0; sp.G_MPa = 76923.0769;
+        sp.Lx_m = 1.0; sp.Ly_m = 1.0; sp.Lz_m = 1.0;
+        // ryc ~= 0.085m; lamP_pg ~= 26.5 -> 2.2m; lamR_pg ~= 90 -> 7.7m
+        verifyFltSweep(sp, 0.5 * 2.2, 2.0 * 8.0, "IShapeWelded Anexo E FLT sweep");
+    }
+
+    // 3. RectangularTube (BoxRHS)
+    {
+        SteelSectionSpec sp;
+        sp.kind = SteelSectionKind::RectangularTube;
+        sp.d_m = 0.300; sp.bf_m = 0.150; sp.tf_m = 0.016; sp.tw_m = 0.016; sp.fillet_m = 0.0;
+        sp.fy_MPa = 345.0; sp.fu_MPa = 450.0; sp.E_MPa = 200000.0; sp.G_MPa = 76923.0769;
+        sp.Lx_m = 1.0; sp.Ly_m = 1.0; sp.Lz_m = 1.0;
+        // Faixa ampla para cobrir [0.5*lamPLT, 2.0*lamRLT] em tubo fechado
+        verifyFltSweep(sp, 2.0, 150.0, "RectangularTube FLT sweep");
+    }
+
+    // 4. RectangularSolid
+    {
+        SteelSectionSpec sp;
+        sp.kind = SteelSectionKind::RectangularSolid;
+        sp.d_m = 0.250; sp.bf_m = 0.040; sp.tf_m = 0.040; sp.tw_m = 0.040; sp.fillet_m = 0.0;
+        sp.fy_MPa = 250.0; sp.fu_MPa = 400.0; sp.E_MPa = 200000.0; sp.G_MPa = 76923.0769;
+        sp.Lx_m = 1.0; sp.Ly_m = 1.0; sp.Lz_m = 1.0;
+        verifyFltSweep(sp, 0.20, 24.0, "RectangularSolid FLT sweep");
+    }
+
+    std::cout << "[OK] testNbr8800FltMonotonicityAndCapWithCb\n";
+}
+
 void testConcreteBeamAndColumnNbr6118() {
     ConcreteBeamSpec beam;
     beam.bw_m = 0.20;
@@ -367,6 +446,30 @@ void testExecutivePdfAndCliEndToEnd() {
     TEST_ASSERT(steelAudit.steelMembers.size() == 3,
                 "Auditoria do portico metalico deve avaliar todas as 3 barras pela NBR 8800:2024");
 
+    // 2b. [AUD-001] Barra metalica W200x35.9 (ASTM A36) sob tracao de 5000 kN nao pode dar falso positivo
+    {
+        StructuralModel tensBarModel;
+        tensBarModel.getMaterials().clear();
+        tensBarModel.getCrossSections().clear();
+        Material a36 = Material::makeStructuralSteel(1);
+        a36.sigmaY = 250000.0; // 250 MPa em kN/m^2
+        const MaterialId tMid = tensBarModel.addMaterial(a36);
+        const SectionId tSid = tensBarModel.addCrossSection(
+            CrossSection::makeIShape(1, "W200x35.9", 0.201, 0.165, 0.0102, 0.0062));
+        const NodeId t1 = tensBarModel.addNode(0.0, 0.0, 0.0);
+        const NodeId t2 = tensBarModel.addNode(4.0, 0.0, 0.0);
+        tensBarModel.findNode(t1)->support = SupportRestraint::makeFixed();
+        tensBarModel.findNode(t2)->load.force.x = 5000.0; // +5000 kN tracao
+        tensBarModel.addElement(t1, t2, tMid, tSid);
+
+        const SolverResult tensSolve = FemSolver3D::solve(tensBarModel);
+        TEST_ASSERT(tensSolve.success, "Barra W200x35.9 tracionada deve resolver estaticamente");
+        const auto tensAudit = io::PdfReportGenerator::evaluateModelNbrCompliance(tensBarModel, tensSolve);
+        TEST_ASSERT(tensAudit.steelMembers.size() == 1 && !tensAudit.passedAll &&
+                        tensAudit.steelMembers[0].result.dcrAxial > 4.5,
+                    "W200x35.9 A36 sob +5000 kN deve reprovar com dcrAxial > 4.5 ([AUD-001])");
+    }
+
     const QString steelPdfPath = tmp.filePath("memorial_aco_fase8.pdf");
     TEST_ASSERT(io::PdfReportGenerator::generateExecutivePdf(steelPdfPath, steelModel, steelRes) &&
                     verifyPdfMagicAndSize(steelPdfPath, 12000),
@@ -557,6 +660,7 @@ int main(int argc, char* argv[]) {
 
     testCoverageMatrixAndFactors();
     testSteelMemberNbr8800();
+    testNbr8800FltMonotonicityAndCapWithCb();
     testConcreteBeamAndColumnNbr6118();
     testServiceability6118AndFoundation6122();
     testExecutivePdfAndCliEndToEnd();

@@ -160,6 +160,13 @@ public:
         m_y = m_marginTop;
     }
 
+    static QFont makeUiFont(double pointSizeF, QFont::Weight weight = QFont::Normal) {
+        QFont f(QStringLiteral("Segoe UI"));
+        f.setPointSizeF(pointSizeF);
+        f.setWeight(weight);
+        return f;
+    }
+
     double left() const { return m_marginX; }
     double right() const { return m_pageW - m_marginX; }
     double contentW() const { return m_contentW; }
@@ -274,8 +281,7 @@ public:
     }
 
     void drawParagraph(const QString& text, bool muted = false) {
-        QFont f("Segoe UI", 8.5);
-        m_p.setFont(f);
+        m_p.setFont(makeUiFont(8.5));
         m_p.setPen(muted ? QColor(90, 98, 110) : QColor(32, 38, 46));
         QRectF bound = m_p.boundingRect(QRectF(0, 0, m_contentW, 10000.0 * m_scale),
                                         Qt::AlignLeft | Qt::TextWordWrap, text);
@@ -300,7 +306,7 @@ public:
         auto drawHdr = [&]() {
             m_p.fillRect(QRectF(m_marginX, m_y, m_contentW, hdrH), QColor(28, 56, 94));
             m_p.setPen(Qt::white);
-            m_p.setFont(QFont("Segoe UI", 7.5, QFont::Bold));
+            m_p.setFont(makeUiFont(7.5, QFont::Bold));
             double x = m_marginX;
             for (size_t c = 0; c < headers.size() && c < colFracs.size(); ++c) {
                 const double w = colFracs[c] * m_contentW;
@@ -330,7 +336,7 @@ public:
                 const double w = colFracs[c] * m_contentW;
                 const QString& cell = rows[r][c];
                 QColor penCol(34, 40, 48);
-                QFont f("Segoe UI", 7.5);
+                QFont f = makeUiFont(7.5);
                 if (cell == "OK" || cell.startsWith("OK ")) {
                     penCol = QColor(18, 128, 76);
                     f.setBold(true);
@@ -427,7 +433,7 @@ public:
                 m_p.drawLine(QPointF(x0, y0), QPointF(x1, y1));
             }
             m_p.setPen(QColor(50, 58, 70));
-            m_p.setFont(QFont("Segoe UI", 6.8, QFont::Bold));
+            m_p.setFont(makeUiFont(6.8, QFont::Bold));
             m_p.drawText(QRectF(px + 4.0 * m_scale, py + 2.0 * m_scale, pw - 8.0 * m_scale, 13.0 * m_scale),
                          Qt::AlignLeft | Qt::AlignVCenter,
                          QString("%1  [%2 .. %3]").arg(plots[p].title, fmtNum(vMin, 2), fmtNum(vMax, 2)));
@@ -460,7 +466,7 @@ public:
 private:
     void drawRunningHeaderFooter() {
         m_p.setPen(QColor(125, 136, 152));
-        m_p.setFont(QFont("Segoe UI", 7.5));
+        m_p.setFont(makeUiFont(7.5));
         m_p.drawText(QRectF(m_marginX, 0.02 * m_pageH, m_contentW * 0.7, 0.03 * m_pageH),
                      Qt::AlignLeft | Qt::AlignVCenter,
                      m_title);
@@ -577,15 +583,19 @@ ModelNbrAudit PdfReportGenerator::evaluateModelNbrCompliance(const StructuralMod
             sp.Lz_m = L;
             sp.Lb_m = L;
 
-            const auto f0 = el.evaluateAt(0.0, model);
-            const auto fA = el.evaluateAt(0.25, model);
-            const auto fB = el.evaluateAt(0.50, model);
-            const auto fC = el.evaluateAt(0.75, model);
-            const auto f1 = el.evaluateAt(1.0, model);
-            const double mMaxSampling = std::max({My_abs, std::abs(f0.My), std::abs(fA.My),
-                                                  std::abs(fB.My), std::abs(fC.My), std::abs(f1.My)});
-            sp.Cb = kernel::codes::NbrCodeChecks::computeCb8800(
-                mMaxSampling, std::abs(fA.My), std::abs(fB.My), std::abs(fC.My));
+            if (el.hasResults) {
+                const auto f0 = el.evaluateAt(0.0, model);
+                const auto fA = el.evaluateAt(0.25, model);
+                const auto fB = el.evaluateAt(0.50, model);
+                const auto fC = el.evaluateAt(0.75, model);
+                const auto f1 = el.evaluateAt(1.0, model);
+                const double mMaxSampling = std::max({My_abs, std::abs(f0.My), std::abs(fA.My),
+                                                      std::abs(fB.My), std::abs(fC.My), std::abs(f1.My)});
+                sp.Cb = kernel::codes::NbrCodeChecks::computeCb8800(
+                    mMaxSampling, std::abs(fA.My), std::abs(fB.My), std::abs(fC.My));
+            } else {
+                sp.Cb = 1.0;
+            }
 
             if (sec->shape == SectionShape::WeldedIShape) {
                 sp.kind = kernel::codes::SteelSectionKind::IShapeWelded;
@@ -807,8 +817,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
             .arg(model.getLoadCombinations().size())
             .arg(result.totalDofs)
             .arg(result.restrainedDofs)
-            .arg(fmtNum(result.maxShellVonMises, 2))
-            .arg(fmtNum(result.maxSolidVonMises, 2)));
+            .arg(fmtNum(result.maxShellVonMises, 2), fmtNum(result.maxSolidVonMises, 2)));
     }
 
     // 2. Indice Tecnico das 24 Secoes
@@ -836,8 +845,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
             "residuo de forca (forceTol) e incremento de energia (energyTol = |dU*R|/|dU0*R0|).\n"
             "Hipoteses explicitas: regime de pequenas deformacoes/deslocamentos na analise linear elastica, material isotropico homogeneo (salvo modelo J2), "
             "espessura constante por elemento de casca e rigidez bruta das secoes conforme especificado no modelo.")
-            .arg(solverTypeToQString(sopt.type))
-            .arg(fmtSci(sopt.tolerance, 2))
+            .arg(solverTypeToQString(sopt.type), fmtSci(sopt.tolerance, 2))
             .arg(sopt.maxIterations)
             .arg(sopt.allowFallback ? "Ativo" : "Desativado"));
     }
@@ -1035,9 +1043,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
                 QString("%1/%2 validos | minJ=%3 | maxAR=%4 | maxSkew=%5")
                     .arg(qm.validElements)
                     .arg(qm.totalElements)
-                    .arg(fmtSci(qm.minJacobian, 2))
-                    .arg(fmtNum(qm.maxAspectRatio, 2))
-                    .arg(fmtNum(qm.maxSkewness, 3)),
+                    .arg(fmtSci(qm.minJacobian, 2), fmtNum(qm.maxAspectRatio, 2), fmtNum(qm.maxSkewness, 3)),
                 qm.isValid() ? "OK" : "ALERTA"
             });
         }
@@ -1116,6 +1122,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
     doc.drawSectionHeader(15, "Verificacao Preliminar de Fundacao Rasa (ABNT NBR 6122:2022 Tab. 1)");
     {
         std::vector<std::vector<QString>> rows;
+        rows.reserve(audit.foundations.size());
         for (const auto& fn : audit.foundations) {
             rows.push_back({
                 QString::number(fn.nodeId),
@@ -1207,6 +1214,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
     doc.drawSectionHeader(18, "Verificacao de Barras de Aco (ABNT NBR 8800:2024)");
     {
         std::vector<std::vector<QString>> rows;
+        rows.reserve(audit.steelMembers.size());
         for (const auto& st : audit.steelMembers) {
             rows.push_back({
                 QString::number(st.elementId),
@@ -1228,6 +1236,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
     doc.drawSectionHeader(19, "Dimensionamento/Verificacao de Vigas em Concreto Armado (ABNT NBR 6118:2023)");
     {
         std::vector<std::vector<QString>> rows;
+        rows.reserve(audit.concreteBeams.size());
         for (const auto& cb : audit.concreteBeams) {
             rows.push_back({
                 QString::number(cb.elementId),
@@ -1249,6 +1258,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
     doc.drawSectionHeader(20, "Verificacao Biaxial P-Mx-My de Pilares em Concreto (ABNT NBR 6118:2023)");
     {
         std::vector<std::vector<QString>> rows;
+        rows.reserve(audit.concreteColumns.size());
         for (const auto& cc : audit.concreteColumns) {
             rows.push_back({
                 QString::number(cc.elementId),
@@ -1304,6 +1314,7 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
 
     if (opts.bucklingResult && opts.bucklingResult->success && !opts.bucklingResult->loadFactors.empty()) {
         std::vector<std::vector<QString>> bRows;
+        bRows.reserve(opts.bucklingResult->loadFactors.size());
         for (size_t i = 0; i < opts.bucklingResult->loadFactors.size(); ++i) {
             bRows.push_back({
                 QString("Modo Flambagem %1").arg(i + 1),
@@ -1319,8 +1330,8 @@ bool PdfReportGenerator::generateExecutivePdf(const QString& filePath,
         doc.drawParagraph(QString(
             "Trajetoria nao-linear executada em %1 passos incrementais, atingindo fator de carga lambda = %2 (sucesso = %3).")
             .arg(opts.nonlinearResult->history.size())
-            .arg(fmtNum(opts.nonlinearResult->achievedLoadFactor, 4))
-            .arg(opts.nonlinearResult->success ? "Sim" : "Nao"));
+            .arg(fmtNum(opts.nonlinearResult->achievedLoadFactor, 4),
+                 opts.nonlinearResult->success ? QStringLiteral("Sim") : QStringLiteral("Nao")));
     }
 
     // 23. Limites Explicitos de Escopo Tecnico

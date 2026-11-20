@@ -28,6 +28,8 @@
 #include <QToolButton>
 #include <QVector>
 #include <QWidget>
+#include <cmath>
+#include <memory>
 
 #ifdef Q_OS_WIN
 #ifndef WIN32_LEAN_AND_MEAN
@@ -137,7 +139,7 @@ QString buildDarkApplicationStyleSheet() {
         "QFrame#dockTitleBar QToolButton { background: transparent; border: none; padding: 0px; }"
         "QGroupBox { border: 1px solid #334155; border-radius: 5px; margin-top: 10px; padding-top: 10px; color: #e2e8f0; font-weight: bold; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #93c5fd; }"
-        "QTableWidget, QListWidget, QTreeView { background-color: #171a1f; alternate-background-color: #1d2229; color: #d0d7de; gridline-color: #2d333f; border: 1px solid #2d333f; selection-background-color: #2b6cb0; selection-color: #ffffff; }"
+        "QTableView, QTableWidget, QListWidget, QTreeView { background-color: #171a1f; alternate-background-color: #1d2229; color: #d0d7de; gridline-color: #2d333f; border: 1px solid #2d333f; selection-background-color: #2b6cb0; selection-color: #ffffff; }"
         "QHeaderView::section { background-color: #23272f; color: #cbd5e0; padding: 4px; border: 1px solid #2d333f; font-weight: bold; }"
         "QTabWidget::pane { border: 1px solid #2d333f; background-color: #1c2026; }"
         "QTabBar::tab { background-color: #23272f; color: #a0aec0; padding: 6px 14px; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }"
@@ -178,7 +180,7 @@ QString buildLightApplicationStyleSheet() {
         "QFrame#dockTitleBar QToolButton { background: transparent; border: none; padding: 0px; }"
         "QGroupBox { border: 1px solid #cbd5e1; border-radius: 5px; margin-top: 10px; padding-top: 10px; color: #0f172a; font-weight: bold; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #1d4ed8; }"
-        "QTableWidget, QListWidget, QTreeView { background-color: #ffffff; alternate-background-color: #f8fafc; color: #0f172a; gridline-color: #e2e8f0; border: 1px solid #cbd5e1; selection-background-color: #2563eb; selection-color: #ffffff; }"
+        "QTableView, QTableWidget, QListWidget, QTreeView { background-color: #ffffff; alternate-background-color: #f8fafc; color: #0f172a; gridline-color: #e2e8f0; border: 1px solid #cbd5e1; selection-background-color: #2563eb; selection-color: #ffffff; }"
         "QHeaderView::section { background-color: #e2e8f0; color: #1e293b; padding: 4px; border: 1px solid #cbd5e1; font-weight: bold; }"
         "QTabWidget::pane { border: 1px solid #cbd5e1; background-color: #eef2f7; }"
         "QTabBar::tab { background-color: #e2e8f0; color: #334155; padding: 6px 14px; border: 1px solid #cbd5e1; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }"
@@ -219,7 +221,7 @@ bool setDwmBoolAttribute(QWidget* widget, DWORD attribute, bool enabled) {
     static DwmSetWindowAttributeFn fn = []() -> DwmSetWindowAttributeFn {
         HMODULE mod = ::GetModuleHandleW(L"dwmapi.dll");
         if (!mod) {
-            mod = ::LoadLibraryW(L"dwmapi.dll");
+            mod = ::LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         }
         if (!mod) {
             return nullptr;
@@ -622,9 +624,9 @@ QColor blendNativeColor(const QColor& base, const QColor& overlay, double ratio)
     const double t = qBound(0.0, ratio, 1.0);
     const double inv = 1.0 - t;
     return QColor(
-        qBound(0, static_cast<int>(base.red() * inv + overlay.red() * t + 0.5), 255),
-        qBound(0, static_cast<int>(base.green() * inv + overlay.green() * t + 0.5), 255),
-        qBound(0, static_cast<int>(base.blue() * inv + overlay.blue() * t + 0.5), 255),
+        qBound(0, static_cast<int>(std::lround(base.red() * inv + overlay.red() * t)), 255),
+        qBound(0, static_cast<int>(std::lround(base.green() * inv + overlay.green() * t)), 255),
+        qBound(0, static_cast<int>(std::lround(base.blue() * inv + overlay.blue() * t)), 255),
         base.alpha());
 }
 
@@ -902,9 +904,41 @@ protected:
     }
 };
 
+QCoreApplication* g_hookedThemeApp = nullptr;
+
+std::unique_ptr<ToolbarExtensionPaintFilter>& toolbarExtFilterStorage() {
+    static std::unique_ptr<ToolbarExtensionPaintFilter> instancePtr;
+    return instancePtr;
+}
+
+std::unique_ptr<ThemeManager>& themeManagerStorage() {
+    static std::unique_ptr<ThemeManager> instancePtr;
+    return instancePtr;
+}
+
+void cleanupThemeManagerAtAppExit() {
+    toolbarExtFilterStorage().reset();
+    themeManagerStorage().reset();
+    g_hookedThemeApp = nullptr;
+}
+
+void ensureThemeAppLifecycleHook() {
+    if (auto* app = QCoreApplication::instance(); app != nullptr && app != g_hookedThemeApp) {
+        g_hookedThemeApp = app;
+        qAddPostRoutine(&cleanupThemeManagerAtAppExit);
+        QObject::connect(app, &QObject::destroyed, []() {
+            cleanupThemeManagerAtAppExit();
+        });
+    }
+}
+
 ToolbarExtensionPaintFilter* toolbarExtensionPaintFilter() {
-    static ToolbarExtensionPaintFilter filter;
-    return &filter;
+    ensureThemeAppLifecycleHook();
+    auto& filterStorage = toolbarExtFilterStorage();
+    if (!filterStorage) {
+        filterStorage = std::make_unique<ToolbarExtensionPaintFilter>();
+    }
+    return filterStorage.get();
 }
 
 QVector<QPointer<QWidget>> collectWidgetsTopDown() {
@@ -989,8 +1023,16 @@ void refreshLayoutsAndWidgetsAfterStyleChange(bool lightTheme, bool nativeUi) {
 } // namespace
 
 ThemeManager& ThemeManager::instance() {
-    static ThemeManager mgr;
-    return mgr;
+    ensureThemeAppLifecycleHook();
+    auto& managerStorage = themeManagerStorage();
+    if (!managerStorage) {
+        managerStorage.reset(new ThemeManager(nullptr));
+    }
+    return *managerStorage;
+}
+
+void ThemeManager::shutdown() {
+    cleanupThemeManagerAtAppExit();
 }
 
 ThemeManager::ThemeManager(QObject* parent)

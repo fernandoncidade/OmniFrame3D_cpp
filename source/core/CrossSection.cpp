@@ -16,24 +16,43 @@ void CrossSection::computeProperties() {
             p = kernel::CrossSectionGeometry::computeCircularSolid(dim1);
             break;
         case SectionShape::CircularTube:
+            if (dim1 > 0.0 && dim2 >= 0.5 * dim1) dim2 = 0.45 * dim1;
             p = kernel::CrossSectionGeometry::computeCircularTube(dim1, dim2);
             break;
         case SectionShape::IShape:
+            if (dim1 > 0.0 && 2.0 * dim3 >= dim1) dim3 = 0.45 * dim1;
+            if (dim2 > 0.0 && dim4 >= dim2) dim4 = 0.90 * dim2;
             p = kernel::CrossSectionGeometry::computeIShape(dim1, dim2, dim3, dim4);
             break;
         case SectionShape::BoxRHS:
+            if (dim1 > 0.0 && 2.0 * dim3 >= dim1) dim3 = 0.45 * dim1;
+            if (dim2 > 0.0 && 2.0 * dim4 >= dim2) dim4 = 0.45 * dim2;
             p = kernel::CrossSectionGeometry::computeBoxRHS(dim1, dim2, dim3, dim4);
             break;
         case SectionShape::ChannelC:
+            if (dim1 > 0.0 && 2.0 * dim3 >= dim1) dim3 = 0.45 * dim1;
+            if (dim2 > 0.0 && dim4 >= dim2) dim4 = 0.90 * dim2;
             p = kernel::CrossSectionGeometry::computeChannelC(dim1, dim2, dim3, dim4);
             break;
         case SectionShape::AngleL:
+            if (dim1 > 0.0 && dim2 > 0.0 && dim3 >= std::min(dim1, dim2)) {
+                dim3 = 0.90 * std::min(dim1, dim2);
+            }
             p = kernel::CrossSectionGeometry::computeAngleL(dim1, dim2, dim3);
             break;
         case SectionShape::TShape:
+            if (dim1 > 0.0 && dim3 >= dim1) dim3 = 0.90 * dim1;
+            if (dim2 > 0.0 && dim4 >= dim2) dim4 = 0.90 * dim2;
             p = kernel::CrossSectionGeometry::computeTShape(dim1, dim2, dim3, dim4);
             break;
         case SectionShape::WeldedIShape:
+            if (dim1 > 0.0 && (dim3 + dim6) >= dim1) {
+                dim3 = 0.45 * dim1;
+                dim6 = 0.45 * dim1;
+            }
+            if (dim2 > 0.0 && dim5 > 0.0 && dim4 >= std::min(dim2, dim5)) {
+                dim4 = 0.90 * std::min(dim2, dim5);
+            }
             p = kernel::CrossSectionGeometry::computeWeldedIShape(dim1, dim2, dim3, dim5, dim6, dim4);
             break;
         case SectionShape::Polygon:

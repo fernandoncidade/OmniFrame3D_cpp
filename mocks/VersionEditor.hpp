@@ -19,8 +19,15 @@ class QTextEdit;
 
 namespace mocks::version_editor {
 
-inline constexpr const char* kDefaultAppVersion = "2026.11.18.0";
-inline constexpr const char* kDefaultReleaseDate = "2026-11-18";
+inline constexpr const char* kDefaultAppVersion = "2026.11.20.0";
+inline constexpr const char* kDefaultReleaseDate = "2026-11-20";
+
+inline constexpr const char* kLibraryDirName = "library";
+inline constexpr const char* kOmniFrameIssRelPath = "library/OmniFrame.iss";
+inline constexpr const char* kOmniFrameMsvcIssRelPath = "library/OmniFrame_MSVC.iss";
+inline constexpr const char* kOmniFrameMingwIssRelPath = "library/OmniFrame_MinGW.iss";
+inline constexpr const char* kOmniFrameNotesRelPath = "library/OmniFrame_cpp.txt";
+inline constexpr const char* kAppxManifestRelPath = "library/AppxManifest.xml";
 
 enum class OperacaoModo {
     Check,

@@ -21,6 +21,8 @@ set(OMNIFRAME_TEST_LIST
     test_Phase7MeshInteropCli
     test_Phase8ComplianceAndReports
     test_Phase9UiAndWorkflows
+    test_Phase10RenderAndPerf
+    test_Phase11ToolsAndAudit
 )
 
 foreach(T_NAME ${OMNIFRAME_TEST_LIST})
@@ -29,7 +31,7 @@ foreach(T_NAME ${OMNIFRAME_TEST_LIST})
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/../source
     )
-    if("${T_NAME}" STREQUAL "test_Phase9UiAndWorkflows" AND TARGET OmniFrameUi)
+    if(("${T_NAME}" STREQUAL "test_Phase9UiAndWorkflows" OR "${T_NAME}" STREQUAL "test_Phase10RenderAndPerf") AND TARGET OmniFrameUi)
         target_link_libraries(${T_NAME} PRIVATE
             OmniFrameUi
             Qt6::Widgets
@@ -57,6 +59,35 @@ foreach(T_NAME ${OMNIFRAME_TEST_LIST})
         target_compile_definitions(${T_NAME} PRIVATE
             OMNIFRAME_CLI_PATH="$<TARGET_FILE:omniframe-cli>"
         )
+    endif()
+    if("${T_NAME}" STREQUAL "test_Phase11ToolsAndAudit")
+        target_sources(${T_NAME} PRIVATE
+            "${CMAKE_SOURCE_DIR}/mocks/VersionEditor.cpp"
+            "${CMAKE_SOURCE_DIR}/mocks/CompileTranslationsTerminal.cpp"
+            "${CMAKE_SOURCE_DIR}/mocks/CompileTranslationsGUI.hpp"
+            "${CMAKE_SOURCE_DIR}/mocks/CompileTranslationsGUI.cpp"
+        )
+        target_include_directories(${T_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/mocks")
+        target_link_libraries(${T_NAME} PRIVATE OmniFrameUi Qt6::Widgets)
+        target_compile_definitions(${T_NAME} PRIVATE
+            OMNIFRAME_VERSION_EDITOR_NO_MAIN
+            OMNIFRAME_COMPILE_TRANSLATIONS_NO_MAIN
+            OMNIFRAME_COMPILE_TRANSLATIONS_TERMINAL_LINKED
+            OMNIFRAME_COMPILE_TRANSLATIONS_GUI_NO_MAIN
+            OMNIFRAME_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        )
+        if(TARGET CompileTranslationsTerminal)
+            add_dependencies(${T_NAME} CompileTranslationsTerminal)
+            target_compile_definitions(${T_NAME} PRIVATE
+                OMNIFRAME_COMPILE_TRANSLATIONS_CLI_PATH="$<TARGET_FILE:CompileTranslationsTerminal>"
+            )
+        endif()
+        if(TARGET VersionEditor)
+            add_dependencies(${T_NAME} VersionEditor)
+            target_compile_definitions(${T_NAME} PRIVATE
+                OMNIFRAME_VERSION_EDITOR_EXE_PATH="$<TARGET_FILE:VersionEditor>"
+            )
+        endif()
     endif()
     if(COMMAND omniframe_apply_compiler_options)
         omniframe_apply_compiler_options(${T_NAME})

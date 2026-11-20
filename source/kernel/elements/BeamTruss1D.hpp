@@ -23,6 +23,7 @@ struct Beam1DProps {
     double A = 0.08;
     double Iy = 1e-3;
     double Iz = 1e-3;
+    double Iyz = 0.0;
     double J = 5e-4;
     double Asy = 0.066667; // Área de cisalhamento em Y local
     double Asz = 0.066667; // Área de cisalhamento em Z local
@@ -43,6 +44,11 @@ struct Beam1DInternalEval {
 class BeamTruss1D {
 public:
     static Eigen::Matrix<double, 12, 12> computeUncondensedLocalStiffness(const Beam1DProps& p);
+
+    static Eigen::Matrix<double, 12, 1> computeConsistentLocalLoadVector(
+        const Beam1DProps& p,
+        const Vec3& qLoc,
+        double deltaT = 0.0);
 
     static Eigen::Matrix<double, 12, 12> computeConsistentLocalMass(const Beam1DProps& p);
     static Eigen::Matrix<double, 12, 12> computeLumpedLocalMass(const Beam1DProps& p);

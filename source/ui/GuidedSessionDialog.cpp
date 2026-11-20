@@ -125,7 +125,7 @@ void selectListRowByKeywords(QListWidget* list, const QStringList& keywords) {
     list->scrollToItem(list->item(targetRow), QAbstractItemView::PositionAtCenter);
 }
 
-void scrollTableToBottomAndTop(QTableWidget* table) {
+void scrollTableToBottomAndTop(QAbstractItemView* table) {
     if (!table) return;
     if (auto* sb = table->verticalScrollBar()) {
         if (sb->maximum() > sb->minimum()) {
@@ -411,7 +411,8 @@ void GuidedTargetOverlay::computeCalloutLayout(QRect& outCardRect,
     // Coleta os retângulos ocupados por todas as janelas filhas / top-level visíveis
     // para que o cartão Callout nunca caia sobre uma janela filha.
     std::vector<QRect> forbiddenWindows;
-    for (QWidget* topWin : QApplication::topLevelWidgets()) {
+    const QWidgetList topWindows = QApplication::topLevelWidgets();
+    for (QWidget* topWin : topWindows) {
         if (!topWin || !topWin->isVisible() || topWin == m_hostWindow.data()) {
             continue;
         }
@@ -1085,20 +1086,26 @@ GuidedSessionDialog::GuidedSessionDialog(MainWindow* mainWindow, QWidget* parent
 }
 
 GuidedSessionDialog::~GuidedSessionDialog() {
-    if (m_timer && m_timer->isActive()) m_timer->stop();
-    if (m_countdownTimer && m_countdownTimer->isActive()) m_countdownTimer->stop();
-    if (m_colorPickerDialog) {
-        m_colorPickerDialog->close();
-        delete m_colorPickerDialog.data();
+    try {
+        cancelPendingAsyncStep();
+        if (m_timer && m_timer->isActive()) m_timer->stop();
+        if (m_countdownTimer && m_countdownTimer->isActive()) m_countdownTimer->stop();
+        if (m_colorPickerDialog) {
+            m_colorPickerDialog->disconnect(this);
+            m_colorPickerDialog->disconnect();
+            m_colorPickerDialog->close();
+            delete m_colorPickerDialog.data();
+        }
+        clearVisualHighlight();
+        if (m_overlay) {
+            delete m_overlay.data();
+        }
+        if (m_childOverlay) {
+            delete m_childOverlay.data();
+        }
+        QToolTip::hideText();
+    } catch (...) {
     }
-    clearVisualHighlight();
-    if (m_overlay) {
-        delete m_overlay.data();
-    }
-    if (m_childOverlay) {
-        delete m_childOverlay.data();
-    }
-    QToolTip::hideText();
 }
 
 QColor GuidedSessionDialog::defaultPhaseHighlightColor(int phase) {
@@ -1444,7 +1451,8 @@ int GuidedSessionDialog::wordCountForStep(int step) const {
              GerenciadorTraducao::trText("Para que serve:"))
         + QLatin1Char(' ')
         + GerenciadorTraducao::trText(spec.purposePtBr);
-    const QStringList words = fullText.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    static const QRegularExpression rxWhitespace(QStringLiteral("\\s+"));
+    const QStringList words = fullText.split(rxWhitespace, Qt::SkipEmptyParts);
     return std::max(1, static_cast<int>(words.size()));
 }
 
@@ -1615,7 +1623,8 @@ void GuidedSessionDialog::applyCardTheme() {
         clearStyleSheetIfSet(m_timerCountdownLabel);
         setPalette(QPalette());
         setAttribute(Qt::WA_SetPalette, false);
-        for (QWidget* child : findChildren<QWidget*>()) {
+        const QList<QWidget*> children = findChildren<QWidget*>();
+        for (QWidget* child : children) {
             if (!child ||
                 child == m_highlightColorSwatch ||
                 child == m_phaseBadgeLabel ||
@@ -1873,12 +1882,19 @@ void GuidedSessionDialog::schedulePhaseTimer(int durationMs) {
 }
 
 void GuidedSessionDialog::startSession(int customPhaseIntervalMs) {
-    if (!m_mainWindow) return;
+    if (!m_mainWindow || m_executingStep || m_inStartOrStop) return;
+    QPointer<GuidedSessionDialog> self(this);
+    m_inStartOrStop = true;
+    cancelPendingAsyncStep();
     if (m_timer && m_timer->isActive()) m_timer->stop();
     if (m_countdownTimer && m_countdownTimer->isActive()) m_countdownTimer->stop();
 
     clearVisualHighlight();
     closeAuxiliaryInputDialogs();
+    if (!self || !m_mainWindow) {
+        if (self) m_inStartOrStop = false;
+        return;
+    }
     m_activeDialogStep = 0;
     m_customPhaseIntervalMs = (customPhaseIntervalMs > 0) ? customPhaseIntervalMs : -1;
 
@@ -1899,6 +1915,7 @@ void GuidedSessionDialog::startSession(int customPhaseIntervalMs) {
     updateControlsState();
     showPreActionTooltipForStep(m_currentStep);
     schedulePhaseTimer(computePhase1ReadingMs(m_currentStep));
+    m_inStartOrStop = false;
 }
 
 void GuidedSessionDialog::pauseOrResumeSession() {
@@ -1920,25 +1937,31 @@ void GuidedSessionDialog::pauseOrResumeSession() {
 }
 
 void GuidedSessionDialog::stopSession() {
+    if (m_inStartOrStop) return;
+    QPointer<GuidedSessionDialog> self(this);
+    m_inStartOrStop = true;
     const bool wasRunning = m_running;
     m_running = false;
     m_paused = false;
     m_customPhaseIntervalMs = -1;
+    cancelPendingAsyncStep();
     if (m_timer && m_timer->isActive()) m_timer->stop();
     if (m_countdownTimer && m_countdownTimer->isActive()) m_countdownTimer->stop();
     clearVisualHighlight();
     QToolTip::hideText();
     closeAuxiliaryInputDialogs();
+    if (!self) return;
     m_activeDialogStep = 0;
     if (wasRunning && m_mainWindow) {
         m_mainWindow->showStatusMessage(locale::GerenciadorTraducao::trText("Sessão Guiada interrompida pelo usuário."));
     }
     refreshCurrentStepTexts();
     updateControlsState();
+    m_inStartOrStop = false;
 }
 
 void GuidedSessionDialog::advancePhaseNow() {
-    if (!m_running || m_executingStep) return;
+    if (!m_running || m_executingStep || m_inStartOrStop) return;
     if (m_timer && m_timer->isActive()) m_timer->stop();
     onTimerTick();
 }
@@ -1979,9 +2002,10 @@ void GuidedSessionDialog::onCountdownTick() {
 }
 
 void GuidedSessionDialog::onTimerTick() {
-    if (!m_running || m_paused || m_executingStep || !m_mainWindow) {
+    if (!m_running || m_paused || m_executingStep || m_inStartOrStop || !m_mainWindow) {
         return;
     }
+    QPointer<GuidedSessionDialog> self(this);
     m_executingStep = true;
 
     const int totalPhasesInStep = phasesForStep(m_currentStep);
@@ -1992,11 +2016,13 @@ void GuidedSessionDialog::onTimerTick() {
         syncHighlightColorControls();
         refreshCurrentStepTexts();
         updateControlsState();
-        pumpUiEvents(12);
 
         if (enteringExecutionPhase) {
             executeStepAction(m_currentStep);
-            if (!m_running) {
+            if (!self) {
+                return;
+            }
+            if (!m_running || !m_mainWindow) {
                 m_executingStep = false;
                 return;
             }
@@ -2006,22 +2032,32 @@ void GuidedSessionDialog::onTimerTick() {
         if (m_currentStep >= kTotalSteps && m_currentPhase >= totalPhasesInStep) {
             updateVisualHighlight();
             commitPendingStepEdits(m_currentStep);
+            if (!self) return;
             finishSession();
-            m_executingStep = false;
+            if (self) m_executingStep = false;
             return;
         }
 
         updateVisualHighlight();
-        schedulePhaseTimer(computePhase2ObservationMs(m_currentStep));
+        if (!isStepAsyncBusy()) {
+            schedulePhaseTimer(computePhase2ObservationMs(m_currentStep));
+        } else if (m_timer && m_timer->isActive()) {
+            m_timer->stop();
+        }
     } else {
         // Conclui/aplica silenciosamente a janela da etapa anterior antes de explicar a próxima
+        cancelPendingAsyncStep();
         clearVisualHighlight();
         commitPendingStepEdits(m_currentStep);
+        if (!self || !m_running || !m_mainWindow) {
+            if (self) m_executingStep = false;
+            return;
+        }
 
         ++m_currentStep;
         if (m_currentStep > kTotalSteps) {
             finishSession();
-            m_executingStep = false;
+            if (self) m_executingStep = false;
             return;
         }
         m_currentPhase = 1;
@@ -2033,7 +2069,9 @@ void GuidedSessionDialog::onTimerTick() {
         schedulePhaseTimer(computePhase1ReadingMs(m_currentStep));
     }
 
-    m_executingStep = false;
+    if (self) {
+        m_executingStep = false;
+    }
 }
 
 void GuidedSessionDialog::updateControlsState() {
@@ -2801,32 +2839,165 @@ void GuidedSessionDialog::closeAuxiliaryInputDialogs() {
     }
 }
 
-void GuidedSessionDialog::pumpUiEvents(int ms) {
-    QElapsedTimer t;
-    t.start();
-    do {
-        QApplication::processEvents(QEventLoop::AllEvents, 15);
-        if (ms > 0) {
-            QThread::msleep(5);
+void GuidedSessionDialog::cancelPendingAsyncStep() {
+    ++m_staticAsyncToken;
+    if (m_suiteAsyncConn) {
+        QObject::disconnect(m_suiteAsyncConn);
+        m_suiteAsyncConn = QMetaObject::Connection{};
+    }
+    if (m_mainWindow) {
+        if (m_mainWindow->m_analysisSuiteDialog && m_mainWindow->m_analysisSuiteDialog->isBusy()) {
+            m_mainWindow->m_analysisSuiteDialog->requestCancelAsync();
         }
-    } while (t.elapsed() < ms);
+        if (!m_savedStep27SurfaceMesh.elements.empty()) {
+            m_mainWindow->m_model.surfaceMesh() = std::move(m_savedStep27SurfaceMesh);
+            m_savedStep27SurfaceMesh = kernel::MeshContainer{};
+            if (m_mainWindow->m_lastSolverResult.continuumElementResults.empty()) {
+                m_mainWindow->m_lastSolverResult.success = false;
+            }
+        }
+    } else {
+        m_savedStep27SurfaceMesh = kernel::MeshContainer{};
+    }
+    m_pendingAsyncStep = 0;
+    m_pendingAsyncStage = 0;
 }
 
-bool GuidedSessionDialog::waitForBackgroundSolvers(int timeoutMs) {
-    if (!m_mainWindow) return false;
-    QElapsedTimer t;
-    t.start();
-    while (t.elapsed() <= timeoutMs) {
-        const bool mainBusy = m_mainWindow->m_solveInProgress;
-        const bool suiteBusy = m_mainWindow->m_analysisSuiteDialog && m_mainWindow->m_analysisSuiteDialog->isBusy();
-        if (!mainBusy && !suiteBusy) {
-            QApplication::processEvents(QEventLoop::AllEvents, 20);
-            return true;
-        }
-        QApplication::processEvents(QEventLoop::AllEvents, 20);
-        QThread::msleep(10);
+void GuidedSessionDialog::onAsyncSuiteStepFinished(bool /*ok*/) {
+    QPointer<GuidedSessionDialog> self(this);
+    if (!self || !m_running || !m_mainWindow || m_pendingAsyncStep == 0 || m_currentStep != m_pendingAsyncStep) {
+        cancelPendingAsyncStep();
+        return;
     }
-    return false;
+    QPointer<AnalysisSuiteDialog> dlg = m_mainWindow->m_analysisSuiteDialog;
+    if (!dlg) {
+        cancelPendingAsyncStep();
+        return;
+    }
+
+    const int step = m_pendingAsyncStep;
+    const int stage = m_pendingAsyncStage;
+    if (step == 25) {
+        if (stage == 1) {
+            dlg->onPlotSelectedCombo();
+            if (!self || !m_running || !dlg) return;
+            if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(1);
+            m_pendingAsyncStage = 2;
+            dlg->onRunModalAsync();
+            if (!dlg || !dlg->isBusy()) {
+                onAsyncSuiteStepFinished(false);
+            }
+            return;
+        }
+        if (stage == 2) {
+            dlg->onPlotSelectedMode();
+            if (!self || !m_running || !dlg) return;
+            if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(2);
+            m_pendingAsyncStage = 3;
+            dlg->onRunBucklingAsync();
+            if (!dlg || !dlg->isBusy()) {
+                onAsyncSuiteStepFinished(false);
+            }
+            return;
+        }
+        if (stage == 3) {
+            dlg->onPlotSelectedBucklingMode();
+            cancelPendingAsyncStep();
+            if (self && m_running) {
+                updateVisualHighlight();
+                schedulePhaseTimer(computePhase2ObservationMs(m_currentStep));
+            }
+            return;
+        }
+    } else if (step == 26) {
+        if (stage == 1) {
+            dlg->onPlotSelectedHarmonicStep();
+            if (!self || !m_running || !dlg) return;
+            if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(4);
+            m_pendingAsyncStage = 2;
+            dlg->onRunSpectrumAsync();
+            if (!dlg || !dlg->isBusy()) {
+                onAsyncSuiteStepFinished(false);
+            }
+            return;
+        }
+        if (stage == 2) {
+            dlg->onPlotSpectrumResult();
+            cancelPendingAsyncStep();
+            if (self && m_running) {
+                updateVisualHighlight();
+                schedulePhaseTimer(computePhase2ObservationMs(m_currentStep));
+            }
+            return;
+        }
+    } else if (step == 27) {
+        if (stage == 1) {
+            if (!self || !m_running || !dlg || !m_mainWindow) return;
+            if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(6);
+            if (dlg->m_nlMethodCombo) {
+                const int nrIdx = dlg->m_nlMethodCombo->findData(static_cast<int>(kernel::NonlinearMethod::NewtonRaphson));
+                if (nrIdx >= 0) dlg->m_nlMethodCombo->setCurrentIndex(nrIdx);
+            }
+            if (dlg->m_nlKinCombo) {
+                const int coroIdx = dlg->m_nlKinCombo->findData(static_cast<int>(kernel::NonlinearKinematics::Corotational3D));
+                if (coroIdx >= 0) dlg->m_nlKinCombo->setCurrentIndex(coroIdx);
+            }
+            if (dlg->m_nlFullNewtonCheck) dlg->m_nlFullNewtonCheck->setChecked(true);
+            if (dlg->m_nlLineSearchCheck) dlg->m_nlLineSearchCheck->setChecked(true);
+            if (dlg->m_nlStepsSpin) dlg->m_nlStepsSpin->setValue(4);
+
+            m_pendingAsyncStage = 2;
+            dlg->onRunNonlinearAsync();
+            if (!dlg || !dlg->isBusy()) {
+                onAsyncSuiteStepFinished(false);
+            }
+            return;
+        }
+        if (stage == 2) {
+            dlg->onPlayNonlinearHistory();
+            cancelPendingAsyncStep();
+            if (self && m_running) {
+                updateVisualHighlight();
+                schedulePhaseTimer(computePhase2ObservationMs(m_currentStep));
+            }
+            return;
+        }
+    }
+    cancelPendingAsyncStep();
+}
+
+void GuidedSessionDialog::runGuidedStaticAsyncStep(int step, std::function<void(bool)> afterSolved) {
+    if (!m_mainWindow) {
+        return;
+    }
+    if (m_mainWindow->hasValidStaticResultForCurrentRevision() || !m_mainWindow->m_model.validate().valid) {
+        if (afterSolved) {
+            afterSolved(m_mainWindow->hasValidStaticResultForCurrentRevision());
+        }
+        return;
+    }
+    ++m_staticAsyncToken;
+    const std::uint64_t token = m_staticAsyncToken;
+    m_pendingAsyncStep = step;
+    m_pendingAsyncStage = 1;
+    QPointer<GuidedSessionDialog> self(this);
+    auto stillInsideSyncCall = std::make_shared<bool>(true);
+    m_mainWindow->ensureStaticSolvedAsync(
+        [self, token, step, afterSolved = std::move(afterSolved), stillInsideSyncCall](bool ok) {
+            if (!self || token != self->m_staticAsyncToken || !self->m_running || self->m_currentStep != step) {
+                return;
+            }
+            self->m_pendingAsyncStep = 0;
+            self->m_pendingAsyncStage = 0;
+            if (afterSolved) {
+                afterSolved(ok);
+            }
+            if (!(*stillInsideSyncCall) && self && self->m_running && self->m_currentStep == step && !self->isStepAsyncBusy()) {
+                self->updateVisualHighlight();
+                self->schedulePhaseTimer(self->computePhase2ObservationMs(step));
+            }
+        });
+    *stillInsideSyncCall = false;
 }
 
 void GuidedSessionDialog::commitPendingStepEdits(int completedStep) {
@@ -3214,7 +3385,6 @@ void GuidedSessionDialog::executeStepAction(int step) {
                 const ElementId eid = model.getElements().front().id;
                 model.selectElement(eid, true);
                 m_mainWindow->onSelectionChanged();
-                pumpUiEvents(25);
                 if (m_mainWindow->m_inspGroup) {
                     if (auto* secCombo = m_mainWindow->m_inspGroup->findChild<QComboBox*>(QStringLiteral("insp_sec_combo"))) {
                         const int cur = secCombo->currentIndex();
@@ -3283,6 +3453,7 @@ void GuidedSessionDialog::executeStepAction(int step) {
             break;
         }
         case 16: {
+            if (model.getElements().empty()) break;
             const ElementId targetElem = (exNum == 1 && model.findElement(9)) ? 9 : model.getElements().back().id;
             model.selectElement(targetElem, true);
             m_mainWindow->onSelectionChanged();
@@ -3299,6 +3470,7 @@ void GuidedSessionDialog::executeStepAction(int step) {
             break;
         }
         case 17: {
+            if (model.getElements().empty()) break;
             const ElementId targetElem = model.getElements().front().id;
             model.selectElement(targetElem, true);
             m_mainWindow->onSelectionChanged();
@@ -3314,6 +3486,7 @@ void GuidedSessionDialog::executeStepAction(int step) {
             break;
         }
         case 18: {
+            if (model.getElements().empty()) break;
             const ElementId targetElem = model.getElements().front().id;
             model.selectElement(targetElem, true);
             m_mainWindow->onSelectionChanged();
@@ -3337,15 +3510,16 @@ void GuidedSessionDialog::executeStepAction(int step) {
             if (m_mainWindow->m_actAutoRecalc && !m_mainWindow->m_actAutoRecalc->isChecked()) {
                 m_mainWindow->m_actAutoRecalc->setChecked(true);
             }
-            if (m_mainWindow->m_btnSolve) {
-                m_mainWindow->m_btnSolve->click();
-            } else {
-                m_mainWindow->onSolveStructure();
-            }
-            waitForBackgroundSolvers();
-            if (!m_mainWindow->m_lastSolverResult.success) {
-                m_mainWindow->ensureStaticSolvedSync();
-            }
+            m_mainWindow->m_hasSolvedContext = true;
+            runGuidedStaticAsyncStep(20, [this](bool) {
+                if (!m_mainWindow) return;
+                if (m_mainWindow->m_diagramCombo &&
+                    m_mainWindow->m_viewport &&
+                    m_mainWindow->m_viewport->activeDiagram() == DiagramType::None) {
+                    const int defIdx = m_mainWindow->m_diagramCombo->findData(static_cast<int>(DiagramType::Deformed));
+                    if (defIdx >= 0) m_mainWindow->m_diagramCombo->setCurrentIndex(defIdx);
+                }
+            });
             break;
         }
         case 21: {
@@ -3395,7 +3569,6 @@ void GuidedSessionDialog::executeStepAction(int step) {
                 dlg->onComputeWind6123();
                 dlg->onComputePartition6120();
             }
-            waitForBackgroundSolvers();
             break;
         }
         case 24: {
@@ -3421,73 +3594,72 @@ void GuidedSessionDialog::executeStepAction(int step) {
                 }
                 dlg->onGenerateMesh();
             }
-            waitForBackgroundSolvers();
-            m_mainWindow->ensureStaticSolvedSync();
-            m_mainWindow->setResultsDockCollapsed(false);
-            if (m_mainWindow->m_resultsDock) {
-                m_mainWindow->m_resultsDock->show();
-                m_mainWindow->m_resultsDock->raise();
-            }
-            m_mainWindow->updateResultsTables();
-            if (m_mainWindow->m_resultsTabs && m_mainWindow->m_resultsTabs->count() >= 4 && m_mainWindow->m_continuumTable) {
-                m_mainWindow->m_resultsTabs->setCurrentIndex(3);
-                scrollTableToBottomAndTop(m_mainWindow->m_continuumTable);
-            }
+            runGuidedStaticAsyncStep(24, [this](bool) {
+                if (!m_mainWindow) return;
+                m_mainWindow->setResultsDockCollapsed(false);
+                if (m_mainWindow->m_resultsDock) {
+                    m_mainWindow->m_resultsDock->show();
+                    m_mainWindow->m_resultsDock->raise();
+                }
+                m_mainWindow->updateResultsTables();
+                if (m_mainWindow->m_resultsTabs && m_mainWindow->m_resultsTabs->count() >= 4 && m_mainWindow->m_continuumTable) {
+                    m_mainWindow->m_resultsTabs->setCurrentIndex(3);
+                    scrollTableToBottomAndTop(m_mainWindow->m_continuumTable);
+                }
+            });
             break;
         }
         case 25: {
+            cancelPendingAsyncStep();
             m_mainWindow->onOpenAnalysisSuite();
             m_activeDialogStep = 25;
-            if (auto* dlg = m_mainWindow->m_analysisSuiteDialog.data()) {
-                positionChildDialogForGuidedSession(dlg);
+            if (QPointer<AnalysisSuiteDialog> dlg = m_mainWindow->m_analysisSuiteDialog) {
+                positionChildDialogForGuidedSession(dlg.data());
                 if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(0);
                 if (dlg->m_linearSolverCombo) {
                     const int ldltIdx = dlg->m_linearSolverCombo->findData(static_cast<int>(kernel::LinearSolverType::SimplicialLDLT));
                     if (ldltIdx >= 0) dlg->m_linearSolverCombo->setCurrentIndex(ldltIdx);
                 }
+                m_pendingAsyncStep = 25;
+                m_pendingAsyncStage = 1;
+                m_suiteAsyncConn = connect(dlg.data(), &AnalysisSuiteDialog::asyncJobFinished,
+                                           this, &GuidedSessionDialog::onAsyncSuiteStepFinished);
                 dlg->onRunCombosAsync();
-                waitForBackgroundSolvers();
-                dlg->onPlotSelectedCombo();
-
-                if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(1);
-                dlg->onRunModalAsync();
-                waitForBackgroundSolvers();
-                dlg->onPlotSelectedMode();
-
-                if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(2);
-                dlg->onRunBucklingAsync();
-                waitForBackgroundSolvers();
-                dlg->onPlotSelectedBucklingMode();
+                if (!dlg || !dlg->isBusy()) {
+                    onAsyncSuiteStepFinished(false);
+                }
             }
             break;
         }
         case 26: {
+            cancelPendingAsyncStep();
             if (!m_mainWindow->m_analysisSuiteDialog || !m_mainWindow->m_analysisSuiteDialog->isVisible()) {
                 m_mainWindow->onOpenAnalysisSuite();
             }
             m_activeDialogStep = 26;
-            if (auto* dlg = m_mainWindow->m_analysisSuiteDialog.data()) {
-                positionChildDialogForGuidedSession(dlg);
+            if (QPointer<AnalysisSuiteDialog> dlg = m_mainWindow->m_analysisSuiteDialog) {
+                positionChildDialogForGuidedSession(dlg.data());
                 if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(3);
                 if (dlg->m_harmStepsSpin) dlg->m_harmStepsSpin->setValue(10);
+                m_pendingAsyncStep = 26;
+                m_pendingAsyncStage = 1;
+                m_suiteAsyncConn = connect(dlg.data(), &AnalysisSuiteDialog::asyncJobFinished,
+                                           this, &GuidedSessionDialog::onAsyncSuiteStepFinished);
                 dlg->onRunHarmonicAsync();
-                waitForBackgroundSolvers();
-                dlg->onPlotSelectedHarmonicStep();
-
-                if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(4);
-                dlg->onRunSpectrumAsync();
-                waitForBackgroundSolvers();
-                dlg->onPlotSpectrumResult();
+                if (!dlg || !dlg->isBusy()) {
+                    onAsyncSuiteStepFinished(false);
+                }
             }
             break;
         }
         case 27: {
+            cancelPendingAsyncStep();
             if (!m_mainWindow->m_analysisSuiteDialog || !m_mainWindow->m_analysisSuiteDialog->isVisible()) {
                 m_mainWindow->onOpenAnalysisSuite();
             }
             m_activeDialogStep = 27;
-            if (auto* dlg = m_mainWindow->m_analysisSuiteDialog.data()) {
-                positionChildDialogForGuidedSession(dlg);
+            if (QPointer<AnalysisSuiteDialog> dlg = m_mainWindow->m_analysisSuiteDialog) {
+                positionChildDialogForGuidedSession(dlg.data());
                 if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(5);
                 if (dlg->m_seisModeCombo) dlg->m_seisModeCombo->setCurrentIndex(0);
                 if (dlg->m_seisSchemeCombo) {
@@ -3495,89 +3667,78 @@ void GuidedSessionDialog::executeStepAction(int step) {
                     if (hhtIdx >= 0) dlg->m_seisSchemeCombo->setCurrentIndex(hhtIdx);
                 }
                 if (dlg->m_seisStepsSpin) dlg->m_seisStepsSpin->setValue(25);
-                dlg->onRunSeismicAsync();
-                waitForBackgroundSolvers();
-
-                if (dlg->m_tabs) dlg->m_tabs->setCurrentIndex(6);
-                if (dlg->m_nlMethodCombo) {
-                    const int nrIdx = dlg->m_nlMethodCombo->findData(static_cast<int>(kernel::NonlinearMethod::NewtonRaphson));
-                    if (nrIdx >= 0) dlg->m_nlMethodCombo->setCurrentIndex(nrIdx);
-                }
-                if (dlg->m_nlKinCombo) {
-                    const int coroIdx = dlg->m_nlKinCombo->findData(static_cast<int>(kernel::NonlinearKinematics::Corotational3D));
-                    if (coroIdx >= 0) dlg->m_nlKinCombo->setCurrentIndex(coroIdx);
-                }
-                if (dlg->m_nlFullNewtonCheck) dlg->m_nlFullNewtonCheck->setChecked(true);
-                if (dlg->m_nlLineSearchCheck) dlg->m_nlLineSearchCheck->setChecked(true);
-                if (dlg->m_nlStepsSpin) dlg->m_nlStepsSpin->setValue(4);
 
                 // O solver não linear corrotacional/J2 opera apenas sobre barras 1D; preserva/restaura
                 // temporariamente a malha contínua da Etapa 24 para que ambas as demonstrações E2E concluam.
-                const kernel::MeshContainer savedSurfaceMesh = m_mainWindow->m_model.surfaceMesh();
-                if (!savedSurfaceMesh.elements.empty()) {
+                m_savedStep27SurfaceMesh = m_mainWindow->m_model.surfaceMesh();
+                if (!m_savedStep27SurfaceMesh.elements.empty()) {
                     m_mainWindow->m_model.surfaceMesh() = kernel::MeshContainer{};
                 }
-                dlg->onRunNonlinearAsync();
-                waitForBackgroundSolvers();
-                dlg->onPlayNonlinearHistory();
-                if (!savedSurfaceMesh.elements.empty()) {
-                    m_mainWindow->m_model.surfaceMesh() = savedSurfaceMesh;
-                    if (m_mainWindow->m_lastSolverResult.continuumElementResults.empty()) {
-                        m_mainWindow->m_lastSolverResult.success = false;
-                    }
+                m_pendingAsyncStep = 27;
+                m_pendingAsyncStage = 1;
+                m_suiteAsyncConn = connect(dlg.data(), &AnalysisSuiteDialog::asyncJobFinished,
+                                           this, &GuidedSessionDialog::onAsyncSuiteStepFinished);
+                dlg->onRunSeismicAsync();
+                if (!dlg || !dlg->isBusy()) {
+                    onAsyncSuiteStepFinished(false);
                 }
             }
             break;
         }
         case 28: {
-            m_mainWindow->ensureStaticSolvedSync();
-            m_mainWindow->updateResultsTables();
-            m_mainWindow->onOpenPostControls();
-            m_activeDialogStep = 28;
-            if (auto* dlg = m_mainWindow->m_postProcessControlDialog.data()) {
-                positionChildDialogForGuidedSession(dlg);
-                if (dlg->m_contourCombo) {
-                    const int dispIdx = dlg->m_contourCombo->findData(static_cast<int>(Viewport3D::PostContourMode::Displacement));
-                    if (dispIdx >= 0) dlg->m_contourCombo->setCurrentIndex(dispIdx);
-                    if (!m_mainWindow->m_model.surfaceMesh().elements.empty()) {
-                        const int vmIdx = dlg->m_contourCombo->findData(static_cast<int>(Viewport3D::PostContourMode::VonMisesStress));
-                        if (vmIdx >= 0) dlg->m_contourCombo->setCurrentIndex(vmIdx);
+            runGuidedStaticAsyncStep(28, [this](bool) {
+                if (!m_mainWindow) return;
+                m_mainWindow->updateResultsTables();
+                m_mainWindow->onOpenPostControls();
+                m_activeDialogStep = 28;
+                if (auto* dlg = m_mainWindow->m_postProcessControlDialog.data()) {
+                    positionChildDialogForGuidedSession(dlg);
+                    if (dlg->m_contourCombo) {
+                        const int dispIdx = dlg->m_contourCombo->findData(static_cast<int>(Viewport3D::PostContourMode::Displacement));
+                        if (dispIdx >= 0) dlg->m_contourCombo->setCurrentIndex(dispIdx);
+                        if (!m_mainWindow->m_model.surfaceMesh().elements.empty()) {
+                            const int vmIdx = dlg->m_contourCombo->findData(static_cast<int>(Viewport3D::PostContourMode::VonMisesStress));
+                            if (vmIdx >= 0) dlg->m_contourCombo->setCurrentIndex(vmIdx);
+                        }
+                    }
+                    if (dlg->m_showMeshCheck) dlg->m_showMeshCheck->setChecked(true);
+                    if (dlg->m_clipAxisCombo) {
+                        const int zIdx = dlg->m_clipAxisCombo->findData(static_cast<int>(Viewport3D::ClipAxis::Z));
+                        if (zIdx >= 0) dlg->m_clipAxisCombo->setCurrentIndex(zIdx);
+                        if (dlg->m_clipOffsetSpin) dlg->m_clipOffsetSpin->setValue(1.5);
+                    }
+                    if (dlg->m_btnPlayPause && dlg->m_btnPlayPause->isEnabled() && !dlg->m_btnPlayPause->isChecked()) {
+                        dlg->m_btnPlayPause->click();
                     }
                 }
-                if (dlg->m_showMeshCheck) dlg->m_showMeshCheck->setChecked(true);
-                if (dlg->m_clipAxisCombo) {
-                    const int zIdx = dlg->m_clipAxisCombo->findData(static_cast<int>(Viewport3D::ClipAxis::Z));
-                    if (zIdx >= 0) dlg->m_clipAxisCombo->setCurrentIndex(zIdx);
-                    if (dlg->m_clipOffsetSpin) dlg->m_clipOffsetSpin->setValue(1.5);
-                }
-                if (dlg->m_btnPlayPause && dlg->m_btnPlayPause->isEnabled() && !dlg->m_btnPlayPause->isChecked()) {
-                    dlg->m_btnPlayPause->click();
-                }
-            }
+            });
             break;
         }
         case 29: {
-            m_mainWindow->ensureStaticSolvedSync();
-            m_mainWindow->onOpenNbrCompliance();
-            m_activeDialogStep = 29;
-            if (auto* dlg = m_mainWindow->m_nbrComplianceDialog.data()) {
-                positionChildDialogForGuidedSession(dlg);
-                dlg->runAudit();
-                if (dlg->m_tabs) {
-                    for (int t = 0; t < dlg->m_tabs->count(); ++t) {
-                        dlg->m_tabs->setCurrentIndex(t);
-                        if (QWidget* w = dlg->m_tabs->currentWidget()) {
-                            for (auto* tbl : w->findChildren<QTableWidget*>()) {
-                                scrollTableToBottomAndTop(tbl);
+            runGuidedStaticAsyncStep(29, [this](bool) {
+                if (!m_mainWindow) return;
+                m_mainWindow->onOpenNbrCompliance();
+                m_activeDialogStep = 29;
+                if (auto* dlg = m_mainWindow->m_nbrComplianceDialog.data()) {
+                    positionChildDialogForGuidedSession(dlg);
+                    dlg->runAudit();
+                    if (dlg->m_tabs) {
+                        for (int t = 0; t < dlg->m_tabs->count(); ++t) {
+                            dlg->m_tabs->setCurrentIndex(t);
+                            if (QWidget* w = dlg->m_tabs->currentWidget()) {
+                                const QList<QTableWidget*> tbls = w->findChildren<QTableWidget*>();
+                                for (auto* tbl : tbls) {
+                                    scrollTableToBottomAndTop(tbl);
+                                }
                             }
                         }
+                        dlg->m_tabs->setCurrentIndex(0);
                     }
-                    dlg->m_tabs->setCurrentIndex(0);
+                    if (dlg->m_btnApplyDcrViewport) {
+                        dlg->m_btnApplyDcrViewport->click();
+                    }
                 }
-                if (dlg->m_btnApplyDcrViewport) {
-                    dlg->m_btnApplyDcrViewport->click();
-                }
-            }
+            });
             break;
         }
         case 30:
@@ -3593,8 +3754,9 @@ void GuidedSessionDialog::executeStepAction(int step) {
 void GuidedSessionDialog::restoreSelectedExampleToInitialState() {
     if (!m_mainWindow) return;
 
-    waitForBackgroundSolvers();
+    cancelPendingAsyncStep();
     closeAuxiliaryInputDialogs();
+    if (!m_mainWindow) return;
 
     if (m_mainWindow->m_actSelect) m_mainWindow->m_actSelect->setChecked(true);
     if (m_mainWindow->m_viewport) {
@@ -3640,10 +3802,7 @@ void GuidedSessionDialog::restoreSelectedExampleToInitialState() {
         m_mainWindow->loadExampleSpaceTruss();
     }
 
-    waitForBackgroundSolvers();
-    if (!m_mainWindow->m_lastSolverResult.success) {
-        m_mainWindow->ensureStaticSolvedSync();
-    }
+    m_mainWindow->ensureStaticSolvedAsync({});
 
     m_mainWindow->m_model.clearSelection();
     m_mainWindow->onSelectionChanged();

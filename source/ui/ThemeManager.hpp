@@ -22,6 +22,9 @@ class ThemeManager : public QObject {
     Q_OBJECT
 public:
     static ThemeManager& instance();
+    static void shutdown();
+
+    ~ThemeManager() override = default;
 
     void inicializar();
     bool reloadSavedTheme();
@@ -48,8 +51,8 @@ public:
                               bool pressed) const;
 
 signals:
-    void themeChanged(UiTheme newTheme);
-    void uiStyleModeChanged(UiStyleMode newMode);
+    void themeChanged(omniframe::UiTheme newTheme);
+    void uiStyleModeChanged(omniframe::UiStyleMode newMode);
 
 private:
     explicit ThemeManager(QObject* parent = nullptr);

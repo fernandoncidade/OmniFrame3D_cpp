@@ -68,7 +68,7 @@ cmake --preset version-msvc-release && cmake --build --preset version-msvc-relea
 cmake --preset compile-language-msvc-release && cmake --build --preset compile-language-msvc-release
 cmake --preset testes-msvc-release && cmake --build --preset testes-msvc-release
 
-# Executar a suíte de validação estrutural e testes unitários (20 alvos CTest)
+# Executar a suíte de validação estrutural e testes unitários (22 alvos CTest)
 ctest --preset testes-msvc-release --output-on-failure
 ```
 
@@ -89,7 +89,7 @@ cmake --build build/OmniFrame3D --config Release
    - `core/`: Modelo estrutural analítico, materiais, seções e nós (`OmniFrameCore`, neutro à UI).
    - `solver/`: Ponte de orquestração conectando `StructuralModel` ao `OmniFrameKernel` (`FemSolver3D`).
    - `render/`: Shaders OpenGL 3.3 Core Profile, VBO/VAO/EBO, câmera de órbita 3D, planos de corte, contornos DCR e algoritmos de raycasting.
-   - `ui/`: Interface Qt Widgets, docking, inspetores de propriedades editáveis em linha, tabelas interativas e multilayout (`ResultTableConfigurator`), sessão guiada (`GuidedSessionDialog`), configuração de inicialização/logs (`StartupSessionDialog`), alternância de interface (`Customizado`/`Nativo` em `ThemeManager`) e diálogos de engenharia modeless com gerenciamento `Z-Order`.
+   - `ui/`: Interface Qt Widgets, execução unificada assíncrona (`AsyncAnalysisExecutor`), docking, inspetores de propriedades editáveis em linha, modelo/proxy MVC compartilhado e tabelas multilayout (`ResultTableModel`, `ResultTableProxyModel`, `ResultTableConfigurator`), sessão guiada (`GuidedSessionDialog`), configuração de inicialização/logs (`StartupSessionDialog`), alternância de interface (`Customizado`/`Nativo` em `ThemeManager`) e diálogos de engenharia modeless com gerenciamento `Z-Order`.
    - `io/`: Serialização `.omniframe` (JSON Schema `2.1.0`), persistência atômica consolidada (`UserPreferencesStore` v2), recuperação de sessão (`ProjectRecoveryStore`), rotação diária de logs (`AppLogger`), intercâmbio DXF/IFC4 com suporte a caminhos UTF-8 (`Utf8Path.hpp`) e exportação de relatórios em HTML/Markdown/PDF A4.
    - `os/`: Integração Windows 10/11 (`WindowsCliIntegration`) para argumentos UTF-8 no console, registro não administrativo `HKCU` (`PATH` / `App Paths` / `.omniframe`), abertura de terminais CMD/PowerShell e delegação de flags CLI a partir de `OmniFrame.exe`.
    - `cli/`: Executável console nativo `omniframe-cli.exe` integrado ao `OmniFrame.exe`, compartilhando `OmniFrameCore` e `OmniFrameKernel` com os mesmos exemplos, validações e auditoria ABNT NBR.
@@ -171,7 +171,7 @@ cmake --preset version-msvc-release && cmake --build --preset version-msvc-relea
 cmake --preset compile-language-msvc-release && cmake --build --preset compile-language-msvc-release
 cmake --preset testes-msvc-release && cmake --build --preset testes-msvc-release
 
-# Run structural validation suite and unit tests (20 CTest targets)
+# Run structural validation suite and unit tests (22 CTest targets)
 ctest --preset testes-msvc-release --output-on-failure
 ```
 
@@ -192,7 +192,7 @@ cmake --build build/OmniFrame3D --config Release
    - `core/`: Analytical structural model, materials, cross-sections, and nodes (`OmniFrameCore`, UI-neutral).
    - `solver/`: Orchestration bridge connecting `StructuralModel` to `OmniFrameKernel` (`FemSolver3D`).
    - `render/`: OpenGL 3.3 Core Profile shaders, VBO/VAO/EBO, 3D orbit camera, clip planes, DCR contours, and raycasting algorithms.
-   - `ui/`: Qt Widgets interface, docking, inline-editable property inspectors, interactive multi-layout result tables (`ResultTableConfigurator`), guided session (`GuidedSessionDialog`), startup/log settings (`StartupSessionDialog`), dual UI style mode (`Custom`/`Native` in `ThemeManager`), and modeless engineering dialogs with `Z-Order` management.
+   - `ui/`: Qt Widgets interface, unified asynchronous solver execution (`AsyncAnalysisExecutor`), docking, inline-editable property inspectors, shared MVC result model/proxy and interactive multi-layout tables (`ResultTableModel`, `ResultTableProxyModel`, `ResultTableConfigurator`), guided session (`GuidedSessionDialog`), startup/log settings (`StartupSessionDialog`), dual UI style mode (`Custom`/`Native` in `ThemeManager`), and modeless engineering dialogs with `Z-Order` management.
    - `io/`: `.omniframe` JSON Schema `2.1.0` serialization, atomic consolidated preference storage (`UserPreferencesStore` v2), session draft recovery (`ProjectRecoveryStore`), daily rotating diagnostic logs (`AppLogger`), UTF-8 path-aware DXF/IFC4 interoperability (`Utf8Path.hpp`), and HTML/Markdown/A4 PDF report export.
    - `os/`: Windows 10/11 integration (`WindowsCliIntegration`) providing UTF-8 console argv handling, non-admin `HKCU` registry integration (`PATH` / `App Paths` / `.omniframe`), CMD/PowerShell session launch, and CLI forwarding from `OmniFrame.exe`.
    - `cli/`: Dedicated native console executable `omniframe-cli.exe` integrated with `OmniFrame.exe`, sharing `OmniFrameCore`, `OmniFrameKernel`, built-in examples, validation, and ABNT NBR auditing.

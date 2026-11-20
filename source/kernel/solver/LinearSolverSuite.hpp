@@ -2,6 +2,7 @@
 
 #include "../core/KernelTypes.hpp"
 #include <memory>
+#include <stop_token>
 
 namespace omniframe::kernel {
 
@@ -28,7 +29,8 @@ public:
                       const VecX& b,
                       const LinearSolverOptions& opts,
                       LinearSolverStats& stats,
-                      FactorizationCache* cache = nullptr);
+                      FactorizationCache* cache = nullptr,
+                      std::stop_token stopToken = {});
 
     static bool isMatrixApproximatelySymmetric(const SpMat& A, double relTol = 1e-10);
 };

@@ -3,6 +3,7 @@
 #include "io/DxfInterop.hpp"
 #include "io/IfcInterop.hpp"
 #include "io/ProjectSerializer.hpp"
+#include "os/WindowsCliIntegration.hpp"
 #include "kernel/assembly/GlobalAssembler.hpp"
 #include "kernel/core/DofManager.hpp"
 #include "kernel/elements/SolidElements.hpp"
@@ -209,9 +210,18 @@ void testIfc4RoundtripAndDeterministicGuids() {
     const std::string ifcPath1 = tmp.filePath("model_a.ifc").toStdString();
     const std::string ifcPath2 = tmp.filePath("model_b.ifc").toStdString();
 
-    const StructuralModel src = StructuralModel::createBuildingFrameExample();
-    const auto shellMesh = MeshGenerator::generateStructuredQuadGrid(
+    StructuralModel src = StructuralModel::createBuildingFrameExample();
+    // Garante variedade de apoios (engaste, rotula, apoio misto) para validar roundtrip de node.support.fixed
+    if (src.getNodes().size() >= 2) {
+        src.getNodes()[0].support = SupportRestraint::makeFixed();
+        src.getNodes()[1].support = SupportRestraint::makePinned();
+        src.getNodes()[1].support.fixed[4] = true;
+    }
+    auto shellMesh = MeshGenerator::generateStructuredQuadGrid(
         KVec3(0.0, 0.0, 3.0), KVec3(5.0, 0.0, 0.0), KVec3(0.0, 4.0, 0.0), 2, 2, false);
+    for (auto& me : shellMesh.elements) {
+        me.thickness = 0.275;
+    }
 
     io::IfcGuidMap guids1, guids2;
     io::IfcInteropReport rep1, rep2;
@@ -240,6 +250,24 @@ void testIfc4RoundtripAndDeterministicGuids() {
                 "Importacao IFC4 deve restaurar todos os elementos de barra");
     TEST_ASSERT(importedShell.elements.size() == shellMesh.elements.size(),
                 "Importacao IFC4 deve restaurar superficies analiticas");
+
+    // [AUD-013] Verificar igualdade exata de node.support.fixed e me.thickness apos roundtrip IFC4
+    for (const auto& sNode : src.getNodes()) {
+        const Node* matched = nullptr;
+        for (const auto& dNode : dst.getNodes()) {
+            if ((dNode.position - sNode.position).norm() < 1e-6) {
+                matched = &dNode;
+                break;
+            }
+        }
+        TEST_ASSERT(matched != nullptr, "No estrutural IFC4 deve ser reimportado na mesma coordenada");
+        TEST_ASSERT(matched->support.fixed == sNode.support.fixed,
+                    "Roundtrip IFC4 deve preservar exatamente node.support.fixed ([AUD-013])");
+    }
+    for (const auto& impEl : importedShell.elements) {
+        TEST_ASSERT(std::abs(impEl.thickness - 0.275) < 1e-6,
+                    "Roundtrip IFC4 deve preservar me.thickness real (0.275 m) em vez de 0.15 hardcoded ([AUD-013])");
+    }
 
     std::cout << "[OK] testIfc4RoundtripAndDeterministicGuids (nodes=" << impRep.structuralNodesImported
               << ", curves=" << impRep.curveMembersImported
@@ -521,6 +549,52 @@ void testContinuumSerializationAndCliTransientCase() {
     TEST_ASSERT(objSeis["success"].toBool() && objSeis["steps"].toInt() == 9 &&
                 std::abs(objSeis["dt"].toDouble() - 0.02) < 1e-9,
                 "CLI seismic deve executar 8 passos (+ t=0 => 9 registros) com dt=0.02");
+
+    // 4. [AUD-007] --validate --json com no de malha inexistente 999 (Tri3/Quad4/Tet4/Hex8)
+    for (int cIdx = 0; cIdx < 4; ++cIdx) {
+        StructuralModel badMeshModel;
+        badMeshModel.getMaterials().clear();
+        badMeshModel.getCrossSections().clear();
+        const int mId = badMeshModel.addMaterial(Material::makeConcreteC30(1));
+        for (int nid = 1; nid <= 8; ++nid) {
+            kernel::MeshNode mn;
+            mn.id = nid;
+            mn.position = kernel::Vec3((nid - 1) & 1, ((nid - 1) >> 1) & 1, ((nid - 1) >> 2) & 1);
+            if (nid <= 4) mn.fixed = {true, true, true, true, true, true};
+            badMeshModel.surfaceMesh().nodes.push_back(mn);
+        }
+        kernel::MeshElement me;
+        me.id = 1;
+        me.materialId = mId;
+        me.thickness = 0.20;
+        if (cIdx == 0) { me.type = kernel::MeshCellType::Tri3;  me.nodeIds = {1, 2, 999}; }
+        if (cIdx == 1) { me.type = kernel::MeshCellType::Quad4; me.nodeIds = {1, 2, 3, 999}; }
+        if (cIdx == 2) { me.type = kernel::MeshCellType::Tet4;  me.nodeIds = {1, 2, 3, 999}; }
+        if (cIdx == 3) { me.type = kernel::MeshCellType::Hex8;  me.nodeIds = {1, 2, 3, 4, 5, 6, 7, 999}; }
+        badMeshModel.surfaceMesh().elements.push_back(me);
+
+        const QString badMeshPath = tmp.filePath(QString("missing_node_999_%1.omniframe").arg(cIdx));
+        TEST_ASSERT(ProjectSerializer::saveToFile(badMeshPath, badMeshModel), "Salvar .omniframe com no 999 ausente");
+
+        QProcess valProc;
+        valProc.start(cliExe, {"--validate", badMeshPath, "--json"});
+        TEST_ASSERT(valProc.waitForStarted(10000) && valProc.waitForFinished(30000),
+                    "CLI --validate com no 999 deve concluir sem crash");
+        TEST_ASSERT(valProc.exitStatus() == QProcess::NormalExit && valProc.exitCode() == 2,
+                    "CLI --validate com no 999 deve sair com codigo 2");
+        const QJsonDocument valDoc = QJsonDocument::fromJson(valProc.readAllStandardOutput());
+        TEST_ASSERT(valDoc.isObject() && !valDoc.object()["valid"].toBool() && !valDoc.object()["success"].toBool(),
+                    "CLI --validate JSON deve reportar valid=false");
+        const QJsonArray issues = valDoc.object()["validationIssues"].toArray();
+        bool hasErrCode = false;
+        for (const QJsonValue& iv : issues) {
+            if (iv.toObject()["code"].toString() == QStringLiteral("ERR_MESH_MISSING_NODE")) {
+                hasErrCode = true;
+                break;
+            }
+        }
+        TEST_ASSERT(hasErrCode, "CLI --validate JSON deve reportar ERR_MESH_MISSING_NODE ([AUD-007])");
+    }
 #endif
 
     std::cout << "[OK] ContinuumSerialization + CLI VTK/CSV/case/combo/transient/seismic\n";
@@ -637,6 +711,266 @@ void testCliOmniFrameIntegrationAndUtf8Paths() {
 #endif
 }
 
+void testSecureTerminalLaunchSpec() {
+    const std::filesystem::path hostileCli(
+        L"C:\\Users\\O'Connor (Test)\\OmniFrame $(calc) \\omniframe-cli.exe");
+    const std::filesystem::path hostileWorkDir(
+        L"D:\\Projetos (2026)\\O'Brien & Co");
+
+    const auto psSpec = os::buildInteractiveCliTerminalSpec(
+        os::TerminalShell::PowerShell, hostileCli, hostileWorkDir);
+    const auto cmdSpec = os::buildInteractiveCliTerminalSpec(
+        os::TerminalShell::Cmd, hostileCli, hostileWorkDir);
+
+#ifdef _WIN32
+    const QString psAppQ = QString::fromStdWString(psSpec.applicationPath);
+    const QString cmdAppQ = QString::fromStdWString(cmdSpec.applicationPath);
+    TEST_ASSERT(psAppQ.contains(QStringLiteral("\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+                                Qt::CaseInsensitive),
+                "PowerShell deve resolver absolutamente dentro de System32 ([AUD-008])");
+    TEST_ASSERT(cmdAppQ.contains(QStringLiteral("\\System32\\cmd.exe"), Qt::CaseInsensitive),
+                "CMD deve resolver absolutamente dentro de System32 ([AUD-008])");
+#endif
+
+    // PowerShell deve usar aspas simples literais (duplicando apostrofos '') e nao interpolar $(calc)
+    const QString psCmdQ = QString::fromStdWString(psSpec.commandLine);
+    TEST_ASSERT(psCmdQ.contains(QStringLiteral("& 'C:\\Users\\O''Connor (Test)\\OmniFrame $(calc) \\omniframe-cli.exe' --version")),
+                "PowerShell deve qualificar caminho completo entre aspas simples literais com escape '' ([AUD-008])");
+    TEST_ASSERT(!psCmdQ.contains(QStringLiteral("\"& ")),
+                "PowerShell nao pode envolver script ou $(...) sem quoting literal");
+
+    const QString cmdCmdQ = QString::fromStdWString(cmdSpec.commandLine);
+    TEST_ASSERT(cmdCmdQ.contains(QStringLiteral("\"C:\\Users\\O'Connor (Test)\\OmniFrame $(calc) \\omniframe-cli.exe\" --version")),
+                "CMD deve qualificar caminho completo entre aspas ([AUD-008])");
+
+    std::cout << "[OK] testSecureTerminalLaunchSpec\n";
+}
+
+void testCliMeshExportAndTauXzReport() {
+    QTemporaryDir tmp;
+    TEST_ASSERT(tmp.isValid(), "QTemporaryDir deve ser criado");
+
+    // 1. CLI --export ifc e --export dxf deve preservar model.surfaceMesh() ([AUD-013])
+#ifdef OMNIFRAME_CLI_PATH
+    {
+        StructuralModel surfModel;
+        surfModel.getMaterials().clear();
+        surfModel.getCrossSections().clear();
+        const int matId = surfModel.addMaterial(Material::makeConcreteC30(1));
+        const int secId = surfModel.addCrossSection(CrossSection::makeRectangular(1, "Pilar", 0.30, 0.30));
+        const int b1 = surfModel.addNode(0.0, 0.0, 0.0);
+        const int t1 = surfModel.addNode(0.0, 0.0, 3.0);
+        surfModel.findNode(b1)->support = SupportRestraint::makeFixed();
+        surfModel.addElement(b1, t1, matId, secId);
+
+        surfModel.surfaceMesh() = MeshGenerator::generateStructuredQuadGrid(
+            KVec3(0.0, 0.0, 3.0), KVec3(4.0, 0.0, 0.0), KVec3(0.0, 4.0, 0.0), 2, 2, false);
+        for (auto& me : surfModel.surfaceMesh().elements) {
+            me.materialId = matId;
+            me.thickness = 0.275;
+            me.normalPressure = -5.0;
+        }
+
+        const QString projPath = tmp.filePath("cli_mesh_export.omniframe");
+        const QString outIfc = tmp.filePath("cli_mesh_out.ifc");
+        const QString outDxf = tmp.filePath("cli_mesh_out.dxf");
+        TEST_ASSERT(ProjectSerializer::saveToFile(projPath, surfModel), "Salvar modelo com malha");
+
+        QProcess proc;
+        proc.start(QString::fromUtf8(OMNIFRAME_CLI_PATH), {
+            "--analyze", projPath, "--analysis", "static",
+            "--export", "ifc", outIfc,
+            "--export", "dxf", outDxf,
+            "--json"
+        });
+        TEST_ASSERT(proc.waitForStarted(10000) && proc.waitForFinished(30000) && proc.exitCode() == 0,
+                    "CLI --export ifc/dxf com surfaceMesh deve retornar 0");
+
+        StructuralModel reIfc;
+        MeshContainer meshIfc;
+        io::IfcInteropReport repIfc;
+        TEST_ASSERT(io::IfcInterop::importFromFile(outIfc.toStdString(), reIfc, &meshIfc, nullptr, &repIfc) &&
+                        meshIfc.elements.size() == 4 &&
+                        std::abs(meshIfc.elements[0].thickness - 0.275) < 1e-6,
+                    "CLI --export ifc deve exportar model.surfaceMesh() com espessura real ([AUD-013])");
+
+        StructuralModel reDxf;
+        MeshContainer meshDxf;
+        io::DxfInteropReport repDxf;
+        TEST_ASSERT(io::DxfInterop::importFromFile(outDxf.toStdString(), reDxf, &meshDxf, io::DxfImportOptions{}, &repDxf) &&
+                        meshDxf.elements.size() == 4,
+                    "CLI --export dxf deve exportar model.surfaceMesh() como 3DFACE ([AUD-013])");
+    }
+#endif
+
+    // 2. Relatorios HTML/Markdown de solido sob cisalhamento puro tau_xz (Voigt index 5) ([AUD-013])
+    {
+        StructuralModel solidModel;
+        solidModel.getMaterials().clear();
+        solidModel.getCrossSections().clear();
+        const int matId = solidModel.addMaterial(Material::makeConcreteC30(1));
+        solidModel.surfaceMesh() = MeshGenerator::generateStructuredHexGrid(
+            KVec3::Zero(), KVec3(1.0, 1.0, 1.0), 1, 1, 1, false, "BlocoHex");
+        for (auto& me : solidModel.surfaceMesh().elements) me.materialId = matId;
+
+        SolverResult res;
+        res.success = true;
+        res.totalSurfaceElements = 1;
+        ContinuumElementResult ce;
+        ce.elementId = 1;
+        ce.isShell = false;
+        ce.isSolid = true;
+        ce.cellTypeName = "Hex8";
+        ce.vonMisesStress = 213.82;
+        ce.maxPrincipalStress = 123.45;
+        ce.minPrincipalStress = -123.45;
+        // Voigt: [sxx, syy, szz, tau_xy, tau_yz, tau_xz]
+        ce.stressVoigt = {0.0, 0.0, 0.0, 0.0, 11.11, 123.45};
+        res.continuumElementResults.push_back(ce);
+        res.maxSolidVonMises = 213.82;
+
+        const QString htmlPath = tmp.filePath("tau_xz.html");
+        const QString mdPath = tmp.filePath("tau_xz.md");
+        TEST_ASSERT(ProjectSerializer::exportTechnicalReportHtml(htmlPath, solidModel, res),
+                    "Exportar HTML com tau_xz deve suceder");
+        TEST_ASSERT(ProjectSerializer::exportTechnicalReportMarkdown(mdPath, solidModel, res),
+                    "Exportar Markdown com tau_xz deve suceder");
+
+        QFile hf(htmlPath), mf(mdPath);
+        TEST_ASSERT(hf.open(QIODevice::ReadOnly | QIODevice::Text) && mf.open(QIODevice::ReadOnly | QIODevice::Text),
+                    "Abrir relatorios HTML e MD");
+        const QString htmlText = QString::fromUtf8(hf.readAll());
+        const QString mdText = QString::fromUtf8(mf.readAll());
+        TEST_ASSERT(htmlText.contains(QStringLiteral("123.45 kPa")) && !htmlText.contains(QStringLiteral("11.11 kPa")),
+                    "Relatorio HTML deve reportar tau_xz = stressVoigt[5] = 123.45 kPa ([AUD-013])");
+        TEST_ASSERT(mdText.contains(QStringLiteral("123.45 kPa")) && !mdText.contains(QStringLiteral("11.11 kPa")),
+                    "Relatorio Markdown deve reportar tau_xz = stressVoigt[5] = 123.45 kPa ([AUD-013])");
+    }
+
+    std::cout << "[OK] testCliMeshExportAndTauXzReport\n";
+}
+
+void testCliStrictParsingAndJsonErrors() {
+#ifndef OMNIFRAME_CLI_PATH
+    TEST_ASSERT(false, "OMNIFRAME_CLI_PATH nao definido no CMake");
+#else
+    const QString cliExe = QString::fromUtf8(OMNIFRAME_CLI_PATH);
+    auto expectFailJson = [&](const QStringList& args, const char* label) {
+        QProcess proc;
+        proc.start(cliExe, args);
+        TEST_ASSERT(proc.waitForStarted(10000) && proc.waitForFinished(30000), label);
+        TEST_ASSERT(proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 1,
+                    std::string(label) + " (esperado exit code 1)");
+        const QByteArray out = proc.readAllStandardOutput().trimmed();
+        QJsonParseError perr{};
+        const QJsonDocument doc = QJsonDocument::fromJson(out, &perr);
+        TEST_ASSERT(perr.error == QJsonParseError::NoError && doc.isObject() &&
+                        doc.object().contains("success") && !doc.object()["success"].toBool() &&
+                        !doc.object()["error"].toString().isEmpty(),
+                    std::string(label) + " (JSON invalido ou success != false)");
+    };
+
+    expectFailJson({"--example", "building", "--analysis", "modal", "--modes", "abc", "--json"},
+                   "CLI --modes abc");
+    expectFailJson({"--example", "building", "--analysis", "modal", "--modes", "4xyz", "--json"},
+                   "CLI --modes 4xyz");
+    expectFailJson({"--example", "building", "--analysis", "transient", "--dt", "nan", "--json"},
+                   "CLI --dt nan");
+    expectFailJson({"--example", "building", "--analysis", "transient", "--dt", "-1", "--json"},
+                   "CLI --dt -1");
+    expectFailJson({"--example", "building", "--analysis", "nonlinear", "--load-factor", "inf", "--json"},
+                   "CLI --load-factor inf");
+    expectFailJson({"--analyze", "C:\\inexistente\\pasta\"especial\\modelo.omniframe", "--json"},
+                   "CLI caminho Windows com barras invertidas e aspas");
+
+    std::cout << "[OK] testCliStrictParsingAndJsonErrors\n";
+#endif
+}
+
+void testExtremeCoordinatesNoUb() {
+    QTemporaryDir tmp;
+    TEST_ASSERT(tmp.isValid(), "QTemporaryDir deve ser criado para teste de coordenadas extremas");
+
+    // 1. DXF com coordenadas 1e15 nao pode causar overflow UB em std::llround ([AUD-021])
+    const std::string badDxf =
+        "0\nSECTION\n2\nENTITIES\n"
+        "0\nLINE\n8\n0\n10\n1e15\n20\n0.0\n30\n0.0\n11\n1e15\n21\n5.0\n31\n0.0\n"
+        "0\nENDSEC\n0\nEOF\n";
+    const QString dxfPath = tmp.filePath("extreme_1e15.dxf");
+    {
+        QFile f(dxfPath);
+        TEST_ASSERT(f.open(QIODevice::WriteOnly | QIODevice::Truncate), "Gravar DXF 1e15");
+        f.write(badDxf.data(), static_cast<qint64>(badDxf.size()));
+    }
+    StructuralModel dxfModel;
+    MeshContainer dxfMesh;
+    io::DxfInteropReport dxfRep;
+    const bool impOk = io::DxfInterop::importFromFile(dxfPath.toStdString(), dxfModel, &dxfMesh, io::DxfImportOptions{}, &dxfRep);
+    TEST_ASSERT(!impOk && dxfModel.getNodes().empty(),
+                "Importacao DXF com coordenadas 1e15 deve falhar de forma segura sem UB ([AUD-021])");
+
+    // 2. StructuralModel com coordenada 1e15 deve falhar em validate() e solve() sem UB
+    StructuralModel extModel;
+    const int n1 = extModel.addNode(0.0, 0.0, 0.0);
+    const int n2 = extModel.addNode(1e15, 0.0, 0.0);
+    extModel.findNode(n1)->support = SupportRestraint::makeFixed();
+    extModel.addElement(n1, n2, 1, 1);
+    const ModelValidation val = extModel.validate();
+    TEST_ASSERT(!val.valid, "Modelo com coordenada 1e15 deve ser invalido em validate()");
+    const SolverResult sr = FemSolver3D::solve(extModel);
+    TEST_ASSERT(!sr.success, "Solver deve rejeitar coordenadas 1e15 sem overflow de llround");
+
+    std::cout << "[OK] testExtremeCoordinatesNoUb\n";
+}
+
+void testAud017DxfAndIfcNanInfAndSizeQuotaRejection() {
+    // 1. DXF com NaN / Inf ou excedendo maxFileSizeBytes deve ser rejeitado imediatamente
+    {
+        const std::string nanDxf =
+            "0\nSECTION\n2\nENTITIES\n"
+            "0\nLINE\n8\n0\n10\nNaN\n20\n0.0\n30\n0.0\n11\n5.0\n21\n0.0\n31\n0.0\n"
+            "0\nENDSEC\n0\nEOF\n";
+        StructuralModel mDxf;
+        io::DxfInteropReport rep;
+        TEST_ASSERT(!io::DxfInterop::importFromString(nanDxf, mDxf, nullptr, io::DxfImportOptions{}, &rep),
+                    "DXF com coordenada NaN deve ser rejeitado");
+
+        const std::string validDxf =
+            "0\nSECTION\n2\nENTITIES\n"
+            "0\nLINE\n8\n0\n10\n0.0\n20\n0.0\n30\n0.0\n11\n5.0\n21\n0.0\n31\n0.0\n"
+            "0\nENDSEC\n0\nEOF\n";
+        io::DxfImportOptions quotaOpts;
+        quotaOpts.maxFileSizeBytes = 10; // Menor que validDxf.size()
+        TEST_ASSERT(!io::DxfInterop::importFromString(validDxf, mDxf, nullptr, quotaOpts, &rep),
+                    "DXF excedendo maxFileSizeBytes deve ser rejeitado");
+    }
+
+    // 2. IFC com NaN / Inf em IFCCARTESIANPOINT ou excedendo maxFileSizeBytes deve ser rejeitado
+    {
+        const std::string nanIfc =
+            "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n"
+            "#10=IFCCARTESIANPOINT((0.0,NaN,0.0));\n"
+            "#11=IFCVERTEXPOINT(#10);\n"
+            "#12=IFCSTRUCTURALPOINTCONNECTION('0001',$,'N1',$,$,$,#11,$);\n"
+            "ENDSEC;\nEND-ISO-10303-21;\n";
+        StructuralModel mIfc;
+        io::IfcInteropReport rep;
+        TEST_ASSERT(!io::IfcInterop::importFromString(nanIfc, mIfc, nullptr, nullptr, &rep),
+                    "IFC com coordenada NaN em IFCCARTESIANPOINT deve ser rejeitado");
+
+        const std::string validIfc =
+            "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n"
+            "#10=IFCCARTESIANPOINT((0.0,0.0,0.0));\n"
+            "#11=IFCVERTEXPOINT(#10);\n"
+            "#12=IFCSTRUCTURALPOINTCONNECTION('0001',$,'N1',$,$,$,#11,$);\n"
+            "ENDSEC;\nEND-ISO-10303-21;\n";
+        TEST_ASSERT(!io::IfcInterop::importFromString(validIfc, mIfc, nullptr, nullptr, &rep, 16),
+                    "IFC excedendo maxFileSizeBytes deve ser rejeitado");
+    }
+
+    std::cout << "[OK] testAud017DxfAndIfcNanInfAndSizeQuotaRejection\n";
+}
+
 } // namespace
 
 int main() {
@@ -646,6 +980,11 @@ int main() {
     testHeadlessCliEndToEnd();
     testContinuumSerializationAndCliTransientCase();
     testCliOmniFrameIntegrationAndUtf8Paths();
+    testSecureTerminalLaunchSpec();
+    testCliMeshExportAndTauXzReport();
+    testCliStrictParsingAndJsonErrors();
+    testExtremeCoordinatesNoUb();
+    testAud017DxfAndIfcNanInfAndSizeQuotaRejection();
     std::cout << "\nTodos os testes da Fase 7 (Malha 1D/2D/3D, DXF, IFC4 BIM e CLI headless) passaram!\n";
     return 0;
 }

@@ -10,8 +10,10 @@ class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QProcess;
 class QPushButton;
 class QTextEdit;
+class QTimer;
 
 namespace mocks::compile_translations_gui {
 
@@ -22,7 +24,16 @@ class CompileTranslationsGuiWindow final : public QMainWindow {
 
 public:
     explicit CompileTranslationsGuiWindow(QWidget* parent = nullptr);
-    ~CompileTranslationsGuiWindow() override = default;
+    ~CompileTranslationsGuiWindow() override;
+
+    void setTranslationDir(const QString& dirPath);
+    void setLreleasePath(const QString& lreleasePath);
+    void triggerCompileAllAsync();
+    [[nodiscard]] bool isCompilationRunning() const noexcept { return m_compilationRunning; }
+    [[nodiscard]] int batchTotalCount() const noexcept { return m_batchTotal; }
+    [[nodiscard]] int batchOkCount() const noexcept { return m_batchOk; }
+    [[nodiscard]] int batchErrorCount() const noexcept { return m_batchErrors; }
+    [[nodiscard]] QString logContent() const;
 
 private slots:
     void aoSelecionarPastaTraducoes();
@@ -40,8 +51,25 @@ private:
     void atualizarListaArquivos();
     void registrarLog(const QString& linha);
     QString trLocal(const QString& pt, const QString& en) const;
+    void iniciarCompilacaoAssincrona(const QStringList& arquivosEspecificos);
+    void processarProximoDaFila();
+    void finalizarCompilacaoAssincrona();
+    void definirControlesHabilitados(bool enabled);
 
     bool m_idiomaIngles = false;
+    bool m_compilationRunning = false;
+    bool m_currentItemHandled = false;
+    bool m_timedOutCurrent = false;
+    int m_batchTotal = 0;
+    int m_batchOk = 0;
+    int m_batchErrors = 0;
+    QString m_activeLreleasePath;
+    QString m_activeDirTraducoes;
+    QString m_activeTsPath;
+    QString m_activeQmPath;
+    QStringList m_pendingTsQueue;
+    QProcess* m_activeProcess = nullptr;
+    QTimer* m_processTimeoutTimer = nullptr;
 
     QLabel* m_tituloLabel = nullptr;
     QLabel* m_subtituloLabel = nullptr;

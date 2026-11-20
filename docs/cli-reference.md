@@ -14,8 +14,8 @@
 
 # OmniFrame 3D — Referência de Linha de Comando (CLI) e Utilitários
 
-**Versão:** `2026.11.18.0`  
-**Data:** `18 de novembro de 2026`  
+**Versão:** `2026.11.20.0`  
+**Data:** `20 de novembro de 2026`  
 **Autor:** Fernando Nillsson Cidade  
 
 ---
@@ -34,7 +34,7 @@ OmniFrame.exe "C:\Projetos\Pórtico São Paulo\modelo_técnico.omniframe"
 # No PowerShell, prefira chamar omniframe-cli diretamente; via OmniFrame.exe encadeie pipeline:
 .\OmniFrame.exe --version | Out-String
 ```
-- **Alias de Execução MSIX (Microsoft Store):** Quando instalado via pacote MSIX ([`repo/AppxManifest.xml`](../repo/AppxManifest.xml)), o Windows 10/11 registra dois `uap5:AppExecutionAlias`:
+- **Alias de Execução MSIX (Microsoft Store):** Quando instalado via pacote MSIX (`AppxManifest.xml`), o Windows 10/11 registra dois `uap5:AppExecutionAlias`:
 ```powershell
 omniframe.exe
 omniframe-cli.exe
@@ -51,15 +51,18 @@ Compilado pelo preset `compile-language-msvc-release` em `build/CompileLanguage/
 
 ```powershell
 .\build\CompileLanguage\CompileTranslationsTerminal.exe --check --root .
+.\build\CompileLanguage\CompileTranslationsTerminal.exe --check --file source\locale\language\omniframe_pt_BR.ts
 .\build\CompileLanguage\CompileTranslationsTerminal.exe --root . --verbose
 ```
+
+*(O modo `--check` / `--check --file` opera de forma estritamente somente leitura sem reescrever arquivos `.qm`.)*
 
 ### 2.2. `VersionEditor.exe` (Sincronização e Auditoria de Versão e Data)
 Compilado pelo preset `version-msvc-release` em `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.18.0 --date 2026-11-18 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.20.0 --date 2026-11-20 --apply --root .
 ```
 
 ---
@@ -72,7 +75,7 @@ O binário nativo de console `omniframe-cli.exe` (`/SUBSYSTEM:CONSOLE`) é compi
 - **Menu GUI em `OmniFrame.exe`:** `Configurações > CLI Windows (CMD / PowerShell)` (registrar sem admin, remover, verificar status, abrir CMD ou PowerShell já prontos com a CLI).
 - **Auto-registro HKCU via CLI:** `omniframe-cli --install-windows-integration` / `--check-windows-integration` / `--uninstall-windows-integration`.
 - **Script PowerShell Portátil:** `.\cmake\register_cli_windows.ps1` (suporta `-CheckOnly`, `-Uninstall`, `-Action install|uninstall|check`, `-CliPath` e `-Json`) ou `.\register_cli_windows.ps1` dentro da pasta distribuída.
-- **Instalador Inno Setup (`repo/OmniFrame.iss`) & MSIX (`repo/AppxManifest.xml`):** tarefas `addtopath` e `assocproj` marcadas por padrão; alias `omniframe-cli.exe` com `desktop4:Subsystem="console"`.
+- **Instalador Inno Setup (`OmniFrame.iss`) & MSIX (`AppxManifest.xml`):** tarefas `addtopath` e `assocproj` marcadas por padrão; alias `omniframe-cli.exe` com `desktop4:Subsystem="console"`.
 - **Codificação UTF-8 no terminal:** `chcp 65001 >nul` no CMD e `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` no PowerShell (`CommandLineToArgvW` + caminhos UTF-8 nativos em DXF/IFC4/CSV/VTK/JSON/MD/HTML/PDF).
 
 ### 3.2. Comandos e Opções Suportadas
@@ -112,7 +115,7 @@ omniframe-cli --check-windows-integration --json
 | `--no-line-search` | — | Desabilita busca linear em Newton-Raphson. |
 | `--imperfection` | `<amp_m>` | Aplica perturbação geométrica pelo modo de flambagem na amplitude especificada (m) antes de resolver/exportar. |
 | `--imperfection-mode` | `<N>` | Modo de flambagem base `1` utilizado em `--imperfection` (padrão `1`). |
-| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <caminho>` | Exporta resultados 1D/2D/3D (repetível: `.vtk` `UNSTRUCTURED_GRID` com `von_mises_kPa`, `.csv` nodal/contínuo, `.json`, `.dxf`, `.ifc`). |
+| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <caminho>` | Exporta resultados 1D/2D/3D (repetível: `.vtk` `UNSTRUCTURED_GRID` com `von_mises_kPa`, `.csv` nodal/contínuo, `.json`, `.dxf` preservando `surfaceMesh`, `.ifc` preservando `surfaceMesh`, apoios e espessuras reais). |
 | `--report` | `<md\|html\|pdf> <caminho>` | Gera memorial técnico em Markdown, HTML5 ou PDF executivo A4 (repetível; inclui resultados e auditoria NBR). |
 | `--output` | `<caminho.json>` | Grava o resumo estruturado completo em JSON no arquivo informado. |
 | `--json` | — | Emite o resumo estruturado em JSON diretamente na saída padrão (`stdout`). |
@@ -122,9 +125,9 @@ omniframe-cli --check-windows-integration --json
 
 ### 3.3. Códigos de Saída e Verificação Automatizada
 
-- Códigos de saída (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (sucesso), `1` (erro de sintaxe CLI, I/O ou registro Windows), `2` (falha na validação estrutural `--validate` ou falha numérica/física na solução).
+- Códigos de saída (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (sucesso), `1` (erro de sintaxe CLI, flag numérica não finita `NaN`/`Inf` ou inválida — validação estrita via `std::from_chars` com emissão de JSON válido quando `--json`/`--output` estão ativos —, falha de I/O ou registro Windows), `2` (falha na validação estrutural `--validate` ou falha numérica/física na solução).
 - **Logs Diários e Fontes em Modo Headless:** Cada execução de `omniframe-cli.exe` registra automaticamente eventos em `%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log` (rotação automática com máximo de 10 arquivos). Ao exportar relatórios PDF sem interface gráfica (`--report pdf`), a CLI configura automaticamente `QT_QPA_PLATFORM=offscreen` e resolve `QT_QPA_FONTDIR` para `%WINDIR%\Fonts` no Windows.
-- Verificação automatizada (`20` suítes CTest): `ctest --preset testes-msvc-release --output-on-failure`.
+- Verificação automatizada (`22` suítes CTest): `ctest --preset testes-msvc-release --output-on-failure`.
 
 </details>
 
@@ -137,8 +140,8 @@ omniframe-cli --check-windows-integration --json
 
 # OmniFrame 3D — Command Line Reference & Companion Utilities
 
-**Version:** `2026.11.18.0`  
-**Date:** `November 18, 2026`  
+**Version:** `2026.11.20.0`  
+**Date:** `November 20, 2026`  
 **Author:** Fernando Nillsson Cidade  
 
 ---
@@ -157,7 +160,7 @@ OmniFrame.exe "C:\Projects\Pórtico São Paulo\modelo_técnico.omniframe"
 # In PowerShell, prefer invoking omniframe-cli directly; when calling OmniFrame.exe in CLI mode, pipe through Out-String:
 .\OmniFrame.exe --version | Out-String
 ```
-- **MSIX Execution Aliases (Microsoft Store):** When installed via the MSIX package ([`repo/AppxManifest.xml`](../repo/AppxManifest.xml)), Windows 10/11 registers two `uap5:AppExecutionAlias` entries:
+- **MSIX Execution Aliases (Microsoft Store):** When installed via the MSIX package (`AppxManifest.xml`), Windows 10/11 registers two `uap5:AppExecutionAlias` entries:
 ```powershell
 omniframe.exe
 omniframe-cli.exe
@@ -174,15 +177,18 @@ Built by the `compile-language-msvc-release` preset in `build/CompileLanguage/`:
 
 ```powershell
 .\build\CompileLanguage\CompileTranslationsTerminal.exe --check --root .
+.\build\CompileLanguage\CompileTranslationsTerminal.exe --check --file source\locale\language\omniframe_en_US.ts
 .\build\CompileLanguage\CompileTranslationsTerminal.exe --root . --verbose
 ```
+
+*(`--check` / `--check --file` runs strictly read-only without rewriting `.qm` binaries on disk.)*
 
 ### 2.2. `VersionEditor.exe` (Version and Date Synchronization & Auditing)
 Built by the `version-msvc-release` preset in `build/Version/`:
 
 ```powershell
 .\build\Version\VersionEditor.exe --check --root .
-.\build\Version\VersionEditor.exe --version 2026.11.18.0 --date 2026-11-18 --apply --root .
+.\build\Version\VersionEditor.exe --version 2026.11.20.0 --date 2026-11-20 --apply --root .
 ```
 
 ---
@@ -195,7 +201,7 @@ The native Windows console binary `omniframe-cli.exe` (`/SUBSYSTEM:CONSOLE`) is 
 - **Desktop GUI menu (`OmniFrame.exe`):** `Settings > Windows CLI (CMD / PowerShell)` (register without admin, uninstall, check status, launch preconfigured CMD or PowerShell).
 - **Non-admin HKCU self-registration:** `omniframe-cli --install-windows-integration` / `--check-windows-integration` / `--uninstall-windows-integration`.
 - **Portable PowerShell Script:** `.\cmake\register_cli_windows.ps1` (supports `-CheckOnly`, `-Uninstall`, `-Action install|uninstall|check`, `-CliPath`, and `-Json`) or `.\register_cli_windows.ps1` inside every distribution directory.
-- **Inno Setup (`repo/OmniFrame.iss`) & MSIX (`repo/AppxManifest.xml`):** default-checked `addtopath` and `assocproj` tasks; `omniframe-cli.exe` alias with `desktop4:Subsystem="console"`.
+- **Inno Setup (`OmniFrame.iss`) & MSIX (`AppxManifest.xml`):** default-checked `addtopath` and `assocproj` tasks; `omniframe-cli.exe` alias with `desktop4:Subsystem="console"`.
 - **UTF-8 console support:** `chcp 65001 >nul` in CMD and `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` in PowerShell (`CommandLineToArgvW` + native UTF-8 DXF/IFC4/CSV/VTK/JSON/MD/HTML/PDF paths).
 
 ### 3.2. Commands & Supported Options
@@ -235,7 +241,7 @@ omniframe-cli --check-windows-integration --json
 | `--no-line-search` | — | Disables line search in Newton-Raphson. |
 | `--imperfection` | `<amp_m>` | Applies buckling-mode geometric imperfection of amplitude (m) prior to solving/exporting. |
 | `--imperfection-mode` | `<N>` | 1-based buckling mode index used by `--imperfection` (default `1`). |
-| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <path>` | Exports 1D/2D/3D results (repeatable: `.vtk` `UNSTRUCTURED_GRID` with `von_mises_kPa`, `.csv` nodal/continuum, `.json`, `.dxf`, `.ifc`). |
+| `--export` | `<json\|csv\|vtk\|dxf\|ifc> <path>` | Exports 1D/2D/3D results (repeatable: `.vtk` `UNSTRUCTURED_GRID` with `von_mises_kPa`, `.csv` nodal/continuum, `.json`, `.dxf` preserving `surfaceMesh`, `.ifc` preserving `surfaceMesh`, supports, and real shell thickness). |
 | `--report` | `<md\|html\|pdf> <path>` | Generates Markdown, HTML5, or executive A4 PDF calculation report (repeatable; includes results & NBR audit). |
 | `--output` | `<path.json>` | Writes full structured JSON analysis summary cleanly to disk. |
 | `--json` | — | Emits structured JSON summary directly to `stdout`. |
@@ -245,8 +251,8 @@ omniframe-cli --check-windows-integration --json
 
 ### 3.3. Process Exit Codes & Automated Tests
 
-- Exit codes (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (success), `1` (CLI usage/I/O/registry error), `2` (validation `--validate` failure or numerical/physical solver failure).
+- Exit codes (`%ERRORLEVEL%` / `$LASTEXITCODE`): `0` (success), `1` (CLI usage error, invalid or non-finite `NaN`/`Inf` numeric flag — strictly checked via `std::from_chars`, emitting valid JSON errors when `--json`/`--output` is active — I/O failure, or registry error), `2` (validation `--validate` failure or numerical/physical solver failure).
 - **Daily Execution Logs & Headless PDF Font Resolution:** Every `omniframe-cli.exe` invocation automatically records diagnostic events to `%LOCALAPPDATA%\OmniFrame\log\omniframe_yyyy-mm-dd.log` (capped at 10 files via automatic rotation). When generating A4 PDF reports headlessly (`--report pdf`), the CLI automatically initializes `QT_QPA_PLATFORM=offscreen` and points `QT_QPA_FONTDIR` to `%WINDIR%\Fonts` on Windows.
-- Modular CTest verification (`20` test suites): `ctest --preset testes-msvc-release --output-on-failure`.
+- Modular CTest verification (`22` test suites): `ctest --preset testes-msvc-release --output-on-failure`.
 
 </details>

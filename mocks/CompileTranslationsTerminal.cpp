@@ -8,7 +8,9 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
+#include <QVersionNumber>
 
+#include <algorithm>
 #include <iostream>
 
 namespace mocks::compile_translations_terminal {
@@ -56,7 +58,9 @@ QStringList candidatosQtBin() {
         if (!qtRoot.exists()) {
             continue;
         }
-        const QStringList versions = qtRoot.entryList(QStringList() << "6.*", QDir::Dirs | QDir::NoDotAndDotDot, QDir::Reversed);
+        const QStringList versions = ordenar_versoes_qt_desc(
+            qtRoot.entryList(QStringList() << "6.*", QDir::Dirs | QDir::NoDotAndDotDot, QDir::Unsorted)
+        );
         for (const QString& ver : versions) {
             const QDir verDir(qtRoot.filePath(ver));
             const QStringList kits = verDir.entryList(QStringList() << "msvc*" << "*", QDir::Dirs | QDir::NoDotAndDotDot);
@@ -133,12 +137,29 @@ QString resolver_diretorio_traducoes(const QString& raizProjeto, const QString& 
     return QDir::cleanPath(padrao);
 }
 
+QStringList ordenar_versoes_qt_desc(QStringList versions) {
+    std::sort(versions.begin(), versions.end(), [](const QString& a, const QString& b) {
+        const QVersionNumber va = QVersionNumber::fromString(a);
+        const QVersionNumber vb = QVersionNumber::fromString(b);
+        if (!va.isNull() && !vb.isNull()) {
+            const int cmp = QVersionNumber::compare(va, vb);
+            if (cmp != 0) {
+                return cmp > 0;
+            }
+        }
+        return a > b;
+    });
+    return versions;
+}
+
 QString localizar_lrelease(const QString& overridePath) {
-    if (!overridePath.trimmed().isEmpty()) {
-        QFileInfo fi(overridePath.trimmed());
+    const QString trimmed = overridePath.trimmed();
+    if (!trimmed.isEmpty()) {
+        const QFileInfo fi(trimmed);
         if (fi.exists() && fi.isFile()) {
             return QDir::cleanPath(fi.absoluteFilePath());
         }
+        return {};
     }
 
     const QString inPath = QStandardPaths::findExecutable("lrelease");
@@ -197,6 +218,15 @@ RelatorioCompilacaoTerminal executar_compilacao(
     rel.raizProjeto = resolver_raiz_projeto(dirTraducoes);
     rel.diretorioTraducoes = resolver_diretorio_traducoes(rel.raizProjeto, dirTraducoes);
     rel.caminhoLrelease = localizar_lrelease(lreleaseOverride);
+
+    if (!lreleaseOverride.trimmed().isEmpty() && rel.caminhoLrelease.isEmpty()) {
+        rel.sucesso = false;
+        rel.mensagemGeral = trLocal(
+            QString("Caminho informado para lrelease invalido ou inexistente: %1").arg(lreleaseOverride.trimmed()),
+            QString("Specified lrelease path is invalid or does not exist: %1").arg(lreleaseOverride.trimmed())
+        );
+        return rel;
+    }
 
     if (modo != ModoExecucao::VerificarApenas && rel.caminhoLrelease.isEmpty()) {
         rel.sucesso = false;
@@ -259,9 +289,30 @@ RelatorioCompilacaoTerminal executar_compilacao(
 
         QProcess proc;
         proc.start(rel.caminhoLrelease, QStringList() << item.arquivoTs << "-qm" << item.arquivoQm);
-        if (!proc.waitForFinished(60000)) {
+        if (!proc.waitForStarted(10000)) {
+            const bool failedStart = (proc.error() == QProcess::FailedToStart);
+            if (!failedStart) {
+                proc.kill();
+                proc.waitForFinished(3000);
+            }
             item.sucesso = false;
-            item.mensagem = trLocal("Timeout ao executar lrelease", "Timed out executing lrelease");
+            item.mensagem = failedStart
+                ? trLocal("Falha ao iniciar executavel lrelease", "Failed to start lrelease executable")
+                : trLocal("Timeout ao iniciar executavel lrelease", "Timed out starting lrelease executable");
+            ++rel.totalErros;
+            rel.itens.push_back(item);
+            continue;
+        }
+        if (!proc.waitForFinished(60000)) {
+            const bool failedStart = (proc.error() == QProcess::FailedToStart);
+            if (!failedStart) {
+                proc.kill();
+                proc.waitForFinished(3000);
+            }
+            item.sucesso = false;
+            item.mensagem = failedStart
+                ? trLocal("Falha ao iniciar executavel lrelease", "Failed to start lrelease executable")
+                : trLocal("Timeout ao executar lrelease", "Timed out executing lrelease");
             ++rel.totalErros;
             rel.itens.push_back(item);
             continue;
@@ -315,39 +366,67 @@ static void imprimirAjuda() {
               << "  --help                 Exibe esta ajuda\n";
 }
 
+CliArgsParseResult parse_cli_args(const QStringList& args) {
+    CliArgsParseResult out;
+    bool checkOnly = false;
+    bool forceAll = false;
+
+    for (qsizetype i = 0; i < args.size(); ++i) {
+        const QString& arg = args[i];
+        if (arg == "--help" || arg == "-h") {
+            out.showHelp = true;
+            return out;
+        } else if (arg == "--all") {
+            forceAll = true;
+            checkOnly = false;
+        } else if (arg == "--check") {
+            checkOnly = true;
+        } else if ((arg == "--dir" || arg == "-d") && i + 1 < args.size()) {
+            out.dirArg = args[++i];
+        } else if ((arg == "--file" || arg == "-f") && i + 1 < args.size()) {
+            out.arquivosArg << args[++i];
+        } else if (arg == "--lrelease" && i + 1 < args.size()) {
+            out.lreleaseArg = args[++i];
+        } else if (arg == "--lang" && i + 1 < args.size()) {
+            out.ingles = args[++i].toLower().startsWith("en");
+        }
+    }
+
+    if (checkOnly) {
+        out.modo = ModoExecucao::VerificarApenas;
+    } else if (forceAll && out.arquivosArg.isEmpty()) {
+        out.modo = ModoExecucao::CompilarTodos;
+    } else if (!out.arquivosArg.isEmpty()) {
+        out.modo = ModoExecucao::CompilarSelecionados;
+    } else {
+        out.modo = ModoExecucao::CompilarTodos;
+    }
+    return out;
+}
+
 int run_terminal(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName("CompileTranslationsTerminal");
     QCoreApplication::setApplicationVersion(kFallbackAppVersion);
 
-    ModoExecucao modo = ModoExecucao::CompilarTodos;
-    QString dirArg;
-    QString lreleaseArg;
-    QStringList arquivosArg;
-    bool ingles = false;
-
+    QStringList rawArgs;
+    rawArgs.reserve(std::max(0, argc - 1));
     for (int i = 1; i < argc; ++i) {
-        const QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == "--help" || arg == "-h") {
-            imprimirAjuda();
-            return 0;
-        } else if (arg == "--all") {
-            modo = ModoExecucao::CompilarTodos;
-        } else if (arg == "--check") {
-            modo = ModoExecucao::VerificarApenas;
-        } else if ((arg == "--dir" || arg == "-d") && i + 1 < argc) {
-            dirArg = QString::fromLocal8Bit(argv[++i]);
-        } else if ((arg == "--file" || arg == "-f") && i + 1 < argc) {
-            arquivosArg << QString::fromLocal8Bit(argv[++i]);
-            modo = ModoExecucao::CompilarSelecionados;
-        } else if (arg == "--lrelease" && i + 1 < argc) {
-            lreleaseArg = QString::fromLocal8Bit(argv[++i]);
-        } else if (arg == "--lang" && i + 1 < argc) {
-            ingles = QString::fromLocal8Bit(argv[++i]).toLower().startsWith("en");
-        }
+        rawArgs << QString::fromLocal8Bit(argv[i]);
+    }
+    const CliArgsParseResult parsed = parse_cli_args(rawArgs);
+    if (parsed.showHelp) {
+        imprimirAjuda();
+        return 0;
     }
 
-    const RelatorioCompilacaoTerminal rel = executar_compilacao(dirArg, lreleaseArg, arquivosArg, modo, ingles);
+    const RelatorioCompilacaoTerminal rel = executar_compilacao(
+        parsed.dirArg,
+        parsed.lreleaseArg,
+        parsed.arquivosArg,
+        parsed.modo,
+        parsed.ingles
+    );
     std::cout << "[CompileTranslationsTerminal] Dir: " << rel.diretorioTraducoes.toStdString() << '\n';
     if (!rel.caminhoLrelease.isEmpty()) {
         std::cout << "[CompileTranslationsTerminal] lrelease: " << rel.caminhoLrelease.toStdString() << '\n';

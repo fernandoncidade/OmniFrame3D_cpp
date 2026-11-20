@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <stop_token>
 
 namespace omniframe::kernel {
 
@@ -97,40 +98,42 @@ bool DynamicSolver::reduceMassAndInfluence(
     outM_ff = (P_free.transpose() * M_full * P_free).eval();
     outM_ff.makeCompressed();
 
-    // Vetor de influência r_d: translação unitária rígida na direção global d (0=X, 1=Y, 2=Z) para cada nó.
-    // Observação: para DOFs livres eliminados por MPCs (ex: diafragma), usamos P_free^T * r_full ou
-    // solução por mínimos quadrados compatível. Como translação rígida pura preserva distâncias,
-    // um deslocamento rígido unitário em X/Y/Z pertence exatamente ao espaço de MPCs rígidos!
-    // Projetamos r_full apenas nos DOFs que estão livres em U_free (sem deslocamento de apoio fixo).
-    std::array<VecX, 3> r_full;
-    for (int d = 0; d < 3; ++d) r_full[d] = VecX::Zero(redSys.fullDofs);
-
-    for (const auto& ns : dofMgr.nodeStates()) {
-        for (int d = 0; d < 3; ++d) {
-            const int g = ns.globalDof[d];
-            if (g >= 0 && g < redSys.fullDofs && !ns.restrained[d]) {
-                r_full[d](g) = 1.0;
+    // [AUD-011] Constrói vetor de influência sísmica de corpo rígido diretamente sobre
+    // os DOFs mestres/independentes livres: 1 nos translacionais (0..2) da direção `d`,
+    // e 0 nos DOFs rotacionais (3..5), evitando qualquer aceleração rotacional de base espúria.
+    std::vector<int> redToFree(redSys.reducedDofs, -1);
+    if (static_cast<int>(redSys.reducedToFreeMap.size()) == redSys.reducedDofs) {
+        redToFree = redSys.reducedToFreeMap;
+    } else {
+        for (int j = 0; j < redSys.freeDofs && j < static_cast<int>(redSys.freeReducedIndices.size()); ++j) {
+            const int rd = redSys.freeReducedIndices[static_cast<std::size_t>(j)];
+            if (rd >= 0 && rd < redSys.reducedDofs) {
+                redToFree[static_cast<std::size_t>(rd)] = j;
             }
         }
     }
 
-    // Mapeia r_full ao vetor reduzido livre r_f usando P_free^T com normalização por coluna se houver diafragma
-    // (se P_free não tem MPC, P_free^T * P_free = I e P_free^T * r_full é exato; se tem diafragma com nSlave nós,
-    // resolve diag_i * r_f = P_free^T r_full pelo mínimo quadrado diagonal).
-    VecX ptPdiag = VecX::Ones(redSys.freeDofs);
-    if (redSys.hasMpc) {
-        const SpMat PtP = (P_free.transpose() * P_free).eval();
-        for (int i = 0; i < redSys.freeDofs; ++i) {
-            const double val = PtP.coeff(i, i);
-            ptPdiag(i) = (val > 1e-12) ? val : 1.0;
-        }
-    }
     for (int d = 0; d < 3; ++d) {
-        VecX proj = P_free.transpose() * r_full[d];
-        if (redSys.hasMpc) {
-            for (int i = 0; i < redSys.freeDofs; ++i) proj(i) /= ptPdiag(i);
+        outInfluence_f[static_cast<std::size_t>(d)] = VecX::Zero(redSys.freeDofs);
+    }
+
+    const bool hasFullToRed = (static_cast<int>(redSys.fullToReducedMap.size()) == redSys.fullDofs);
+    for (const auto& ns : dofMgr.nodeStates()) {
+        for (int d = 0; d < 3; ++d) {
+            const int g = ns.globalDof[static_cast<std::size_t>(d)];
+            if (g < 0 || g >= redSys.fullDofs || ns.restrained[static_cast<std::size_t>(d)]) {
+                continue;
+            }
+            const int rd = hasFullToRed ? redSys.fullToReducedMap[static_cast<std::size_t>(g)]
+                                        : (!redSys.hasMpc ? g : -1);
+            if (rd < 0 || rd >= redSys.reducedDofs) {
+                continue; // Escravo de MPC é dirigido cinematicamente pelo mestre via T_mpc
+            }
+            const int freeIdx = redToFree[static_cast<std::size_t>(rd)];
+            if (freeIdx >= 0 && freeIdx < redSys.freeDofs) {
+                outInfluence_f[static_cast<std::size_t>(d)](freeIdx) = 1.0;
+            }
         }
-        outInfluence_f[d] = std::move(proj);
     }
 
     return true;
@@ -141,9 +144,14 @@ ModalResult DynamicSolver::solveModal(
     const SpMat& M_ff,
     const std::array<VecX, 3>& influence_f,
     const ReducedLinearSystem& redSys,
-    const ModalOptions& opts)
+    const ModalOptions& opts,
+    const std::stop_token& stopToken)
 {
     ModalResult res;
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise modal cancelada.";
+        return res;
+    }
     const int n = static_cast<int>(K_ff.rows());
     if (n <= 0 || K_ff.cols() != n || M_ff.rows() != n || M_ff.cols() != n) {
         res.errorMessage = "Dimensões inválidas em K_ff / M_ff na análise modal.";
@@ -155,8 +163,17 @@ ModalResult DynamicSolver::solveModal(
         return res;
     }
 
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise modal cancelada.";
+        return res;
+    }
+
     Eigen::SimplicialLDLT<SpMat> ldlt;
     ldlt.compute(K_ff);
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise modal cancelada.";
+        return res;
+    }
     if (ldlt.info() != Eigen::Success) {
         res.errorMessage = "Falha na fatoração de K_ff na análise modal.";
         return res;
@@ -210,6 +227,10 @@ ModalResult DynamicSolver::solveModal(
     MatX bestPhi;
 
     for (int iter = 1; iter <= std::max(1, opts.maxIterations); ++iter) {
+        if (stopToken.stop_requested()) {
+            res.errorMessage = "Analise modal cancelada.";
+            return res;
+        }
         res.iterationsPerformed = iter;
 
         const MatX Y = M_ff * X;
@@ -241,8 +262,8 @@ ModalResult DynamicSolver::solveModal(
 
         // Autovalores de M_proj são mu = 1 / omega^2 ordenados em ordem crescente em Eigen;
         // maiores mu correspondem às menores frequências omega = 1 / sqrt(mu)!
-        const VecX mu = eig.eigenvalues();
-        const MatX Z = eig.eigenvectors();
+        const auto& mu = eig.eigenvalues();
+        const auto& Z = eig.eigenvectors();
         const double maxMu = mu.maxCoeff();
 
         std::vector<std::pair<int, double>> valid;
@@ -308,6 +329,16 @@ ModalResult DynamicSolver::solveModal(
     res.modes.reserve(nModesOut);
     res.cumulativeMassRatio = {0.0, 0.0, 0.0};
 
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise modal cancelada.";
+        return res;
+    }
+
+    // Para visualização em DOFs globais e combinação homogênea, zeramos recalques e offsets prescritos
+    ReducedLinearSystem zeroOff = redSys;
+    zeroOff.U_fixed_red = VecX::Zero(redSys.reducedDofs);
+    zeroOff.U_offset = VecX::Zero(redSys.fullDofs);
+
     for (int m = 0; m < nModesOut; ++m) {
         VecX phi = bestPhi.col(m);
         const double genMass = phi.dot(M_ff * phi);
@@ -326,10 +357,6 @@ ModalResult DynamicSolver::solveModal(
         info.frequencyHz = info.omega / twoPi;
         info.periodSec = (info.frequencyHz > 1e-15) ? (1.0 / info.frequencyHz) : 0.0;
         info.phi_f = phi;
-
-        // Para visualização em DOFs globais, reconstruímos com offset zero
-        ReducedLinearSystem zeroOff = redSys;
-        zeroOff.U_offset = VecX::Zero(redSys.fullDofs);
         info.phi_full = GlobalAssembler::reconstructFullDisplacements(zeroOff, phi);
 
         for (int d = 0; d < 3; ++d) {
@@ -379,9 +406,14 @@ HarmonicResult DynamicSolver::solveHarmonic(
     const SpMat& C_ff,
     const VecX& forceAmplitude_f,
     const ReducedLinearSystem& redSys,
-    const HarmonicOptions& opts)
+    const HarmonicOptions& opts,
+    const std::stop_token& stopToken)
 {
     HarmonicResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Analise harmonica cancelada.";
+        return out;
+    }
     const int n = static_cast<int>(K_ff.rows());
     if (n <= 0 || M_ff.rows() != n || forceAmplitude_f.size() != n || opts.frequenciesHz.empty()) {
         out.errorMessage = "Parâmetros inválidos na análise harmônica (FRF).";
@@ -393,8 +425,6 @@ HarmonicResult DynamicSolver::solveHarmonic(
     using VecXC = Eigen::Matrix<Cd, Eigen::Dynamic, 1>;
 
     VecXC rhsC = forceAmplitude_f.cast<Cd>();
-    ReducedLinearSystem zeroOff = redSys;
-    zeroOff.U_offset = VecX::Zero(redSys.fullDofs);
 
     constexpr double twoPi = 2.0 * 3.14159265358979323846;
     const bool hasExplicitC = (C_ff.rows() == n && C_ff.cols() == n && C_ff.nonZeros() > 0);
@@ -402,6 +432,12 @@ HarmonicResult DynamicSolver::solveHarmonic(
 
     out.sweep.reserve(opts.frequenciesHz.size());
     for (double fHz : opts.frequenciesHz) {
+        if (stopToken.stop_requested()) {
+            out.sweep.clear();
+            out.success = false;
+            out.errorMessage = "Analise harmonica cancelada.";
+            return out;
+        }
         const double w = twoPi * std::max(0.0, fHz);
         std::vector<Eigen::Triplet<Cd>> trips;
         trips.reserve(K_ff.nonZeros() + M_ff.nonZeros() + (hasExplicitC ? C_ff.nonZeros() : 0));
@@ -431,6 +467,13 @@ HarmonicResult DynamicSolver::solveHarmonic(
         Zd.setFromTriplets(trips.begin(), trips.end());
         Zd.makeCompressed();
 
+        if (stopToken.stop_requested()) {
+            out.sweep.clear();
+            out.success = false;
+            out.errorMessage = "Analise harmonica cancelada.";
+            return out;
+        }
+
         Eigen::SparseLU<SpCMat> lu;
         lu.compute(Zd);
         if (lu.info() != Eigen::Success) {
@@ -443,16 +486,36 @@ HarmonicResult DynamicSolver::solveHarmonic(
             return out;
         }
 
-        const VecX mag_f = Uc.cwiseAbs();
-        VecX ph_f(n);
-        for (int i = 0; i < n; ++i) ph_f(i) = std::arg(Uc(i));
+        // [AUD-011] & [AUD-012]: expande o fasor complexo para todos os DOFs antes de abs/arg,
+        // mantendo U_fixed_red e U_offset homogêneos (nulos).
+        const int nRed = (redSys.reducedDofs > 0) ? redSys.reducedDofs : n;
+        VecXC U_red_c = VecXC::Zero(nRed);
+        for (int i = 0; i < n && i < static_cast<int>(redSys.freeReducedIndices.size()); ++i) {
+            const int rd = redSys.freeReducedIndices[static_cast<std::size_t>(i)];
+            if (rd >= 0 && rd < nRed) {
+                U_red_c(rd) = Uc(i);
+            }
+        }
+        VecXC U_full_c;
+        if (redSys.hasMpc && redSys.T_mpc.rows() == redSys.fullDofs && redSys.T_mpc.cols() == nRed) {
+            U_full_c = redSys.T_mpc.cast<Cd>() * U_red_c;
+        } else if (redSys.fullDofs == nRed) {
+            U_full_c = std::move(U_red_c);
+        } else {
+            U_full_c = VecXC::Zero(redSys.fullDofs);
+            const Eigen::Index copyN = std::min<Eigen::Index>(U_full_c.size(), U_red_c.size());
+            U_full_c.head(copyN) = U_red_c.head(copyN);
+        }
 
         HarmonicStepResult step;
         step.frequencyHz = fHz;
         step.omega = w;
         step.U_complex_f = Uc;
-        step.amplitudeFull = GlobalAssembler::reconstructFullDisplacements(zeroOff, mag_f);
-        step.phaseRadFull = GlobalAssembler::reconstructFullDisplacements(zeroOff, ph_f);
+        step.amplitudeFull = U_full_c.cwiseAbs();
+        step.phaseRadFull = VecX(U_full_c.size());
+        for (Eigen::Index i = 0; i < U_full_c.size(); ++i) {
+            step.phaseRadFull(i) = std::arg(U_full_c(i));
+        }
         out.sweep.push_back(std::move(step));
     }
 
@@ -466,9 +529,14 @@ TransientResult DynamicSolver::solveTransientForceHistory(
     const SpMat& C_ff,
     const ReducedLinearSystem& redSys,
     const std::function<VecX(double timeSec, int stepIdx)>& reducedForceFn,
-    const TransientOptions& opts)
+    const TransientOptions& opts,
+    const std::stop_token& stopToken)
 {
     TransientResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Analise transiente cancelada.";
+        return out;
+    }
     const int n = static_cast<int>(K_ff.rows());
     const double dt = opts.dt;
     if (n <= 0 || M_ff.rows() != n || dt <= 0.0 || opts.numSteps <= 0) {
@@ -547,6 +615,7 @@ TransientResult DynamicSolver::solveTransientForceHistory(
     }
 
     ReducedLinearSystem zeroOff = redSys;
+    zeroOff.U_fixed_red = VecX::Zero(redSys.reducedDofs);
     zeroOff.U_offset = VecX::Zero(redSys.fullDofs);
 
     out.history.reserve(static_cast<size_t>(opts.numSteps) + 1);
@@ -572,6 +641,13 @@ TransientResult DynamicSolver::solveTransientForceHistory(
     recordStep(0, 0.0);
 
     for (int s = 1; s <= opts.numSteps; ++s) {
+        if (stopToken.stop_requested()) {
+            out.history.clear();
+            out.peakDisplacementFull.resize(0);
+            out.success = false;
+            out.errorMessage = "Analise transiente cancelada.";
+            return out;
+        }
         const double t = s * dt;
         VecX F_curr = reducedForceFn(t, s);
         if (F_curr.size() != n) F_curr = VecX::Zero(n);
@@ -613,8 +689,14 @@ TransientResult DynamicSolver::solveSeismicTimeHistory(
     const std::array<VecX, 3>& influence_f,
     const ReducedLinearSystem& redSys,
     const std::function<Vec3(double timeSec, int stepIdx)>& groundAccelMS2Fn,
-    const TransientOptions& opts)
+    const TransientOptions& opts,
+    const std::stop_token& stopToken)
 {
+    if (stopToken.stop_requested()) {
+        TransientResult cancelled;
+        cancelled.errorMessage = "Analise sismica cancelada.";
+        return cancelled;
+    }
     const int n = static_cast<int>(K_ff.rows());
     std::array<VecX, 3> M_r;
     for (int d = 0; d < 3; ++d) {
@@ -624,7 +706,7 @@ TransientResult DynamicSolver::solveSeismicTimeHistory(
         const Vec3 ag = groundAccelMS2Fn(t, step);
         return -(M_r[0] * ag.x() + M_r[1] * ag.y() + M_r[2] * ag.z());
     };
-    return solveTransientForceHistory(K_ff, M_ff, C_ff, redSys, forceFn, opts);
+    return solveTransientForceHistory(K_ff, M_ff, C_ff, redSys, forceFn, opts, stopToken);
 }
 
 double DynamicSolver::interpolateSpectrum(const std::vector<SpectrumPoint>& curve, double periodSec) {
@@ -666,30 +748,55 @@ double DynamicSolver::derKiureghianCorrelation(double omegaI, double zetaI, doub
 }
 
 std::vector<SpectrumPoint> DynamicSolver::buildNbr15421SpectrumCurve(
-    double ag_s_ms2, double Ca, double Cv, double Tmax, int numPoints)
+    double ag_s_ms2, double Ca, double Cv, double Tmax, int numPoints, double dampingZeta)
 {
-    // Expressões da ABNT NBR 15421 (Seção 6.2 - Espectro de Resposta de Projeto para 5% amortecimento):
-    // p_as0 = 0.4 * Ca * ag_s; p_as1 = Ca * ag_s; TB = 0.08 * (Cv / Ca); TC = 0.40 * (Cv / Ca)
-    // Trecho 1 (0 <= T <= TB): Sa(T) = Ca * ag_s * (0.4 + 0.6 * T / TB)
-    // Trecho 2 (TB < T <= TC): Sa(T) = Ca * ag_s
-    // Trecho 3 (T > TC): Sa(T) = Cv * ag_s * 0.4 / T  (contínuo em TC => Cv * ag_s * (0.4 / (0.4*Cv/Ca)) == Ca*ag_s!)
-    const double safeCa = std::max(1e-6, Ca);
-    const double safeCv = std::max(1e-6, Cv);
+    // Expressões da ABNT NBR 15421:2006 (Seção 6.2 - Espectro de Resposta de Projeto):
+    // a_gs0 = Ca * ag_s; a_gs1 = Cv * ag_s
+    // TB = 0.08 * (a_gs1 / a_gs0) = 0.08 * (Cv / Ca); TC = 0.40 * (a_gs1 / a_gs0) = 0.40 * (Cv / Ca)
+    // Trecho 1 (0 <= T <= TB): Sa(T) = a_gs0 + (2.5 * eta * a_gs0 - a_gs0) * (T / TB)
+    // Trecho 2 (TB < T <= TC): Sa(T) = 2.5 * eta * a_gs0
+    // Trecho 3 (T > TC): Sa(T) = eta * a_gs1 / T  (contínuo em TC pois a_gs1 / TC = 2.5 * a_gs0)
+    // Correção de amortecimento eta = 1.0 para zeta = 5%; para outros zetas, eta = max(0.55, sqrt(10 / (5 + 100*zeta))).
+    const double safeAg = std::isfinite(ag_s_ms2) ? std::max(0.0, ag_s_ms2) : 0.0;
+    const double safeCa = (std::isfinite(Ca) && Ca > 1e-6) ? Ca : 1e-6;
+    const double safeCv = (std::isfinite(Cv) && Cv > 1e-6) ? Cv : 1e-6;
+    const double safeTmax = (std::isfinite(Tmax) && Tmax > 1e-4) ? Tmax : 4.0;
+    const double safeZeta = std::isfinite(dampingZeta) ? std::clamp(dampingZeta, 0.0, 0.50) : 0.05;
+    const double eta = (std::abs(safeZeta - 0.05) <= 1e-12)
+        ? 1.0
+        : std::max(0.55, std::sqrt(10.0 / (5.0 + 100.0 * safeZeta)));
+
+    const double a_gs0 = safeCa * safeAg;
+    const double a_gs1 = safeCv * safeAg;
     const double TC = 0.40 * (safeCv / safeCa);
     const double TB = 0.20 * TC;
 
-    std::vector<SpectrumPoint> pts;
-    numPoints = std::max(10, numPoints);
-    pts.reserve(numPoints + 3);
-
     auto evalSa = [&](double T) -> double {
-        if (T <= TB) return safeCa * ag_s_ms2 * (0.4 + 0.6 * (T / std::max(1e-9, TB)));
-        if (T <= TC) return safeCa * ag_s_ms2;
-        return (safeCv * ag_s_ms2 * 0.40) / T;
+        if (T <= 0.0) return a_gs0;
+        const double plateau = 2.5 * eta * a_gs0;
+        if (T < TB) {
+            return a_gs0 + (plateau - a_gs0) * (T / std::max(1e-12, TB));
+        }
+        if (T <= TC) return plateau;
+        return (eta * a_gs1) / T;
     };
 
+    numPoints = std::max(10, numPoints);
+    std::vector<double> periods;
+    periods.reserve(static_cast<std::size_t>(numPoints) + 4);
     for (int i = 0; i <= numPoints; ++i) {
-        const double T = (Tmax * i) / numPoints;
+        periods.push_back((safeTmax * static_cast<double>(i)) / static_cast<double>(numPoints));
+    }
+    if (TB > 0.0 && TB <= safeTmax) periods.push_back(TB);
+    if (TC > 0.0 && TC <= safeTmax) periods.push_back(TC);
+    std::sort(periods.begin(), periods.end());
+
+    std::vector<SpectrumPoint> pts;
+    pts.reserve(periods.size());
+    for (double T : periods) {
+        if (!pts.empty() && std::abs(T - pts.back().periodSec) <= 1e-12) {
+            continue;
+        }
         pts.push_back({T, evalSa(T)});
     }
     return pts;
@@ -698,9 +805,14 @@ std::vector<SpectrumPoint> DynamicSolver::buildNbr15421SpectrumCurve(
 ResponseSpectrumResult DynamicSolver::solveResponseSpectrum(
     const SpMat& K_orig,
     const ModalResult& modal,
-    const ResponseSpectrumOptions& opts)
+    const ResponseSpectrumOptions& opts,
+    const std::stop_token& stopToken)
 {
     ResponseSpectrumResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Analise espectral cancelada.";
+        return out;
+    }
     if (!modal.success || modal.modes.empty() || opts.spectrumCurve.empty()) {
         out.errorMessage = "Análise modal prévia e curva espectral válidas são obrigatórias para Espectro de Resposta.";
         return out;
@@ -708,65 +820,127 @@ ResponseSpectrumResult DynamicSolver::solveResponseSpectrum(
 
     const int nFull = static_cast<int>(modal.modes[0].phi_full.size());
     const int nModes = static_cast<int>(modal.modes.size());
-    out.modalDisplacementsFull.resize(nModes);
+    const bool hasK = (K_orig.rows() == nFull && K_orig.cols() == nFull);
 
+    auto getZeta = [&](int idx) -> double {
+        if (idx < static_cast<int>(opts.perModeDampingZeta.size())) {
+            return opts.perModeDampingZeta[static_cast<std::size_t>(idx)];
+        }
+        return opts.modalDampingZeta;
+    };
+
+    // Pré-computa Sa / omega^2 para cada modo
+    std::vector<double> modalSpectralScale(static_cast<std::size_t>(nModes), 0.0);
     for (int k = 0; k < nModes; ++k) {
-        const auto& m = modal.modes[k];
+        const auto& m = modal.modes[static_cast<std::size_t>(k)];
         const double Sa = interpolateSpectrum(opts.spectrumCurve, m.periodSec);
         const double invW2 = (m.omega > 1e-12) ? (1.0 / (m.omega * m.omega)) : 0.0;
-        const double gammaDir = opts.directionScale[0] * m.participationFactors[0]
-            + opts.directionScale[1] * m.participationFactors[1]
-            + opts.directionScale[2] * m.participationFactors[2];
-        out.modalDisplacementsFull[k] = (gammaDir * Sa * invW2) * m.phi_full;
+        modalSpectralScale[static_cast<std::size_t>(k)] = Sa * invW2;
     }
 
-    // Reações modais R_k = K_orig * U_k antes da combinação (combinação DEVE ser por componente de resposta!)
-    std::vector<VecX> modalReactionsFull(nModes);
-    const bool hasK = (K_orig.rows() == nFull && K_orig.cols() == nFull);
-    for (int k = 0; k < nModes; ++k) {
-        modalReactionsFull[k] = hasK ? (K_orig * out.modalDisplacementsFull[k]).eval() : VecX::Zero(nFull);
-    }
-
-    out.combinedDisplacementFull = VecX::Zero(nFull);
-    out.combinedReactionFull = VecX::Zero(nFull);
-
-    if (opts.combination == ResponseSpectrumCombination::ABSSUM) {
-        for (int k = 0; k < nModes; ++k) {
-            out.combinedDisplacementFull += out.modalDisplacementsFull[k].cwiseAbs();
-            out.combinedReactionFull += modalReactionsFull[k].cwiseAbs();
-        }
-    } else if (opts.combination == ResponseSpectrumCombination::SRSS) {
-        VecX sumSqD = VecX::Zero(nFull);
-        VecX sumSqR = VecX::Zero(nFull);
-        for (int k = 0; k < nModes; ++k) {
-            sumSqD += out.modalDisplacementsFull[k].cwiseAbs2();
-            sumSqR += modalReactionsFull[k].cwiseAbs2();
-        }
-        out.combinedDisplacementFull = sumSqD.cwiseSqrt();
-        out.combinedReactionFull = sumSqR.cwiseSqrt();
-    } else {
-        // CQC com coeficientes de correlação de Der Kiureghian
-        auto getZeta = [&](int idx) -> double {
-            if (idx < static_cast<int>(opts.perModeDampingZeta.size())) {
-                return opts.perModeDampingZeta[idx];
-            }
-            return opts.modalDampingZeta;
-        };
-
-        VecX cqcSqD = VecX::Zero(nFull);
-        VecX cqcSqR = VecX::Zero(nFull);
+    // Pré-computa C_rho[i][k] apenas uma vez caso combinação seja CQC
+    std::vector<double> cqcRho;
+    if (opts.combination == ResponseSpectrumCombination::CQC) {
+        cqcRho.resize(static_cast<std::size_t>(nModes) * static_cast<std::size_t>(nModes), 0.0);
         for (int i = 0; i < nModes; ++i) {
             for (int k = 0; k < nModes; ++k) {
-                const double rhoIK = derKiureghianCorrelation(
-                    modal.modes[i].omega, getZeta(i), modal.modes[k].omega, getZeta(k));
-                cqcSqD += rhoIK * out.modalDisplacementsFull[i].cwiseProduct(out.modalDisplacementsFull[k]);
-                cqcSqR += rhoIK * modalReactionsFull[i].cwiseProduct(modalReactionsFull[k]);
+                cqcRho[static_cast<std::size_t>(i) * static_cast<std::size_t>(nModes) + static_cast<std::size_t>(k)] =
+                    derKiureghianCorrelation(
+                        modal.modes[static_cast<std::size_t>(i)].omega, getZeta(i),
+                        modal.modes[static_cast<std::size_t>(k)].omega, getZeta(k));
             }
         }
-        out.combinedDisplacementFull = cqcSqD.cwiseMax(0.0).cwiseSqrt();
-        out.combinedReactionFull = cqcSqR.cwiseMax(0.0).cwiseSqrt();
     }
 
+    out.modalDisplacementsFull.assign(static_cast<std::size_t>(nModes), VecX::Zero(nFull));
+    VecX totalDispSq = VecX::Zero(nFull);
+    VecX totalReactSq = VecX::Zero(nFull);
+
+    int activeDirections = 0;
+    int lastActiveDir = -1;
+    std::vector<VecX> lastSingleDirModalD;
+
+    // Combinação modal INDEPENDENTE por direção ortogonal (X, Y, Z), seguida de combinação direcional SRSS.
+    // Como Gamma_{k,d} * phi_k é invariante à inversão phi_k -> -phi_k e as direções são combinadas
+    // por SRSS entre si, elimina cancelamento espúrio entre eixos e garante invariância a sinal de autovetor.
+    for (int d = 0; d < 3; ++d) {
+        if (stopToken.stop_requested()) {
+            out.success = false;
+            out.errorMessage = "Analise espectral cancelada.";
+            return out;
+        }
+        const double dirScale = opts.directionScale[static_cast<std::size_t>(d)];
+        if (std::abs(dirScale) <= 1e-15) continue;
+
+        ++activeDirections;
+        lastActiveDir = d;
+
+        std::vector<VecX> dirModalD(static_cast<std::size_t>(nModes));
+        std::vector<VecX> dirModalR(static_cast<std::size_t>(nModes));
+        for (int k = 0; k < nModes; ++k) {
+            const auto& m = modal.modes[static_cast<std::size_t>(k)];
+            const double coef = dirScale * m.participationFactors[static_cast<std::size_t>(d)] *
+                                modalSpectralScale[static_cast<std::size_t>(k)];
+            dirModalD[static_cast<std::size_t>(k)] = coef * m.phi_full;
+            dirModalR[static_cast<std::size_t>(k)] = hasK
+                ? (K_orig * dirModalD[static_cast<std::size_t>(k)]).eval()
+                : VecX::Zero(nFull);
+            out.modalDisplacementsFull[static_cast<std::size_t>(k)] += dirModalD[static_cast<std::size_t>(k)].cwiseAbs2();
+        }
+        if (activeDirections == 1) {
+            lastSingleDirModalD = dirModalD;
+        }
+
+        VecX dirDisp = VecX::Zero(nFull);
+        VecX dirReact = VecX::Zero(nFull);
+
+        if (opts.combination == ResponseSpectrumCombination::ABSSUM) {
+            for (int k = 0; k < nModes; ++k) {
+                dirDisp += dirModalD[static_cast<std::size_t>(k)].cwiseAbs();
+                dirReact += dirModalR[static_cast<std::size_t>(k)].cwiseAbs();
+            }
+        } else if (opts.combination == ResponseSpectrumCombination::SRSS) {
+            VecX sumSqD = VecX::Zero(nFull);
+            VecX sumSqR = VecX::Zero(nFull);
+            for (int k = 0; k < nModes; ++k) {
+                sumSqD += dirModalD[static_cast<std::size_t>(k)].cwiseAbs2();
+                sumSqR += dirModalR[static_cast<std::size_t>(k)].cwiseAbs2();
+            }
+            dirDisp = sumSqD.cwiseSqrt();
+            dirReact = sumSqR.cwiseSqrt();
+        } else {
+            VecX cqcSqD = VecX::Zero(nFull);
+            VecX cqcSqR = VecX::Zero(nFull);
+            for (int i = 0; i < nModes; ++i) {
+                for (int k = 0; k < nModes; ++k) {
+                    const double rhoIK = cqcRho[static_cast<std::size_t>(i) * static_cast<std::size_t>(nModes) +
+                                                static_cast<std::size_t>(k)];
+                    cqcSqD += rhoIK * dirModalD[static_cast<std::size_t>(i)].cwiseProduct(
+                                          dirModalD[static_cast<std::size_t>(k)]);
+                    cqcSqR += rhoIK * dirModalR[static_cast<std::size_t>(i)].cwiseProduct(
+                                          dirModalR[static_cast<std::size_t>(k)]);
+                }
+            }
+            dirDisp = cqcSqD.cwiseMax(0.0).cwiseSqrt();
+            dirReact = cqcSqR.cwiseMax(0.0).cwiseSqrt();
+        }
+
+        totalDispSq += dirDisp.cwiseAbs2();
+        totalReactSq += dirReact.cwiseAbs2();
+    }
+    (void)lastActiveDir;
+
+    if (activeDirections == 1) {
+        out.modalDisplacementsFull = std::move(lastSingleDirModalD);
+    } else if (activeDirections > 1) {
+        for (int k = 0; k < nModes; ++k) {
+            out.modalDisplacementsFull[static_cast<std::size_t>(k)] =
+                out.modalDisplacementsFull[static_cast<std::size_t>(k)].cwiseSqrt();
+        }
+    }
+
+    out.combinedDisplacementFull = totalDispSq.cwiseSqrt();
+    out.combinedReactionFull = totalReactSq.cwiseSqrt();
     out.success = true;
     return out;
 }

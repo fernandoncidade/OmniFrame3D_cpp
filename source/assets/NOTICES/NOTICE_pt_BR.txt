@@ -1,5 +1,5 @@
 AVISOS E ATRIBUIÇÕES DE TERCEIROS — OmniFrame 3D
-Versao 2026.11.18.0, 18 de novembro de 2026
+Versao 2026.11.20.0, 20 de novembro de 2026
 
 O OmniFrame 3D inclui e utiliza componentes, bibliotecas e especificações abertas desenvolvidas por terceiros:
 

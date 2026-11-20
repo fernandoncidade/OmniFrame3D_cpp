@@ -72,6 +72,7 @@ class SectionDialog : public QDialog {
 public:
     explicit SectionDialog(QWidget* parent = nullptr, const CrossSection* sec = nullptr);
     CrossSection getSection(SectionId id = INVALID_ID) const;
+    bool validateDimensions(QString* outError = nullptr) const;
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -86,6 +87,8 @@ private:
     void updateShapeDimensionUi(SectionShape shape);
 
     bool m_isEditing = false;
+    bool m_hasOriginalSection = false;
+    CrossSection m_originalSection;
     QLabel* m_presetLabel = nullptr;
     QComboBox* m_presetCombo = nullptr;
     QLabel* m_nameLabel = nullptr;

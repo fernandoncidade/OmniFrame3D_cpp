@@ -6,7 +6,7 @@
 
 namespace mocks::compile_translations_terminal {
 
-inline constexpr const char* kFallbackAppVersion = "2026.11.18.0";
+inline constexpr const char* kFallbackAppVersion = "2026.11.20.0";
 
 enum class ModoExecucao {
     CompilarTodos,
@@ -34,9 +34,20 @@ struct RelatorioCompilacaoTerminal {
     QVector<ResultadoArquivoTraducao> itens;
 };
 
+struct CliArgsParseResult {
+    bool showHelp = false;
+    ModoExecucao modo = ModoExecucao::CompilarTodos;
+    QString dirArg;
+    QString lreleaseArg;
+    QStringList arquivosArg;
+    bool ingles = false;
+};
+
 QString resolver_raiz_projeto(const QString& origem = QString());
 QString resolver_diretorio_traducoes(const QString& raizProjeto = QString(), const QString& overrideDir = QString());
 QString localizar_lrelease(const QString& overridePath = QString());
+QStringList ordenar_versoes_qt_desc(QStringList versions);
+CliArgsParseResult parse_cli_args(const QStringList& args);
 QStringList listar_arquivos_ts(const QString& diretorioTraducoes);
 
 RelatorioCompilacaoTerminal executar_compilacao(

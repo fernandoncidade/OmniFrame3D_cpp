@@ -1,4 +1,48 @@
 RELEASE NOTES — OMNIFRAME 3D
+Version: 2026.11.20.0
+Date: November 20, 2026
+
+Highlights of Version 2026.11.20.0:
+
+1. Higher Accuracy in Internal Forces, Dynamic/Nonlinear Analyses, and ABNT NBR Checks
+- Reported member force envelopes, deflections, and ABNT NBR code compliance checks (including steel, reinforced concrete, and shallow foundations) now reflect the actual solved structural responses accurately, eliminating zeroed or mismatched readings on beams, columns, and footings and properly applying plastic flexural capacity limits and consistent characteristic axial loads in foundation checks.
+- Second-order (P-Delta) behavior is now executed iteratively both in nonlinear runs and in standard load combinations that enable second-order effects (such as ULS-2 P-Delta), while quasi-permanent serviceability combinations now correctly use a zero factor for seismic actions.
+- Rigid links, rigid diaphragms, articulated truss releases, refined 1D members, warped shell panels, asymmetric sections, prescribed settlements, and self-weight across load cases now behave with improved physical fidelity, cleanly separating external support reactions from internal constraints and preventing distortions in modal or seismic studies even with eccentric masses.
+- Harmonic, transient, and seismic dynamic analyses no longer apply double structural damping, and the seismic response spectrum now matches standard plateau equations and directional modal combinations that remain invariant to vibration mode sign reversals.
+- In nonlinear equilibrium analysis, automatic step-size search now restores the prior structural state faithfully whenever a trial step is rejected and checks real force equilibrium before advancing, also reporting global equilibrium diagnostics at completion.
+
+2. Safer Background Execution, Smoother Interface, and Unified Result Tables
+- The main structural solver and the Advanced Analysis Suite now run through a single exclusive background queue, preventing conflicting simultaneous runs and automatically discarding outdated results if the model is modified or a window is closed mid-calculation.
+- Exporting A4 PDF reports from advanced analyses now preserves a safe snapshot of the results even if the user closes the analysis dialog before picking a destination file.
+- The Interactive Guided Session now transitions smoothly across steps without interfering with main-window responsiveness and prevents duplicate starts while a walkthrough is already running.
+- Splitting the bottom results panel across multiple side-by-side layouts now shares the same underlying table data without duplicating entries unnecessarily, also speeding up large-model loading, batch edits, and 3D navigation on models with thousands of elements.
+
+3. Modeling Integrity, 1D/2D/3D Mesh Generator, Materials, and Cross Sections
+- Deleting a structural node now automatically removes all attached members, rigid links, diaphragms, loads, and active selections linked to it so no dangling references remain in the model.
+- Materials currently assigned to 2D plate/shell elements or 3D solid blocks are now protected against accidental deletion while in use.
+- The cross-section editor now preserves custom polygon and composite section families cleanly and blocks wall, flange, or web thicknesses that are geometrically incompatible with outer section dimensions.
+- Inside the 1D/2D/3D Mesh Generator, the load label and unit now adapt to the chosen mesh dimension (linear load in 1D, surface pressure in 2D, and body force in 3D), bottom-base supports on 3D solids restrain only the lower face without locking all exterior faces, 2D-to-3D extrusion validates that a valid 2D base mesh exists, and mesh quality diagnostics inspect every corner of quadrilateral shells and hexahedral solids.
+
+4. More Reliable 3D Visualization, Aligned Legends, and Safe Operation Without 3D Acceleration
+- The 3D viewport now plays continuous deformation animations even when the model consists solely of 2D shells or 3D solid meshes without frame bars, alongside smoother camera orbit and improved click picking on long or steeply angled elements.
+- Color legend stops on the ABNT NBR utilization heatmap now align accurately with the green, yellow, orange, and red color bands rendered on the model, force diagrams mark exact zero-crossing points and maximum deflections along each bar, and camera calculations guard against invalid numbers.
+- On computers or remote sessions without active advanced 3D graphics acceleration, the application now presents a clear notice and continues operating safely without unexpected shutdowns when moving or closing windows.
+- Manually adjusting edge anti-aliasing softness, image sharpness, or working-plane grid contrast in graphics settings now updates the active profile classification cleanly to "Custom".
+
+5. Multi-Window Recovery Isolation, Safer File Limits, and Trustworthy Exports
+- Automatic session recovery now saves each open application window into a single isolated bundle with lock protection, preventing simultaneous windows from overwriting one another's unsaved work; preference saving and viewing the latest daily diagnostic log lines have also been made faster.
+- Opening and importing project files, CAD drawings (DXF), and BIM models (IFC4) now apply protective file-size ceilings, strict rejection of non-finite numeric values, and safeguards against missing element nodes without crashing.
+- BIM IFC4 and CAD DXF import and export now preserve structural supports, actual shell thicknesses, and surface/solid meshes both from the desktop menu and from the command line, while fixing shear stress labels in HTML and Markdown reports.
+- When exporting result tables, the selection-only export option strictly honors non-contiguous or empty selections; CSV, text, and Excel outputs neutralize potentially unsafe formula prefixes while keeping valid negative numbers intact and filtering out invalid control characters for clean external opening.
+
+6. Security Hardening, More Robust Command-Line Tooling, and Companion Utilities
+- The command-line interface now validates numeric flags strictly against invalid or non-finite inputs, returning well-formed structured machine-readable error output whenever JSON responses are requested.
+- Command-line launching and Windows integration gained stricter protection when loading system tools and libraries, plus clear warning feedback if removing Windows integration registry entries cannot be completed cleanly.
+- The companion version editor and translation compiler utilities gained safer atomic file saving, non-blocking background compilation in the graphical translation tool, automatic selection of the newest installed translation compiler, and strict read-only checking, along with complete Portuguese and English translations for all new interface text.
+
+================================================================================
+
+RELEASE NOTES — OMNIFRAME 3D
 Version: 2026.11.18.0
 Date: November 18, 2026
 

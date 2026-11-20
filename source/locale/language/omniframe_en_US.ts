@@ -5551,5 +5551,145 @@ Would you like to load the previous project or start a new project?</translation
             <source>FASE %1/%2 — EXECUTANDO NESTE CONTROLE</source>
             <translation>PHASE %1/%2 — EXECUTING IN THIS CONTROL</translation>
         </message>
+        <message>
+            <source>OpenGL 3.3 Core indisponível nesta sessão.</source>
+            <translation>OpenGL 3.3 Core is unavailable in this session.</translation>
+        </message>
+        <message>
+            <source>Contexto OpenGL 3.3 Core indisponível nesta sessão (driver ou área remota sem aceleração).</source>
+            <translation>OpenGL 3.3 Core context is unavailable in this session (driver or remote session without hardware acceleration).</translation>
+        </message>
+        <message>
+            <source>Falha ao compilar shaders OpenGL 3.3 Core essenciais; renderizador 3D desabilitado.</source>
+            <translation>Failed to compile essential OpenGL 3.3 Core shaders; 3D renderer disabled.</translation>
+        </message>
+        <message>
+            <source>Tensão de von Mises</source>
+            <translation>von Mises Stress</translation>
+        </message>
+        <message>
+            <source>Poligonal Customizada</source>
+            <translation>Custom Polygon</translation>
+        </message>
+        <message>
+            <source>Seção Composta</source>
+            <translation>Composite Section</translation>
+        </message>
+        <message>
+            <source>Espessura do tubo circular (t) deve ser menor que o raio externo (D/2).</source>
+            <translation>Circular tube wall thickness (t) must be smaller than the outer radius (D/2).</translation>
+        </message>
+        <message>
+            <source>A soma das espessuras das mesas (2·tf) deve ser menor que a altura total (h).</source>
+            <translation>The sum of the flange thicknesses (2·tf) must be smaller than the total depth (h).</translation>
+        </message>
+        <message>
+            <source>A espessura da alma (tw) deve ser menor que a largura da mesa (bf).</source>
+            <translation>The web thickness (tw) must be smaller than the flange width (bf).</translation>
+        </message>
+        <message>
+            <source>A soma das espessuras das almas (2·tw) deve ser menor que a largura (b).</source>
+            <translation>The sum of the web thicknesses (2·tw) must be smaller than the width (b).</translation>
+        </message>
+        <message>
+            <source>A espessura da cantoneira (t) deve ser menor que o comprimento das abas (h e b).</source>
+            <translation>The angle thickness (t) must be smaller than the leg lengths (h and b).</translation>
+        </message>
+        <message>
+            <source>A espessura da mesa (tf) deve ser menor que a altura total (h).</source>
+            <translation>The flange thickness (tf) must be smaller than the total depth (h).</translation>
+        </message>
+        <message>
+            <source>A soma das espessuras das mesas (tf1 + tf2) deve ser menor que a altura total (h).</source>
+            <translation>The sum of the flange thicknesses (tf1 + tf2) must be smaller than the total depth (h).</translation>
+        </message>
+        <message>
+            <source>A espessura da alma (tw) deve ser menor que a largura das mesas (bf1 e bf2).</source>
+            <translation>The web thickness (tw) must be smaller than the flange widths (bf1 and bf2).</translation>
+        </message>
+        <message>
+            <source>Não é possível excluir o material #%1 porque ele está atribuído ao Elemento de Malha 2D/3D #%2.</source>
+            <translation>Cannot delete material #%1 because it is assigned to 2D/3D Mesh Element #%2.</translation>
+        </message>
+        <message>
+            <source>Outro cálculo ou análise já está em andamento; aguarde a conclusão.</source>
+            <translation>Another calculation or analysis is already running; please wait for it to finish.</translation>
+        </message>
+        <message>
+            <source>Modelo modificado durante a análise; resultado descartado.</source>
+            <translation>Model modified during analysis; result discarded.</translation>
+        </message>
+        <message>
+            <source>Cálculo em andamento na janela principal; aguarde...</source>
+            <translation>Calculation running in the main window; please wait...</translation>
+        </message>
+        <message>
+            <source>Executando tarefa assíncrona...</source>
+            <translation>Running asynchronous task...</translation>
+        </message>
+        <message>
+            <source>Exceção capturada na análise: %1</source>
+            <translation>Exception caught during analysis: %1</translation>
+        </message>
+        <message>
+            <source>Executando tarefa assíncrona com validação de revisão...</source>
+            <translation>Running asynchronous task with revision check...</translation>
+        </message>
+        <message>
+            <source>Modelo indisponível.</source>
+            <translation>Model unavailable.</translation>
+        </message>
+        <message>
+            <source>Pressão Normal / Carga Z (2D):</source>
+            <translation>Normal Pressure / Z Load (2D):</translation>
+        </message>
+        <message>
+            <source>Carga Linear Z (1D):</source>
+            <translation>Linear Z Load (1D):</translation>
+        </message>
+        <message>
+            <source>Força de Corpo / Carga Volumétrica Z (3D):</source>
+            <translation>Body Force / Volumetric Z Load (3D):</translation>
+        </message>
+        <message>
+            <source>Erro: a extrusão 2D -&gt; 3D requer uma malha base 2D (Tri3/Quad4). Limpe a malha atual ou gere uma malha 2D antes de extrudar.</source>
+            <translation>Error: 2D -&gt; 3D extrusion requires a 2D base mesh (Tri3/Quad4). Clear the current mesh or generate a 2D mesh before extruding.</translation>
+        </message>
+        <message>
+            <source>Erro: falha ao extrudar a malha 2D para 3D.</source>
+            <translation>Error: failed to extrude the 2D mesh to 3D.</translation>
+        </message>
+        <message>
+            <source>Erro ao gerar malha: %1</source>
+            <translation>Error generating mesh: %1</translation>
+        </message>
+        <message>
+            <source>Erro desconhecido ao gerar malha.</source>
+            <translation>Unknown error generating mesh.</translation>
+        </message>
+        <message>
+            <source>Calculando modelo e Mapa DCR em segundo plano...</source>
+            <translation>Solving model and DCR Map in the background...</translation>
+        </message>
+        <message>
+            <source>Calculando análise estática em segundo plano para gerar Mapa DCR...</source>
+            <translation>Running static analysis in the background to generate the DCR Map...</translation>
+        </message>
+        <message>
+            <source>Falha ao Remover Integração CLI</source>
+            <translation>Failed to Remove CLI Integration</translation>
+        </message>
+        <message>
+            <source>Não foi possível remover integralmente as entradas da CLI no registro HKCU do Windows.
+
+Detalhes: %1</source>
+            <translation>Could not completely remove the CLI entries from the Windows HKCU registry.
+
+Details: %1</translation>
+        </message>
+        <message>
+            <source>Falha ao remover registro HKCU da CLI.</source>
+            <translation>Failed to remove CLI HKCU registry entries.</translation>
+        </message>
     </context>
 </TS>

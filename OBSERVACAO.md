@@ -16,8 +16,8 @@
 
 # OMNIFRAME 3D - OBSERVAÇÃO TÉCNICA E POSICIONAMENTO ESTRATÉGICO
 
-Versão documentada: `2026.11.18.0`  
-Data do snapshot técnico: `18 de novembro de 2026`  
+Versão documentada: `2026.11.20.0`  
+Data do snapshot técnico: `20 de novembro de 2026`  
 Repositório: `OmniFrame_cpp`  
 Autor identificado no projeto: `Fernando Nillsson Cidade`  
 Licença do repositório: `GNU AGPLv3 (GNU Affero General Public License v3)`  
@@ -34,14 +34,14 @@ Sua proposta de valor central responde diretamente à pergunta mais crítica no 
 
 O produto atua como uma solução soberana **100% Local-First** (sem nuvem, sem telemetria, sem criação de contas, sem rastreadores e sem dependência de serviços externos), operando com independência e integridade analítica garantida.
 
-## 2. Linha Técnica e Destaques da Versão 2026.11.18.0
+## 2. Linha Técnica e Destaques da Versão 2026.11.20.0
 
 Esta versão consolida a maturidade técnica da engine de cálculo e a estabilização completa dos subsistemas analíticos:
 
-- **Núcleo Puro C++23 + Eigen 3.4.0 (`OmniFrameKernel`):** Biblioteca numérica estritamente sem Qt implementando elementos 1D/2D/3D (`BeamTruss1D`, `Corotational1D`, `ShellElements`, `SolidElements` com DOFs `mask3` e acoplamento automático), modelos constitutivos elástico linear e **Plasticidade J2** (`LinearElasticMaterial`, `J2PlasticityMaterial`), geração paramétrica de malhas (`MeshGenerator`) e verificações `NbrCodeChecks`;
-- **Suíte Multi-Solver & Análises Avançadas:** `LinearSolverSuite` esparso (`SimplicialLDLT` AMD, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB` com fallback rastreável), `BucklingSolver` (com aplicação direta de imperfeição geométrica inicial), `DynamicSolver` (Modal, Harmônica FRF, Espectro de Resposta e Transiente/Sísmica Newmark-$\beta$/HHT-$\alpha$ com histórico de força $F(t)$) e `NonlinearSolver` (P-Delta, Corrotacional 3D com Tangente Completa, Line Search, Newton-Raphson & Arc-Length), executados de forma assíncrona na GUI (`MainWindow`);
-- **Viewport Gráfica Interativa em OpenGL 3.3 Core Profile:** Pipeline GLSL 330 com anti-aliasing SSAA/MSAA/Shader SDF (`RenderSettings`), câmera orbital 3D, Raycasting picking, diagramas contínuos de Hermite, **Planos de Corte 3D (Clip Plane)** (preservando grade de planos de trabalho e cursor), **contornos DCR e Tensão de von Mises (Casca/Sólido)**, **animação modal/deformada** (`PostProcessControlDialog`), plano padrão **`XY (Planta)`** nos 3 exemplos, janelas **modeless** sem contorno fantasma inicial (`WindowZOrderManager`), tabelas interativas configuráveis em 1–4 layouts com exportação `.xlsx`/`.csv`/`.txt`/`.json`/`.xml` (`ResultTableConfigurator`), modos de interface **`Customizado` / `Nativo`** (`ThemeManager`), inicialização limpa com proteção de edições (`StartupSessionDialog`) e setas vetoriais nativas de UI via `QProxyStyle`;
-- **Interoperabilidade, Conformidade, Persistência & Relatórios Nativos:** Formato aberto **`.omniframe` JSON Schema `2.1.0`** (com `"surfaceMesh"` retrocompatível com `1.0` / `2.0`), troca bidirecional **DXF / IFC4** (`DxfInterop`, `IfcInterop` com caminhos UTF-8 em `Utf8Path.hpp`), exportação **VTK `UNSTRUCTURED_GRID`** 1D/2D/3D e **CSV** contínuo, persistência universal atômica (`UserPreferencesStore` em `user_preferences.json` v2), recuperação automática de sessão (`ProjectRecoveryStore`), logs diários com retenção máxima de 10 arquivos (`AppLogger` em `omniframe_aaaa-mm-dd.log`), auditoria **ABNT NBR** (`LocalPdfVerified`: `NBR 6118:2023`, `6120:2019`, `6122:2022`, `6123:2023`, `7480:2022`, `8800:2024`; `OutOfLocalPdfScope` explícito para normas ausentes), relatórios em **Markdown / HTML / PDF A4** (`PdfReportGenerator`) e CLI integrada **`omniframe-cli.exe`** (`source/cli/` + `source/os/WindowsCliIntegration`) com associação Windows 10/11 para CMD e PowerShell (`PATH`, `App Paths`, `.omniframe`, `register_cli_windows.ps1` e aliases MSIX).
+- **Núcleo Puro C++23 + Eigen 3.4.0 (`OmniFrameKernel`):** Biblioteca numérica estritamente sem Qt implementando elementos 1D/2D/3D (`BeamTruss1D`, `Corotational1D`, `ShellElements`, `SolidElements` com DOFs `mask3` e acoplamento automático), índices hash `O(1)` (`ensureIndex` + `ScopedUndoSuppression`), modelos constitutivos elástico linear e **Plasticidade J2** (`LinearElasticMaterial`, `J2PlasticityMaterial`), geração paramétrica de malhas (`MeshGenerator`) e verificações `NbrCodeChecks` (incluindo teto plástico NBR 8800 para $C_b > 1$);
+- **Suíte Multi-Solver & Análises Avançadas:** `LinearSolverSuite` esparso (`SimplicialLDLT` AMD, `SimplicialLLT`, `SparseLU`, `ConjugateGradient`, `BiCGSTAB` com fallback rastreável), `BucklingSolver` (com aplicação direta de imperfeição geométrica inicial), `DynamicSolver` (Modal, Harmônica FRF sem duplicação de amortecimento de Rayleigh, Espectro de Resposta NBR 15421 $2{,}5\,C_a\,a_g$ com combinação direcional ortogonal invariante a sinal e Transiente/Sísmica Newmark-$\beta$/HHT-$\alpha$ com histórico de força $F(t)$) e `NonlinearSolver` (P-Delta iterativo incluindo combos `ELU-2 P-Delta`, Corrotacional 3D com Tangente Completa, Line Search com restauração exata de estado e verificação real de equilíbrio, Newton-Raphson & Arc-Length), executados de forma unificada e exclusiva na GUI (`AsyncAnalysisExecutor` + `cloneWithoutHistory()` + `m_modelRevision` + `std::stop_token`);
+- **Viewport Gráfica Interativa em OpenGL 3.3 Core Profile:** Pipeline GLSL 330 com anti-aliasing SSAA/MSAA/Shader SDF (`RenderSettings`), cache de VBOs por camada, renderização instanciada de nós e desconexão segura via `aboutToBeDestroyed` + fallback amigável sem driver 3D, câmera orbital 3D, Raycasting picking, diagramas contínuos de Hermite, **Planos de Corte 3D (Clip Plane)**, **contornos DCR (0,50/0,85/1,00) e Tensão de von Mises (Casca/Sólido)**, **animação contínua inclusive apenas com malha 2D/3D**, plano padrão **`XY (Planta)`**, janelas **modeless** (`WindowZOrderManager`), tabelas interativas MVC compartilhadas (`ResultTableModel` / `ResultTableProxyModel` / `QTableView`) em 1–4 layouts com exportação `.xlsx`/`.csv`/`.txt`/`.json`/`.xml` anti-fórmula e filtro XML 1.0 (`ResultTableConfigurator`), modos de interface **`Customizado` / `Nativo`** (`ThemeManager`), inicialização limpa com proteção de edições (`StartupSessionDialog`) e setas vetoriais nativas de UI via `QProxyStyle`;
+- **Interoperabilidade, Conformidade, Persistência & Hardening:** Formato aberto **`.omniframe` JSON Schema `2.1.0`** (retrocompatível com `1.0` / `2.0`), limite anti-DoS (`128 MB`), troca bidirecional **DXF / IFC4** (`DxfInterop`, `IfcInterop` preservando `surfaceMesh`, apoios e espessuras via caminhos UTF-8 `Utf8Path.hpp`), exportação **VTK `UNSTRUCTURED_GRID`** 1D/2D/3D e **CSV**, persistência atômica debounced (`UserPreferencesStore` v2), pacote único atômico de recuperação por sessão (`ProjectRecoveryStore` v3 com `QSaveFile` + `QLockFile`), logs diários rápidos em tail (`AppLogger` máx. 10 arquivos), hardening Windows (`/GS`, `/sdl`, `/guard:cf`, `/CETCOMPAT`, `LOAD_LIBRARY_SEARCH_SYSTEM32`), auditoria **ABNT NBR** (`LocalPdfVerified` / `OutOfLocalPdfScope`), relatórios **Markdown / HTML / PDF A4** e CLI **`omniframe-cli.exe`** (`source/cli/` + `source/os/WindowsCliIntegration`) com associação HKCU e validação numérica estrita (`std::from_chars`).
 
 ## 3. Resumo Estrutural Consolidado do Código-Fonte
 
@@ -50,14 +50,14 @@ Estrutura validada na árvore de código-fonte `source/` e `tests/`:
 | Camada | Subdiretório | Descrição Técnica e Responsabilidade |
 |---|---|---|
 | **Kernel** | `source/kernel/` | Biblioteca C++23 + Eigen3 sem Qt (`analysis/`, `assembly/`, `codes/`, `core/`, `elements/`, `geometry/`, `materials/`, `mesh/`, `postprocessing/`, `solver/`) |
-| **Core** | `source/core/` | Ponte de modelo neutra à UI: `Node`, `Element`, `CrossSection`, `Material`, `StructuralModel` e `Types.hpp` |
+| **Core** | `source/core/` | Ponte de modelo neutra à UI: `Node`, `Element`, `CrossSection`, `Material`, `StructuralModel` (índices hash `O(1)` e `ScopedUndoSuppression`) e `Types.hpp` |
 | **Solver** | `source/solver/` | Orquestração conectando `StructuralModel` ao `OmniFrameKernel` (`FemSolver3D`) |
-| **Render** | `source/render/` | Shaders GLSL 330 (`ShaderCollection`), câmera orbital `Camera3D`, `RenderSettings` e `Viewport3D` OpenGL 3.3 Core |
-| **UI** | `source/ui/` | `MainWindow` (Qt 6.11.1), docks/layouts múltiplos, `ResultTableConfigurator`, `StartupSessionDialog`, `Dialogs`, `EngineeringDialogs` (6 diálogos de engenharia), `GuidedSessionDialog` (Sessão Guiada `F2`), `ThemeManager` (modos `Custom`/`Native`), `WindowZOrderManager`, `ManualDialog` e `AboutDialog` |
-| **I/O** | `source/io/` | `ProjectSerializer` (`.omniframe` Schema `2.1.0`, relatórios HTML/MD), `UserPreferencesStore` (`user_preferences.json` v2), `ProjectRecoveryStore`, `AppLogger`, `DxfInterop`, `IfcInterop`, `Utf8Path` e `PdfReportGenerator` (PDF A4) |
+| **Render** | `source/render/` | Shaders GLSL 330 (`ShaderCollection`), câmera orbital `Camera3D`, `RenderSettings` e `Viewport3D` OpenGL 3.3 Core (VBO cache/instancing e fallback limpo) |
+| **UI** | `source/ui/` | `MainWindow` (Qt 6.11.1), `AsyncAnalysisExecutor`, `ResultTableModel` / `ResultTableProxyModel` / `ResultTableConfigurator` (1–4 layouts MVC), `StartupSessionDialog`, `Dialogs`, `EngineeringDialogs`, `GuidedSessionDialog`, `ThemeManager`, `WindowZOrderManager`, `ManualDialog` e `AboutDialog` |
+| **I/O** | `source/io/` | `ProjectSerializer` (`.omniframe` Schema `2.1.0`, relatórios HTML/MD), `UserPreferencesStore` (`user_preferences.json` v2 com debounce), `ProjectRecoveryStore` (bundle único v3 + `QLockFile`), `AppLogger`, `DxfInterop`, `IfcInterop`, `Utf8Path` e `PdfReportGenerator` (PDF A4) |
 | **OS Integration** | `source/os/` | `WindowsCliIntegration` (console UTF-8 CMD/PowerShell, `CommandLineToArgvW`, registro HKCU `PATH`/`App Paths`/`.omniframe` e delegação GUI->CLI) |
-| **CLI** | `source/cli/` | Executável console integrado `omniframe-cli.exe` (`main_cli.cpp`) compartilhando `OmniFrameCore`, `OmniFrameKernel`, exemplos e auditoria NBR |
-| **Testes Automatizados** | `tests/` | Suíte modularizada de **20 alvos CTest** (`test_Material`..`test_SpringsSettlementsAndExamples` + `test_Phase0ValidationAndBenchmarks`..`test_Phase9UiAndWorkflows`) |
+| **CLI** | `source/cli/` | Executável console integrado `omniframe-cli.exe` (`main_cli.cpp`) compartilhando `OmniFrameCore`, `OmniFrameKernel`, validação numérica estrita (`std::from_chars`), exemplos e auditoria NBR |
+| **Testes Automatizados** | `tests/` | Suíte modularizada de **22 alvos CTest** (`test_Material`..`test_SpringsSettlementsAndExamples` + `test_Phase0ValidationAndBenchmarks`..`test_Phase11ToolsAndAudit`) além de alvos de fuzzing opcionais em `tests/fuzz/` |
 | **Mocks & Ferramentas** | `mocks/` | Editor/auditor de versões (`VersionEditor`) e compiladores de tradução Qt (`CompileTranslationsGUI` / `CompileTranslationsTerminal`) |
 
 ## 4. Build, Toolchain e Dependências Reais
@@ -87,8 +87,8 @@ O projeto adota uma fronteira estrita de duplo licenciamento:
 
 # OMNIFRAME 3D - TECHNICAL OBSERVATION AND STRATEGIC POSITIONING
 
-Documented Version: `2026.11.18.0`  
-Technical Snapshot Date: `November 18, 2026`  
+Documented Version: `2026.11.20.0`  
+Technical Snapshot Date: `November 20, 2026`  
 Repository: `OmniFrame_cpp`  
 Author Identified in Project: `Fernando Nillsson Cidade`  
 Repository License: `GNU AGPLv3 (GNU Affero General Public License v3)`  
@@ -169,10 +169,9 @@ OmniFrame_cpp/
 ├── OBSERVACAO.md
 ├── README.md
 ├── rascunho.cpp
-├── SECURITY.md
-└── prompt_mestre_omniframe_3d.md
+└── SECURITY.md
 
-**Root Path:** `c:\Users\ferna\APLICATIVOS\CPP\OmniFrame3D_cpp\source`
+**Root Path:** `OmniFrame3D_cpp\source`
 
 ```
 ├── 📁 assets
@@ -330,6 +329,8 @@ OmniFrame_cpp/
 ├── 📁 ui
 │   ├── ⚡ AboutDialog.cpp
 │   ├── ⚡ AboutDialog.hpp
+│   ├── ⚡ AsyncAnalysisExecutor.cpp
+│   ├── ⚡ AsyncAnalysisExecutor.hpp
 │   ├── ⚡ Dialogs.cpp
 │   ├── ⚡ Dialogs.hpp
 │   ├── ⚡ EngineeringDialogs.cpp
@@ -344,6 +345,8 @@ OmniFrame_cpp/
 │   ├── ⚡ RenderSettingsDialog.hpp
 │   ├── ⚡ ResultTableConfigurator.cpp
 │   ├── ⚡ ResultTableConfigurator.hpp
+│   ├── ⚡ ResultTableModel.cpp
+│   ├── ⚡ ResultTableModel.hpp
 │   ├── ⚡ StartupSessionDialog.cpp
 │   ├── ⚡ StartupSessionDialog.hpp
 │   ├── ⚡ ThemeManager.cpp
@@ -353,9 +356,14 @@ OmniFrame_cpp/
 └── ⚡ main.cpp
 ```
 
-**Root Path:** `c:\Users\ferna\APLICATIVOS\CPP\OmniFrame3D_cpp\tests`
+**Root Path:** `OmniFrame3D_cpp\tests`
 
 ```
+├── 📁 fuzz
+│   ├── 📄 CMakeLists.txt
+│   ├── ⚡ fuzz_dxf_interop.cpp
+│   ├── ⚡ fuzz_ifc_interop.cpp
+│   └── ⚡ fuzz_project_serializer.cpp
 ├── 📄 CMakeLists.txt
 ├── ⚡ TestHelper.hpp
 ├── ⚡ test_CantileverBenchmark.cpp
@@ -366,6 +374,8 @@ OmniFrame_cpp/
 ├── ⚡ test_EquilibriumReactions.cpp
 ├── ⚡ test_Material.cpp
 ├── ⚡ test_Phase0ValidationAndBenchmarks.cpp
+├── ⚡ test_Phase10RenderAndPerf.cpp
+├── ⚡ test_Phase11ToolsAndAudit.cpp
 ├── ⚡ test_Phase1KernelAndSolvers.cpp
 ├── ⚡ test_Phase2SectionsAnd1D.cpp
 ├── ⚡ test_Phase3NonlinearAndBuckling.cpp
@@ -380,22 +390,23 @@ OmniFrame_cpp/
 └── ⚡ test_SpringsSettlementsAndExamples.cpp
 ```
 
-**Root Path:** `c:\Users\ferna\APLICATIVOS\CPP\OmniFrame3D_cpp\repo\LISTAGEM`
+**Root Path:** `OmniFrame3D_cpp\images`
 
 ```
-├── 📁 en_US
-│   ├── 🖼️ Captura de tela 2026-11-16 154444.png
-│   ├── 🖼️ Captura de tela 2026-11-16 154459.png
-│   ├── 🖼️ Captura de tela 2026-11-16 154539.png
-│   └── 🖼️ Captura de tela 2026-11-16 154558.png
-└── 📁 pt_BR
-    ├── 🖼️ Captura de tela 2026-11-16 153830.png
-    ├── 🖼️ Captura de tela 2026-11-16 153851.png
-    ├── 🖼️ Captura de tela 2026-11-16 154256.png
-    └── 🖼️ Captura de tela 2026-11-16 154339.png
+└── 📁 interfaces
+    ├── 📁 en_US
+    │   ├── 🖼️ Captura de tela 2026-11-16 154444.png
+    │   ├── 🖼️ Captura de tela 2026-11-16 154459.png
+    │   ├── 🖼️ Captura de tela 2026-11-16 154539.png
+    │   └── 🖼️ Captura de tela 2026-11-16 154558.png
+    └── 📁 pt_BR
+        ├── 🖼️ Captura de tela 2026-11-16 153830.png
+        ├── 🖼️ Captura de tela 2026-11-16 153851.png
+        ├── 🖼️ Captura de tela 2026-11-16 154256.png
+        └── 🖼️ Captura de tela 2026-11-16 154339.png
 ```
 
-**Root Path:** `c:\Users\ferna\APLICATIVOS\CPP\OmniFrame3D_cpp\mocks`
+**Root Path:** `OmniFrame3D_cpp\mocks`
 
 ```
 ├── 📁 icons
@@ -419,7 +430,7 @@ OmniFrame_cpp/
 └── ⚡ VersionEditor.hpp
 ```
 
-**Root Path:** `c:\Users\ferna\APLICATIVOS\CPP\OmniFrame3D_cpp\docs`
+**Root Path:** `OmniFrame3D_cpp\docs`
 
 ```
 ├── 📁 images
@@ -430,14 +441,14 @@ OmniFrame_cpp/
 ├── 📝 compliance.md
 ├── 📝 licensing.md
 ├── 📝 privacy-policy.md
-├── 📝 release-v2026.11.18.0.md
+├── 📝 release-v2026.11.20.0.md
 ├── 📝 security-model.md
 ├── 📝 suggested-issues.md
 ├── 📝 technical-audit-and-roadmap.md
 └── 📝 user-guide.md
 ```
 
-**Root Path:** `c:\Users\ferna\APLICATIVOS\CPP\OmniFrame3D_cpp\.github`
+**Root Path:** `OmniFrame3D_cpp\.github`
 
 ```
 ├── 📁 ISSUE_TEMPLATE

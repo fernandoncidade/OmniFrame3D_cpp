@@ -46,10 +46,15 @@ out vec3 vNormal;
 out vec3 vFragPos;
 out vec4 vColor;
 
+vec3 safeNormalize(vec3 v, vec3 fallback) {
+    float lenSq = dot(v, v);
+    return (lenSq > 1e-12) ? (v * inversesqrt(lenSq)) : fallback;
+}
+
 void main() {
     vec4 worldPos = uModel * vec4(aPos, 1.0);
     vFragPos = vec3(worldPos);
-    vNormal = normalize(uNormalMatrix * aNormal);
+    vNormal = safeNormalize(uNormalMatrix * aNormal, vec3(0.0, 0.0, 1.0));
     vColor = aColor;
     gl_ClipDistance[0] = dot(worldPos, uClipPlane);
     gl_Position = uMVP * vec4(aPos, 1.0);
@@ -66,22 +71,27 @@ uniform vec3 uViewPos;
 
 out vec4 FragColor;
 
+vec3 safeNormalize(vec3 v, vec3 fallback) {
+    float lenSq = dot(v, v);
+    return (lenSq > 1e-12) ? (v * inversesqrt(lenSq)) : fallback;
+}
+
 void main() {
     // Iluminação Ambiente
     float ambientStrength = 0.35;
     vec3 ambient = ambientStrength * vec3(1.0);
 
     // Iluminação Difusa
-    vec3 norm = normalize(vNormal);
-    vec3 lightDir = normalize(uLightDir);
+    vec3 norm = safeNormalize(vNormal, vec3(0.0, 0.0, 1.0));
+    vec3 lightDir = safeNormalize(uLightDir, vec3(0.0, 0.0, 1.0));
     // Two-sided illumination for thin 2D shell/plate meshes and arbitrary winding
     float diff = abs(dot(norm, lightDir));
     vec3 diffuse = diff * vec3(0.85);
 
     // Iluminação Especular (Blinn-Phong)
     float specularStrength = 0.3;
-    vec3 viewDir = normalize(uViewPos - vFragPos);
-    vec3 halfwayDir = normalize(lightDir + viewDir);
+    vec3 viewDir = safeNormalize(uViewPos - vFragPos, lightDir);
+    vec3 halfwayDir = safeNormalize(lightDir + viewDir, lightDir);
     float spec = pow(max(dot(norm, halfwayDir), 0.0), 32.0);
     vec3 specular = specularStrength * spec * vec3(1.0);
 
@@ -145,7 +155,9 @@ void main() {
     vec4 clipB = uMVP * worldB;
 
     const float W_NEAR = 0.001;
-    if (clipA.w < W_NEAR && clipB.w < W_NEAR) {
+    float nearA = clipA.z + clipA.w;
+    float nearB = clipB.z + clipB.w;
+    if ((nearA < 0.0 && nearB < 0.0) || (clipA.w < W_NEAR && clipB.w < W_NEAR)) {
         gl_ClipDistance[0] = 1.0;
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         vPxA = vec2(0.0);
@@ -159,6 +171,30 @@ void main() {
 
     vec4 colA = aColorA;
     vec4 colB = aColorB;
+    if (nearA < 0.0) {
+        float t = clamp((-nearA) / max(nearB - nearA, 1e-6), 0.0, 1.0);
+        clipA = mix(clipA, clipB, t);
+        worldA = mix(worldA, worldB, t);
+        colA = mix(colA, colB, t);
+    } else if (nearB < 0.0) {
+        float t = clamp((-nearB) / max(nearA - nearB, 1e-6), 0.0, 1.0);
+        clipB = mix(clipB, clipA, t);
+        worldB = mix(worldB, worldA, t);
+        colB = mix(colB, colA, t);
+    }
+
+    if (clipA.w < W_NEAR && clipB.w < W_NEAR) {
+        gl_ClipDistance[0] = 1.0;
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        vPxA = vec2(0.0);
+        vPxB = vec2(0.0);
+        vColorA = vec4(0.0);
+        vColorB = vec4(0.0);
+        vEffStrokePx = 1.0;
+        vAlphaAtten = 0.0;
+        return;
+    }
+
     if (clipA.w < W_NEAR) {
         float t = clamp((W_NEAR - clipA.w) / max(clipB.w - clipA.w, 1e-6), 0.0, 1.0);
         clipA = mix(clipA, clipB, t);
@@ -345,6 +381,35 @@ void main() {
     }
 
     FragColor = vec4(col, 1.0);
+}
+)glsl";
+
+// Shader Instanciado para Esferas Nodais (1 draw call glDrawArraysInstanced)
+inline constexpr const char* INSTANCED_MESH_VERTEX_SHADER = R"glsl(#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec4 aInstanceCenterRadius;
+layout (location = 3) in vec4 aInstanceColor;
+
+uniform mat4 uMVP;
+uniform vec4 uClipPlane;
+
+out vec3 vNormal;
+out vec3 vFragPos;
+out vec4 vColor;
+
+vec3 safeNormalize(vec3 v, vec3 fallback) {
+    float lenSq = dot(v, v);
+    return (lenSq > 1e-12) ? (v * inversesqrt(lenSq)) : fallback;
+}
+
+void main() {
+    vec4 worldPos = vec4(aInstanceCenterRadius.xyz + aPos * aInstanceCenterRadius.w, 1.0);
+    vFragPos = vec3(worldPos);
+    vNormal = safeNormalize(aNormal, vec3(0.0, 0.0, 1.0));
+    vColor = aInstanceColor;
+    gl_ClipDistance[0] = dot(worldPos, uClipPlane);
+    gl_Position = uMVP * worldPos;
 }
 )glsl";
 

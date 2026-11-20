@@ -35,7 +35,7 @@ QString formatRichInlineText(const QString& plainLine, const QString& accentColo
     QString escaped = plainLine.toHtmlEscaped();
 
     // Destaca prefixo antes de ":" em itens de lista ou definições curtas
-    const int colonIdx = escaped.indexOf(QLatin1Char(':'));
+    const qsizetype colonIdx = escaped.indexOf(QLatin1Char(':'));
     if (colonIdx > 0 && colonIdx <= 96 && !escaped.contains(QStringLiteral("http"))) {
         const QString prefix = escaped.left(colonIdx + 1);
         const QString rest = escaped.mid(colonIdx + 1);
@@ -43,7 +43,7 @@ QString formatRichInlineText(const QString& plainLine, const QString& accentColo
     }
 
     // Destaca prefixo antes de " — " em tabela de atalhos
-    const int dashIdx = escaped.indexOf(QStringLiteral(" — "));
+    const qsizetype dashIdx = escaped.indexOf(QStringLiteral(" — "));
     if (dashIdx > 0 && dashIdx <= 56) {
         const QString keyPart = escaped.left(dashIdx);
         const QString descPart = escaped.mid(dashIdx);
@@ -223,7 +223,8 @@ void ManualDialog::applyTheme() {
         }
         setPalette(QPalette());
         setAttribute(Qt::WA_SetPalette, false);
-        for (QWidget* child : findChildren<QWidget*>()) {
+        const QList<QWidget*> children = findChildren<QWidget*>();
+        for (QWidget* child : children) {
             if (!child) continue;
             child->setPalette(QPalette());
             child->setAttribute(Qt::WA_SetPalette, false);
@@ -489,9 +490,9 @@ QString ManualDialog::buildManualHtml(const QString& rawText, QTreeWidget* index
             "</style></head><body>");
     }
 
-    const QRegularExpression rxChapter(QStringLiteral("^(CAPÍTULO|CHAPTER)\\s+(\\d+)\\s+[—-]\\s+(.+)$"));
-    const QRegularExpression rxSubchapter(QStringLiteral("^(\\d+\\.\\d+)\\s+(.+)$"));
-    const QRegularExpression rxOrdered(QStringLiteral("^(\\d+)\\.\\s+(.+)$"));
+    static const QRegularExpression rxChapter(QStringLiteral("^(CAPÍTULO|CHAPTER)\\s+(\\d+)\\s+[—-]\\s+(.+)$"));
+    static const QRegularExpression rxSubchapter(QStringLiteral("^(\\d+\\.\\d+)\\s+(.+)$"));
+    static const QRegularExpression rxOrdered(QStringLiteral("^(\\d+)\\.\\s+(.+)$"));
 
     QTreeWidgetItem* currentChapterItem = nullptr;
     bool inBanner = false;

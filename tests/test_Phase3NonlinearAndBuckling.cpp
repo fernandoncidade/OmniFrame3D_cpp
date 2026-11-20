@@ -464,6 +464,271 @@ void testElastoplasticCantileverPlasticHinge() {
               << " m, w_ep=" << wPlastic << " m)\n";
 }
 
+void testAud010TrussReleasesGlobalXTriadEquilibriumAndPDeltaCombo() {
+    // 1. Barra 3D Euler-Bernoulli com makeTrussReleases() (bloco torsional 2x2 singular condensado via COD)
+    {
+        StructuralModel m;
+        m.clear();
+        const NodeId n1 = m.addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = m.addNode(3.0, 0.0, 0.0);
+        const NodeId n3 = m.addNode(1.5, 0.0, 2.0);
+        m.findNode(n1)->support.fixed = {true, true, true, true, true, true};
+        m.findNode(n2)->support.fixed = {true, true, true, true, true, true};
+        m.findNode(n3)->support.fixed = {false, true, false, false, false, false};
+        m.findNode(n3)->load.force.z = -50.0;
+
+        const ElementId e1 = m.addElement(n1, n3, 1, 1);
+        const ElementId e2 = m.addElement(n2, n3, 1, 1);
+        m.findElement(e1)->releases = ElementReleases::makeTrussReleases();
+        m.findElement(e2)->releases = ElementReleases::makeTrussReleases();
+
+        NonlinearOptions nlOpts;
+        nlOpts.method = NonlinearMethod::NewtonRaphson;
+        nlOpts.kinematics = NonlinearKinematics::Corotational3D;
+        nlOpts.numSteps = 5;
+        nlOpts.enableLineSearch = true;
+        const NonlinearResult nlRes = FemSolver3D::solveNonlinear(m, nlOpts);
+        ASSERT_TRUE(nlRes.success, "Trelica com makeTrussReleases() deve convergir no solver corrotacional");
+        ASSERT_TRUE(nlRes.equilibriumBalanced, "Equilibrio estatico global real deve fechar em solveNonlinear");
+        for (const auto& el : m.getElements()) {
+            ASSERT_TRUE(el.localDisplacements.allFinite(), "localDisplacements deve ser preenchido em solveNonlinear");
+            ASSERT_NEAR(el.localEndForces(4), 0.0, 1e-7, "Momento My na extremidade articulada deve ser zero");
+            ASSERT_NEAR(el.localEndForces(5), 0.0, 1e-7, "Momento Mz na extremidade articulada deve ser zero");
+            ASSERT_NEAR(el.localEndForces(10), 0.0, 1e-7, "Momento My final articulado deve ser zero");
+            ASSERT_NEAR(el.localEndForces(11), 0.0, 1e-7, "Momento Mz final articulado deve ser zero");
+        }
+
+        // 1b. [AUD-010] Comparacao direta de deslocamentos: EulerBernoulli3D + makeTrussReleases() vs Truss3D pura
+        auto buildTripod = [](ElementFormulation form, bool applyTrussReleases) {
+            StructuralModel tm;
+            tm.clear();
+            const NodeId b1 = tm.addNode(0.0, 0.0, 0.0);
+            const NodeId b2 = tm.addNode(3.0, 0.0, 0.0);
+            const NodeId b3 = tm.addNode(1.5, 2.6, 0.0);
+            const NodeId apex = tm.addNode(1.5, 0.866, 2.0);
+            for (NodeId bid : {b1, b2, b3}) {
+                tm.findNode(bid)->support.fixed = {true, true, true, true, true, true};
+            }
+            tm.findNode(apex)->load.force = {15.0, -10.0, -80.0};
+            for (NodeId bid : {b1, b2, b3}) {
+                const ElementId eid = tm.addElement(bid, apex, 1, 1);
+                Element* el = tm.findElement(eid);
+                el->formulation = form;
+                if (applyTrussReleases) {
+                    el->releases = ElementReleases::makeTrussReleases();
+                }
+            }
+            return tm;
+        };
+
+        StructuralModel mReleased = buildTripod(ElementFormulation::EulerBernoulli3D, true);
+        StructuralModel mPureTruss = buildTripod(ElementFormulation::Truss3D, false);
+
+        NonlinearOptions cmpOpts;
+        cmpOpts.method = NonlinearMethod::NewtonRaphson;
+        cmpOpts.kinematics = NonlinearKinematics::Corotational3D;
+        cmpOpts.numSteps = 5;
+        cmpOpts.enableLineSearch = true;
+        cmpOpts.forceTol = 1e-8;
+
+        const NonlinearResult resRel = FemSolver3D::solveNonlinear(mReleased, cmpOpts);
+        const NonlinearResult resPure = FemSolver3D::solveNonlinear(mPureTruss, cmpOpts);
+        ASSERT_TRUE(resRel.success && resRel.equilibriumBalanced,
+                    "Tripe 3D com makeTrussReleases() deve convergir com equilibrio global");
+        ASSERT_TRUE(resPure.success && resPure.equilibriumBalanced,
+                    "Tripe 3D com ElementFormulation::Truss3D pura deve convergir com equilibrio global");
+
+        const auto& apexRel = mReleased.getNodes().back();
+        const auto& apexPure = mPureTruss.getNodes().back();
+        const double pureNorm = std::max(1e-12, std::sqrt(
+            apexPure.displacement[0] * apexPure.displacement[0] +
+            apexPure.displacement[1] * apexPure.displacement[1] +
+            apexPure.displacement[2] * apexPure.displacement[2]));
+        for (int d = 0; d < 3; ++d) {
+            const double diff = std::abs(apexRel.displacement[d] - apexPure.displacement[d]);
+            ASSERT_TRUE(diff <= 1e-5 * pureNorm,
+                        "Deslocamentos de makeTrussReleases() devem coincidir com Truss3D pura");
+        }
+        for (const auto& el : mReleased.getElements()) {
+            ASSERT_NEAR(el.localEndForces(4), 0.0, 1e-7, "Momento My nulo na barra liberada do tripe");
+            ASSERT_NEAR(el.localEndForces(5), 0.0, 1e-7, "Momento Mz nulo na barra liberada do tripe");
+            ASSERT_NEAR(el.localEndForces(10), 0.0, 1e-7, "Momento My final nulo na barra liberada do tripe");
+            ASSERT_NEAR(el.localEndForces(11), 0.0, 1e-7, "Momento Mz final nulo na barra liberada do tripe");
+        }
+    }
+
+    // 1c. [AUD-010] Problema nao linear severo comprovando ativacao real de Armijo (alpha < 1.0)
+    {
+        class SteepHyperbolic1DModel final : public INonlinearModel {
+        public:
+            SteepHyperbolic1DModel(double targetU) : m_targetU(targetU) {
+                const std::array<bool, kernel::NODAL_MAX_DOFS> mask{true, false, false, false, false, false, false};
+                m_dofMgr.registerNode(1, mask);
+                m_dofMgr.finalizeNumbering();
+
+                m_redSys.fullDofs = 1;
+                m_redSys.reducedDofs = 1;
+                m_redSys.freeDofs = 1;
+                m_redSys.U_offset = VecX::Zero(1);
+                m_redSys.freeReducedIndices = {0};
+
+                m_Fref = VecX::Zero(1);
+                m_Fref(0) = 10.0 * m_targetU + 0.01 * std::sinh(20.0 * m_targetU);
+            }
+
+            const DofManager& dofManager() const override { return m_dofMgr; }
+            const ReducedLinearSystem& baseReducedSystem() const override { return m_redSys; }
+            const VecX& referenceExternalLoadFull() const override { return m_Fref; }
+
+            void beginStepTrial() override {}
+            bool evaluateTrial(const VecX& U_full_total,
+                               const VecX&,
+                               SpMat& outKt_full,
+                               VecX& outFint_full,
+                               bool& outYielded,
+                               std::string* errorMsg = nullptr) override {
+                outYielded = false;
+                const double u = U_full_total(0);
+                const double fInt = 10.0 * u + 0.01 * std::sinh(20.0 * u);
+                const double kt = 10.0 + 0.2 * std::cosh(20.0 * u);
+                if (!std::isfinite(fInt) || !std::isfinite(kt)) {
+                    if (errorMsg) *errorMsg = "Non-finite trial state";
+                    return false;
+                }
+                outFint_full = VecX::Zero(1);
+                outFint_full(0) = fInt;
+                outKt_full = SpMat(1, 1);
+                outKt_full.insert(0, 0) = kt;
+                outKt_full.makeCompressed();
+                return true;
+            }
+            void commitStep() override {}
+            void revertStepToCommitted() override {}
+            void resetAll() override {}
+
+        private:
+            double m_targetU = 0.5;
+            DofManager m_dofMgr;
+            ReducedLinearSystem m_redSys;
+            VecX m_Fref;
+        };
+
+        SteepHyperbolic1DModel steepModel(0.5);
+        NonlinearOptions severeOpts;
+        severeOpts.method = NonlinearMethod::NewtonRaphson;
+        severeOpts.numSteps = 1;
+        severeOpts.maxSteps = 1;
+        severeOpts.maxIterationsPerStep = 12;
+        severeOpts.forceTol = 1e-7;
+        severeOpts.energyTol = 1e-10;
+
+        severeOpts.enableLineSearch = false;
+        const NonlinearResult resNoLs = NonlinearSolver::solve(steepModel, severeOpts);
+        ASSERT_TRUE(!resNoLs.success,
+                    "Sem line search, passo completo em nao linearidade severa deve falhar em atingir lambda=1.0");
+
+        steepModel.resetAll();
+        severeOpts.enableLineSearch = true;
+        const NonlinearResult resWithLs = NonlinearSolver::solve(steepModel, severeOpts);
+        ASSERT_TRUE(resWithLs.success,
+                    "Com Armijo line search habilitado, problema nao linear severo deve convergir");
+        ASSERT_TRUE(resWithLs.lineSearchBacktrackCount > 0 && resWithLs.minLineSearchAlpha < 1.0,
+                    "Armijo line search deve reduzir o tamanho do passo (alpha < 1.0)");
+        ASSERT_NEAR(resWithLs.finalU_full(0), 0.5, 1e-6,
+                    "Solucao convergida com line search deve igualar raiz exata u*=0.5");
+    }
+
+    // 2. Coluna vertical que gira ate ficar paralela ao eixo X global (teste de fallback de triade Corotational1D)
+    {
+        Beam1DProps p;
+        p.L = 2.0;
+        p.E = 2.0e8;
+        p.G = 7.7e7;
+        p.A = 0.04;
+        p.Iy = 1.0e-4;
+        p.Iz = 1.0e-4;
+        p.J = 1.5e-4;
+        Mat3 R0 = Mat3::Zero();
+        R0.col(0) = kernel::Vec3(0.0, 0.0, 1.0);
+        R0.col(1) = kernel::Vec3(0.0, 1.0, 0.0);
+        R0.col(2) = kernel::Vec3(-1.0, 0.0, 0.0);
+
+        Corotational1DState st;
+        // Desloca o no 2 de (0,0,2) para (2,0,0), deixando a corda exatamente paralela a X global
+        const auto ev = CorotationalBeam3D::evaluate(
+            kernel::Vec3(0.0, 0.0, 0.0), kernel::Vec3(0.0, 0.0, 2.0), R0, p,
+            kernel::Vec3(0.0, 0.0, 0.0), kernel::Vec3(0.0, 0.0, 0.0),
+            kernel::Vec3(2.0, 0.0, -2.0), kernel::Vec3(0.0, 0.0, 0.0), st);
+        ASSERT_TRUE(ev.KtGlobal.allFinite() && ev.fIntGlobal.allFinite(),
+                    "Triade corrotacional paralela a X global deve produzir Kt e fInt finitos");
+    }
+
+    // 3. Combinacao com pDeltaEnabled == true em solveLoadCasesAndCombinations + modo de flambagem com recalque prescrito
+    {
+        StructuralModel col;
+        col.clear();
+        const SectionId slenderSec = col.addCrossSection(
+            CrossSection::makeRectangular(25, "Coluna Esbelta 10x10", 0.10, 0.10));
+        const NodeId n1 = col.addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = col.addNode(0.0, 0.0, 2.0);
+        const NodeId n3 = col.addNode(0.0, 0.0, 4.0);
+        col.findNode(n1)->support = SupportRestraint::makeFixed();
+        col.addElement(n1, n2, 1, slenderSec);
+        col.addElement(n2, n3, 1, slenderSec);
+
+        LoadCase lcAxial;
+        lcAxial.id = 1;
+        lcAxial.name = "Compressao";
+        lcAxial.nodalLoads.push_back({n3, {0.0, 0.0, -40.0, 0.0, 0.0, 0.0}}); // ~15.5% de P_cr = 257 kN
+        col.addLoadCase(lcAxial);
+
+        LoadCase lcLat;
+        lcLat.id = 2;
+        lcLat.name = "Lateral";
+        lcLat.nodalLoads.push_back({n3, {2.0, 0.0, 0.0, 0.0, 0.0, 0.0}});
+        col.addLoadCase(lcLat);
+
+        LoadCombination cLin;
+        cLin.id = 1;
+        cLin.name = "Comb-1aOrdem";
+        cLin.pDeltaEnabled = false;
+        cLin.factors = {{1, 1.0}, {2, 1.0}};
+        col.addLoadCombination(cLin);
+
+        LoadCombination cPDelta;
+        cPDelta.id = 2;
+        cPDelta.name = "Comb-PDelta";
+        cPDelta.pDeltaEnabled = true;
+        cPDelta.factors = {{1, 1.0}, {2, 1.0}};
+        col.addLoadCombination(cPDelta);
+
+        std::vector<CaseDisplacementResult> caseRes, comboRes;
+        EnvelopeExtremes env;
+        std::string err;
+        ASSERT_TRUE(FemSolver3D::solveLoadCasesAndCombinations(
+                        col, col.solverOptions(), caseRes, comboRes, env, &err),
+                    "solveLoadCasesAndCombinations com pDeltaEnabled deve convergir");
+        ASSERT_TRUE(comboRes.size() == 2, "Deve retornar 2 combinacoes");
+        const double uxLin = std::abs(comboRes[0].U_full(12));
+        const double uxPD = std::abs(comboRes[1].U_full(12));
+        ASSERT_TRUE(uxPD > 1.10 * uxLin,
+                    "Combinacao com pDeltaEnabled=true deve amplificar deslocamento lateral sob compressao");
+
+        // [AUD-012] Flambagem com deslocamento prescrito na base nao deve contaminar autovetores
+        col.findNode(n1)->support.hasPrescribed[2] = true;
+        col.findNode(n1)->support.prescribedValue[2] = -0.025;
+        col.findNode(n3)->load.force.z = -100.0;
+        BucklingOptions bOpts;
+        bOpts.numModes = 1;
+        const BucklingResult bRes = FemSolver3D::solveBuckling(col, bOpts);
+        ASSERT_TRUE(bRes.success && !bRes.modeShapesFull.empty(), "Flambagem com recalque prescrito deve convergir");
+        ASSERT_NEAR(bRes.modeShapesFull[0](2), 0.0, 1e-12,
+                    "Autovetor de flambagem deve ter deslocamento zero nos DOFs com recalque prescrito");
+    }
+
+    std::cout << "[OK] testAud010TrussReleasesGlobalXTriadEquilibriumAndPDeltaCombo\n";
+}
+
 } // namespace
 
 int main() {
@@ -473,6 +738,7 @@ int main() {
     testPDeltaAndLargeRotationElastica();
     testArcLengthSnapThrough();
     testElastoplasticCantileverPlasticHinge();
+    testAud010TrussReleasesGlobalXTriadEquilibriumAndPDeltaCombo();
     std::cout << "\nTodos os testes da Fase 3 (Flambagem, P-Delta, Corrotacional 3D, Arc-Length e J2) passaram!\n";
     return 0;
 }

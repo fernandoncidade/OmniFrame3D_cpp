@@ -642,6 +642,58 @@ void testUnifiedEndToEndShellPlateAndCoupledFrame() {
     std::cout << "[OK] UnifiedE2E ShellPlate & CoupledFrame1D+2D\n";
 }
 
+void testAud012WarpedQuad4ShellLoadMomentEquilibrium() {
+    auto mat = std::make_shared<LinearElasticIsotropic>(LinearElasticIsotropic::steelAstmA36(1));
+    const std::vector<NodeId> nids = {1, 2, 3, 4};
+    const std::vector<Vec3> coords = {
+        Vec3(0.0, 0.0, 0.0),
+        Vec3(2.0, 0.0, 0.35),
+        Vec3(2.0, 2.0, 0.0),
+        Vec3(0.0, 2.0, 0.35)
+    };
+    ShellElement shell(1, ShellElementType::Quad4MITC4, nids, coords, mat, 0.15);
+
+    ElementLoadInput load;
+    load.hasDistributed = true;
+    load.coordSystem = 0; // Global
+    load.distributedForce = Vec3(15.0, -20.0, -30.0);
+    load.normalPressure = -10.0;
+
+    const VecX fg = shell.computeGlobalLoadVector(load);
+    ASSERT_TRUE(fg.size() == 24 && fg.allFinite(), "Vetor de carga global de casca empenada deve ser finito");
+
+    Vec3 centroid = Vec3::Zero();
+    for (const auto& c : coords) centroid += c;
+    centroid /= 4.0;
+
+    // Verifica que uma casca empenada engastada sob carga distribuida + pressao fecha equilibrio estatico global 3D
+    omniframe::StructuralModel m;
+    m.getMaterials().clear();
+    m.getCrossSections().clear();
+    const int mid = m.addMaterial(omniframe::Material::makeStructuralSteel(1));
+    for (int i = 0; i < 4; ++i) {
+        MeshNode mn;
+        mn.id = i + 1;
+        mn.position = coords[static_cast<std::size_t>(i)];
+        if (i < 2) mn.fixed = {true, true, true, true, true, true};
+        m.surfaceMesh().nodes.push_back(mn);
+    }
+    MeshElement me;
+    me.id = 1;
+    me.type = MeshCellType::Quad4;
+    me.nodeIds = {1, 2, 3, 4};
+    me.materialId = mid;
+    me.thickness = 0.15;
+    me.distributedLoad = load.distributedForce;
+    me.normalPressure = load.normalPressure;
+    m.surfaceMesh().elements.push_back(me);
+
+    const omniframe::SolverResult res = omniframe::FemSolver3D::solve(m);
+    ASSERT_TRUE(res.success && res.equilibrium.isBalanced,
+                "Casca Quad4 empenada com projecao W^T consistente deve fechar equilibrio de forcas e momentos");
+    std::cout << "[OK] testAud012WarpedQuad4ShellLoadMomentEquilibrium\n";
+}
+
 } // namespace
 
 int main() {
@@ -651,6 +703,7 @@ int main() {
     testScordelisLoCylindricalRoof();
     testPlateBucklingTimoshenkoAndConsistentMass();
     testUnifiedEndToEndShellPlateAndCoupledFrame();
+    testAud012WarpedQuad4ShellLoadMomentEquilibrium();
     std::cout << "\nTodos os testes da Fase 5 (Cascas TRI3-MITC3, QUAD4-MITC4/QM6, QUAD8 + Fluxo E2E) passaram!\n";
     return 0;
 }

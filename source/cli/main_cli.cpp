@@ -23,16 +23,30 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #ifndef OMNIFRAME_APP_VERSION
 #define OMNIFRAME_APP_VERSION "2026.11.15.0"
@@ -312,9 +326,13 @@ bool exportVtkFile(const std::string& path, const StructuralModel& model) {
     points.reserve(frameNodes.size() + mesh.nodes.size());
 
     std::unordered_map<NodeId, int> frameIdxMap;
+    frameIdxMap.reserve(frameNodes.size());
+    SpatialPointHash frameHash(1e-4);
+    frameHash.reserve(frameNodes.size());
     for (int i = 0; i < static_cast<int>(frameNodes.size()); ++i) {
         const auto& n = frameNodes[i];
         frameIdxMap[n.id] = static_cast<int>(points.size());
+        frameHash.insert(n.position.x, n.position.y, n.position.z, static_cast<std::size_t>(i));
         const bool nodeHasData = (n.displacement[0] != 0.0 || n.displacement[1] != 0.0 || n.displacement[2] != 0.0 ||
                                   n.reaction[0] != 0.0 || n.reaction[1] != 0.0 || n.reaction[2] != 0.0);
         points.push_back({
@@ -326,17 +344,12 @@ bool exportVtkFile(const std::string& path, const StructuralModel& model) {
     }
 
     std::unordered_map<NodeId, int> meshIdxMap;
+    meshIdxMap.reserve(mesh.nodes.size());
     for (const auto& mn : mesh.nodes) {
         int matched = -1;
-        for (int idx = 0; idx < static_cast<int>(frameNodes.size()); ++idx) {
-            const auto& fn = frameNodes[idx];
-            const double dx = mn.position.x() - fn.position.x;
-            const double dy = mn.position.y() - fn.position.y;
-            const double dz = mn.position.z() - fn.position.z;
-            if (dx * dx + dy * dy + dz * dz <= 1e-12) {
-                matched = idx;
-                break;
-            }
+        std::size_t matchedIdx = 0;
+        if (frameHash.findNearestWithinSq(mn.position.x(), mn.position.y(), mn.position.z(), 1e-12, &matchedIdx)) {
+            matched = static_cast<int>(matchedIdx);
         }
         if (matched >= 0) {
             meshIdxMap[mn.id] = matched;
@@ -437,11 +450,69 @@ bool exportVtkFile(const std::string& path, const StructuralModel& model) {
     return os.good();
 }
 
+bool parseStrictInt(const std::string& raw, int& outVal) {
+    if (raw.empty()) return false;
+    const char* begin = raw.data();
+    const char* end = begin + raw.size();
+    int val = 0;
+    const auto [ptr, ec] = std::from_chars(begin, end, val, 10);
+    if (ec != std::errc{} || ptr != end) return false;
+    outVal = val;
+    return true;
+}
+
+bool parseStrictDouble(const std::string& raw, double& outVal) {
+    if (raw.empty()) return false;
+    const char* begin = raw.data();
+    const char* end = begin + raw.size();
+    double val = 0.0;
+    const auto [ptr, ec] = std::from_chars(begin, end, val);
+    if (ec != std::errc{} || ptr != end || !std::isfinite(val)) return false;
+    outVal = val;
+    return true;
+}
+
+QString formatJsonErrorBytes(const QString& errMsg) {
+    QJsonObject errObj;
+    errObj[QStringLiteral("success")] = false;
+    errObj[QStringLiteral("error")] = errMsg;
+    return QString::fromUtf8(QJsonDocument(errObj).toJson(QJsonDocument::Compact));
+}
+
 } // namespace
 
-int main(int argc, char* argv[]) {
-    os::configureConsoleUtf8();
+static int runCliImpl(int argc, char* argv[], bool& jsonStdout) {
     const std::vector<std::string> args = os::commandLineArgumentsUtf8(argc, argv);
+
+    std::string outputJsonPath;
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--json") {
+            jsonStdout = true;
+        } else if (args[i] == "--output" && i + 1 < args.size()) {
+            outputJsonPath = args[++i];
+        }
+    }
+
+    auto writeJsonFile = [&](const QJsonObject& obj) {
+        if (!outputJsonPath.empty()) {
+            QFile f(QString::fromUtf8(outputJsonPath));
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+            }
+        }
+    };
+
+    auto emitCliError = [&](const QString& errMsg) {
+        QJsonObject errObj;
+        errObj[QStringLiteral("success")] = false;
+        errObj[QStringLiteral("error")] = errMsg;
+        writeJsonFile(errObj);
+        if (jsonStdout) {
+            std::cout << QJsonDocument(errObj).toJson(QJsonDocument::Compact).toStdString() << "\n";
+        } else {
+            std::cerr << errMsg.toStdString() << "\n";
+        }
+    };
 
     bool needsPdfGui = false;
     for (size_t i = 1; i + 1 < args.size(); ++i) {
@@ -484,7 +555,11 @@ int main(int argc, char* argv[]) {
         QStringLiteral("Execucao omniframe-cli iniciada (%1 argumento(s))").arg(args.size() > 0 ? args.size() - 1 : 0));
 
     if (args.size() <= 1) {
-        printUsage();
+        if (jsonStdout) {
+            emitCliError(QStringLiteral("Nenhum argumento fornecido."));
+        } else {
+            printUsage();
+        }
         return 1;
     }
 
@@ -495,7 +570,6 @@ int main(int argc, char* argv[]) {
     bool checkWinInt = false;
     bool installWinInt = false;
     bool uninstallWinInt = false;
-    bool jsonStdout = false;
     bool fullNewtonTangent = true;
     bool enableLineSearch = true;
     std::string inputPath;
@@ -512,7 +586,6 @@ int main(int argc, char* argv[]) {
     double targetLoadFactor = 1.0;
     double imperfectionAmp = 0.0;
     int imperfectionMode = 1;
-    std::string outputJsonPath;
     std::vector<std::pair<std::string, std::string>> exports;
     std::vector<std::pair<std::string, std::string>> reports;
 
@@ -567,17 +640,59 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--scheme" && i + 1 < args.size()) {
             transientSchemeStr = toLowerAscii(args[++i]);
         } else if (arg == "--modes" && i + 1 < args.size()) {
-            modesCount = std::max(1, std::stoi(args[++i]));
+            int parsed = 0;
+            const std::string& raw = args[++i];
+            if (!parseStrictInt(raw, parsed) || parsed < 1 || parsed > 1000) {
+                emitCliError(QString("Valor invalido para --modes: '%1' (esperado inteiro entre 1 e 1000).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            modesCount = parsed;
         } else if (arg == "--steps" && i + 1 < args.size()) {
-            stepsCount = std::max(1, std::stoi(args[++i]));
+            int parsed = 0;
+            const std::string& raw = args[++i];
+            if (!parseStrictInt(raw, parsed) || parsed < 1 || parsed > 1000000) {
+                emitCliError(QString("Valor invalido para --steps: '%1' (esperado inteiro entre 1 e 1000000).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            stepsCount = parsed;
         } else if (arg == "--dt" && i + 1 < args.size()) {
-            dtSec = std::max(1e-5, std::stod(args[++i]));
+            double parsed = 0.0;
+            const std::string& raw = args[++i];
+            if (!parseStrictDouble(raw, parsed) || parsed <= 0.0 || parsed > 100.0) {
+                emitCliError(QString("Valor invalido para --dt: '%1' (esperado numero finito em (0, 100]).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            dtSec = parsed;
         } else if (arg == "--case" && i + 1 < args.size()) {
-            caseId = std::stoi(args[++i]);
+            int parsed = 0;
+            const std::string& raw = args[++i];
+            if (!parseStrictInt(raw, parsed) || parsed < 1) {
+                emitCliError(QString("Valor invalido para --case: '%1' (esperado inteiro >= 1).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            caseId = parsed;
         } else if (arg == "--combo" && i + 1 < args.size()) {
-            comboId = std::stoi(args[++i]);
+            int parsed = 0;
+            const std::string& raw = args[++i];
+            if (!parseStrictInt(raw, parsed) || parsed < 1) {
+                emitCliError(QString("Valor invalido para --combo: '%1' (esperado inteiro >= 1).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            comboId = parsed;
         } else if (arg == "--load-factor" && i + 1 < args.size()) {
-            targetLoadFactor = std::stod(args[++i]);
+            double parsed = 0.0;
+            const std::string& raw = args[++i];
+            if (!parseStrictDouble(raw, parsed) || parsed <= 0.0) {
+                emitCliError(QString("Valor invalido para --load-factor: '%1' (esperado numero finito > 0).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            targetLoadFactor = parsed;
         } else if (arg == "--full-tangent") {
             fullNewtonTangent = true;
         } else if (arg == "--modified-newton") {
@@ -587,33 +702,38 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--no-line-search") {
             enableLineSearch = false;
         } else if (arg == "--imperfection" && i + 1 < args.size()) {
-            imperfectionAmp = std::stod(args[++i]);
+            double parsed = 0.0;
+            const std::string& raw = args[++i];
+            if (!parseStrictDouble(raw, parsed)) {
+                emitCliError(QString("Valor invalido para --imperfection: '%1' (esperado numero finito).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            imperfectionAmp = parsed;
         } else if (arg == "--imperfection-mode" && i + 1 < args.size()) {
-            imperfectionMode = std::max(1, std::stoi(args[++i]));
+            int parsed = 0;
+            const std::string& raw = args[++i];
+            if (!parseStrictInt(raw, parsed) || parsed < 1 || parsed > 1000) {
+                emitCliError(QString("Valor invalido para --imperfection-mode: '%1' (esperado inteiro entre 1 e 1000).")
+                    .arg(QString::fromUtf8(raw)));
+                return 1;
+            }
+            imperfectionMode = parsed;
         } else if (arg == "--output" && i + 1 < args.size()) {
             outputJsonPath = args[++i];
         } else if (arg == "--export" && i + 2 < args.size()) {
             const std::string fmt = toLowerAscii(args[++i]);
-            const std::string outP = args[++i];
+            const std::string& outP = args[++i];
             exports.emplace_back(fmt, outP);
         } else if (arg == "--report" && i + 2 < args.size()) {
             const std::string fmt = toLowerAscii(args[++i]);
-            const std::string outP = args[++i];
+            const std::string& outP = args[++i];
             reports.emplace_back(fmt, outP);
         } else {
-            std::cerr << "Argumento desconhecido ou incompleto: " << arg << "\n";
+            emitCliError(QString("Argumento desconhecido ou incompleto: %1").arg(QString::fromUtf8(arg)));
             return 1;
         }
     }
-
-    auto writeJsonFile = [&](const QJsonObject& obj) {
-        if (!outputJsonPath.empty()) {
-            QFile f(QString::fromUtf8(outputJsonPath));
-            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
-            }
-        }
-    };
 
     if (listExamples) {
         const StructuralModel ex1 = StructuralModel::createBuildingFrameExample();
@@ -705,7 +825,11 @@ int main(int argc, char* argv[]) {
     }
 
     if ((inputPath.empty() && exampleName.empty()) || (!doValidate && !doAnalyze)) {
-        printUsage();
+        if (jsonStdout) {
+            emitCliError(QStringLiteral("Informe um arquivo de entrada ou --example com --validate/--analyze."));
+        } else {
+            printUsage();
+        }
         return 1;
     }
 
@@ -713,14 +837,14 @@ int main(int argc, char* argv[]) {
     std::string canonicalExample;
     if (!exampleName.empty()) {
         if (!createBuiltInExample(exampleName, model, canonicalExample)) {
-            std::cerr << "{\"success\":false,\"error\":\"Exemplo desconhecido: " << exampleName
-                      << " (use building, cantilever, truss ou 1, 2, 3)\"}\n";
+            emitCliError(QString("Exemplo desconhecido: %1 (use building, cantilever, truss ou 1, 2, 3)")
+                .arg(QString::fromUtf8(exampleName)));
             return 1;
         }
     } else {
         std::string loadErr;
         if (!loadModelAnyFormat(inputPath, model, loadErr)) {
-            std::cerr << "{\"success\":false,\"error\":\"" << loadErr << "\"}\n";
+            emitCliError(QString::fromUtf8(loadErr));
             return 1;
         }
     }
@@ -966,7 +1090,8 @@ int main(int argc, char* argv[]) {
         root["sweepPoints"] = static_cast<int>(hRes.sweep.size());
     } else if (analysisType == "spectrum") {
         kernel::ResponseSpectrumOptions so;
-        so.spectrumCurve = kernel::DynamicSolver::buildNbr15421SpectrumCurve(1.47, 1.0, 1.0);
+        so.spectrumCurve = kernel::DynamicSolver::buildNbr15421SpectrumCurve(
+            1.47, 1.0, 1.0, 4.0, 100, so.modalDampingZeta);
         kernel::ModalOptions mo;
         mo.numModes = modesCount;
         const auto sRes = FemSolver3D::solveResponseSpectrum(model, so, mo);
@@ -1020,21 +1145,22 @@ int main(int argc, char* argv[]) {
         root["scheme"] = QString::fromLatin1(
             topts.scheme == kernel::TransientScheme::HHTAlpha ? "hht" : "newmark");
 
+        const auto dispLayout = FemSolver3D::buildNodalDisplacementLayout(model);
         double peakDispNorm = 0.0;
         const kernel::VecX* peakVec = nullptr;
         for (const auto& rec : tRes.history) {
-            const auto field = FemSolver3D::extractNodalDisplacements(model, rec.U_full);
-            if (field.maxTranslationalNorm >= peakDispNorm) {
-                peakDispNorm = field.maxTranslationalNorm;
+            const double norm = FemSolver3D::computeMaxTranslationalNorm(dispLayout, model, rec.U_full);
+            if (norm >= peakDispNorm) {
+                peakDispNorm = norm;
                 peakVec = &rec.U_full;
             }
         }
         if (peakVec == nullptr && tRes.peakDisplacementFull.size() > 0) {
             peakVec = &tRes.peakDisplacementFull;
-            peakDispNorm = FemSolver3D::extractNodalDisplacements(model, *peakVec).maxTranslationalNorm;
+            peakDispNorm = FemSolver3D::computeMaxTranslationalNorm(dispLayout, model, *peakVec);
         }
         if (peakVec != nullptr) {
-            const auto peakField = FemSolver3D::extractNodalDisplacements(model, *peakVec);
+            const auto peakField = FemSolver3D::extractNodalDisplacements(dispLayout, model, *peakVec);
             for (auto& fn : model.getNodes()) {
                 const auto it = peakField.frameNodes.find(fn.id);
                 if (it != peakField.frameNodes.end()) {
@@ -1055,7 +1181,7 @@ int main(int argc, char* argv[]) {
         }
         root["peakDispNorm"] = peakDispNorm;
     } else {
-        std::cerr << "Tipo de analise desconhecido: " << analysisType << "\n";
+        emitCliError(QString("Tipo de analise desconhecido: %1").arg(QString::fromUtf8(analysisType)));
         return 1;
     }
 
@@ -1065,7 +1191,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Preserva deslocamentos de transient/seismic ou --case/--combo ao exportar, resolvendo estatico em copia quando necessario para relatorio ou auditoria NBR
-    StructuralModel reportModel = model;
+    StructuralModel reportModel = model.cloneWithoutHistory();
     if (analysisType != "static" && (!reports.empty() || doNbrAudit)) {
         staticRes = FemSolver3D::solveWithOptions(reportModel, linOpts);
     }
@@ -1092,9 +1218,15 @@ int main(int argc, char* argv[]) {
         pdfOpts.windS1 = meta.windS1;
         pdfOpts.windS2 = meta.windS2;
         pdfOpts.windS3 = meta.windS3;
-        pdfOpts.modalResult = modalResOpt ? &(*modalResOpt) : nullptr;
-        pdfOpts.bucklingResult = bucklingResOpt ? &(*bucklingResOpt) : nullptr;
-        pdfOpts.nonlinearResult = nlResOpt ? &(*nlResOpt) : nullptr;
+        pdfOpts.modalResult = modalResOpt
+            ? std::make_shared<const kernel::ModalResult>(*modalResOpt)
+            : nullptr;
+        pdfOpts.bucklingResult = bucklingResOpt
+            ? std::make_shared<const kernel::BucklingResult>(*bucklingResOpt)
+            : nullptr;
+        pdfOpts.nonlinearResult = nlResOpt
+            ? std::make_shared<const kernel::NonlinearResult>(*nlResOpt)
+            : nullptr;
     }
 
     if (doNbrAudit) {
@@ -1105,6 +1237,8 @@ int main(int argc, char* argv[]) {
 
     for (const auto& [fmt, outPath] : exports) {
         bool ok = false;
+        const kernel::MeshContainer* meshPtr =
+            model.surfaceMesh().elements.empty() ? nullptr : &model.surfaceMesh();
         if (fmt == "json") {
             ok = ProjectSerializer::saveToFile(QString::fromUtf8(outPath), model);
         } else if (fmt == "csv") {
@@ -1112,15 +1246,16 @@ int main(int argc, char* argv[]) {
         } else if (fmt == "vtk") {
             ok = exportVtkFile(outPath, model);
         } else if (fmt == "dxf") {
-            ok = io::DxfInterop::exportToFile(outPath, model);
+            ok = io::DxfInterop::exportToFile(outPath, model, meshPtr);
         } else if (fmt == "ifc") {
-            ok = io::IfcInterop::exportToFile(outPath, model);
+            ok = io::IfcInterop::exportToFile(outPath, model, meshPtr);
         } else {
-            std::cerr << "Formato de exportacao nao suportado: " << fmt << "\n";
+            emitCliError(QString("Formato de exportacao nao suportado: %1").arg(QString::fromUtf8(fmt)));
             return 1;
         }
         if (!ok) {
-            std::cerr << "Falha ao exportar " << fmt << " para: " << outPath << "\n";
+            emitCliError(QString("Falha ao exportar %1 para: %2")
+                .arg(QString::fromUtf8(fmt), QString::fromUtf8(outPath)));
             return 1;
         }
     }
@@ -1136,18 +1271,61 @@ int main(int argc, char* argv[]) {
             ok = io::PdfReportGenerator::generateExecutivePdf(
                 QString::fromUtf8(outPath), reportModel, staticRes, pdfOpts, &reportErr);
         } else {
-            std::cerr << "Formato de relatorio nao suportado via CLI: " << fmt << "\n";
+            emitCliError(QString("Formato de relatorio nao suportado via CLI: %1").arg(QString::fromUtf8(fmt)));
             return 1;
         }
         if (!ok) {
+            QString msg = QString("Falha ao gerar relatorio %1 em: %2")
+                .arg(QString::fromUtf8(fmt), QString::fromUtf8(outPath));
             if (!reportErr.isEmpty()) {
-                std::cerr << "Detalhes do erro no relatorio: " << reportErr.toStdString() << "\n";
+                msg += QString(" (%1)").arg(reportErr);
             }
-            std::cerr << "Falha ao gerar relatorio " << fmt << " em: " << outPath << "\n";
+            emitCliError(msg);
             return 1;
         }
     }
 
     emitJson(root);
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    ::SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+#endif
+    bool jsonRequested = false;
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] && std::string_view(argv[i]) == "--json") {
+            jsonRequested = true;
+            break;
+        }
+    }
+    try {
+        os::configureConsoleUtf8();
+        return runCliImpl(argc, argv, jsonRequested);
+    } catch (const std::exception& ex) {
+        try {
+            const QString msg = QString("Excecao nao tratada na CLI: %1").arg(QString::fromUtf8(ex.what()));
+            if (jsonRequested) {
+                std::cout << formatJsonErrorBytes(msg).toStdString() << "\n";
+            } else {
+                std::cerr << msg.toStdString() << "\n";
+            }
+        } catch (...) {
+            std::fputs("Fatal CLI error.\n", stderr);
+        }
+        return 1;
+    } catch (...) {
+        try {
+            const QString msg = QStringLiteral("Excecao desconhecida na CLI.");
+            if (jsonRequested) {
+                std::cout << formatJsonErrorBytes(msg).toStdString() << "\n";
+            } else {
+                std::cerr << msg.toStdString() << "\n";
+            }
+        } catch (...) {
+            std::fputs("Fatal CLI error.\n", stderr);
+        }
+        return 1;
+    }
 }

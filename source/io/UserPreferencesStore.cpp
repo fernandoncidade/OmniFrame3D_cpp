@@ -26,6 +26,30 @@ QString& directoryOverrideRef() {
     return overrideDir;
 }
 
+struct PreferencesCacheState {
+    QString dirPath;
+    QJsonObject root;
+    QDateTime fileMtime;
+    qint64 fileSize = -1;
+    bool valid = false;
+    bool legacyChecked = false;
+    int diskWrites = 0;
+};
+
+PreferencesCacheState& cacheState() {
+    static PreferencesCacheState state;
+    return state;
+}
+
+void invalidateCacheLocked() {
+    PreferencesCacheState& st = cacheState();
+    st.valid = false;
+    st.legacyChecked = false;
+    st.fileSize = -1;
+    st.fileMtime = QDateTime();
+    st.root = QJsonObject{};
+}
+
 QString preferencesDirectoryLocked() {
     if (!directoryOverrideRef().isEmpty()) {
         return QDir::cleanPath(directoryOverrideRef());
@@ -97,8 +121,8 @@ QJsonObject readBestLegacyJsonFile(const QDir& primaryDir,
     bool nExists = false, nValid = false;
     QDateTime pMtime, nMtime;
 
-    const QJsonObject pObj = readJsonObjectFile(primaryDir.filePath(fileName), &pExists, &pValid, &pMtime);
-    const QJsonObject nObj = readJsonObjectFile(nestedDir.filePath(fileName), &nExists, &nValid, &nMtime);
+    QJsonObject pObj = readJsonObjectFile(primaryDir.filePath(fileName), &pExists, &pValid, &pMtime);
+    QJsonObject nObj = readJsonObjectFile(nestedDir.filePath(fileName), &nExists, &nValid, &nMtime);
 
     if (existsOut != nullptr) {
         *existsOut = pExists || nExists;
@@ -142,7 +166,19 @@ bool writeJsonAtomicLocked(const QString& path, const QJsonObject& root) {
         saveFile.cancelWriting();
         return false;
     }
-    return saveFile.commit();
+    if (!saveFile.commit()) {
+        return false;
+    }
+
+    PreferencesCacheState& st = cacheState();
+    ++st.diskWrites;
+    const QFileInfo fi(path);
+    st.dirPath = preferencesDirectoryLocked();
+    st.root = root;
+    st.fileMtime = fi.lastModified();
+    st.fileSize = fi.exists() ? fi.size() : -1;
+    st.valid = true;
+    return true;
 }
 
 void backupCorruptFileIfNeededLocked(const QString& prefsPath) {
@@ -156,6 +192,10 @@ void backupCorruptFileIfNeededLocked(const QString& prefsPath) {
 }
 
 void removeLegacyFilesLocked(const QString& dirPath) {
+    PreferencesCacheState& st = cacheState();
+    if (st.legacyChecked && st.dirPath == dirPath) {
+        return;
+    }
     const QDir dir(dirPath);
     const QStringList legacyNames = UserPreferencesStore::legacyPreferenceFileNames();
     for (const QString& name : legacyNames) {
@@ -184,6 +224,8 @@ void removeLegacyFilesLocked(const QString& dirPath) {
         }
         QDir(dirPath).rmdir(QStringLiteral("OmniFrame"));
     }
+    st.dirPath = dirPath;
+    st.legacyChecked = true;
 }
 
 QJsonObject loadAndMigrateLocked(bool* okOut, bool persistMigration) {
@@ -192,6 +234,21 @@ QJsonObject loadAndMigrateLocked(bool* okOut, bool persistMigration) {
     const QDir nestedDir(dir.filePath(QStringLiteral("OmniFrame")));
     const QString prefsPath = dir.filePath(QStringLiteral("user_preferences.json"));
 
+    PreferencesCacheState& st = cacheState();
+    if (st.dirPath != dirPath) {
+        invalidateCacheLocked();
+        st.dirPath = dirPath;
+    }
+
+    const QFileInfo prefsFi(prefsPath);
+    if (prefsFi.exists() && prefsFi.isFile() && st.valid &&
+        st.fileSize == prefsFi.size() && st.fileMtime == prefsFi.lastModified()) {
+        if (okOut != nullptr) {
+            *okOut = true;
+        }
+        return st.root;
+    }
+
     bool prefsExists = false;
     bool prefsValid = false;
     QDateTime prefsMtime;
@@ -199,6 +256,11 @@ QJsonObject loadAndMigrateLocked(bool* okOut, bool persistMigration) {
 
     const int version = prefsValid ? root.value(QStringLiteral("version")).toInt(0) : 0;
     if (prefsValid && version >= UserPreferencesStore::kCurrentSchemaVersion) {
+        st.root = root;
+        st.fileMtime = prefsFi.lastModified();
+        st.fileSize = prefsFi.size();
+        st.valid = true;
+        st.legacyChecked = true;
         if (okOut != nullptr) {
             *okOut = true;
         }
@@ -316,11 +378,13 @@ UserPreferencesStore::ScopedDirectoryOverride::ScopedDirectoryOverride(const QSt
     QMutexLocker locker(&storeMutex());
     m_previousOverride = directoryOverrideRef();
     directoryOverrideRef() = directoryPath;
+    invalidateCacheLocked();
 }
 
 UserPreferencesStore::ScopedDirectoryOverride::~ScopedDirectoryOverride() {
     QMutexLocker locker(&storeMutex());
     directoryOverrideRef() = m_previousOverride;
+    invalidateCacheLocked();
 }
 
 QString UserPreferencesStore::preferencesDirectory() {
@@ -369,11 +433,18 @@ bool UserPreferencesStore::writeRootObject(const QJsonObject& root) {
     const QString dirPath = preferencesDirectoryLocked();
     const QString prefsPath = QDir(dirPath).filePath(QStringLiteral("user_preferences.json"));
 
-    bool prefsExists = false;
-    bool prefsValid = false;
-    (void)readJsonObjectFile(prefsPath, &prefsExists, &prefsValid);
-    if (prefsExists && !prefsValid) {
-        backupCorruptFileIfNeededLocked(prefsPath);
+    PreferencesCacheState& st = cacheState();
+    const QFileInfo fi(prefsPath);
+    const bool cachedKnownValid =
+        st.valid && st.dirPath == dirPath && fi.exists() &&
+        st.fileSize == fi.size() && st.fileMtime == fi.lastModified();
+    if (!cachedKnownValid && fi.exists() && fi.isFile()) {
+        bool prefsExists = false;
+        bool prefsValid = false;
+        (void)readJsonObjectFile(prefsPath, &prefsExists, &prefsValid);
+        if (prefsExists && !prefsValid) {
+            backupCorruptFileIfNeededLocked(prefsPath);
+        }
     }
 
     QJsonObject normalized = root;
@@ -423,11 +494,13 @@ bool UserPreferencesStore::updateSection(const QString& sectionKey, const QJsonO
     bool loadedOk = false;
     QJsonObject root = loadAndMigrateLocked(&loadedOk, /*persistMigration=*/false);
 
-    bool prefsExists = false;
-    bool prefsValid = false;
-    (void)readJsonObjectFile(prefsPath, &prefsExists, &prefsValid);
-    if (prefsExists && !prefsValid && !loadedOk) {
-        backupCorruptFileIfNeededLocked(prefsPath);
+    if (!loadedOk) {
+        bool prefsExists = false;
+        bool prefsValid = false;
+        (void)readJsonObjectFile(prefsPath, &prefsExists, &prefsValid);
+        if (prefsExists && !prefsValid) {
+            backupCorruptFileIfNeededLocked(prefsPath);
+        }
     }
 
     root.insert(sectionKey, sectionObj);
@@ -454,11 +527,13 @@ bool UserPreferencesStore::updateSectionKey(const QString& sectionKey,
     bool loadedOk = false;
     QJsonObject root = loadAndMigrateLocked(&loadedOk, /*persistMigration=*/false);
 
-    bool prefsExists = false;
-    bool prefsValid = false;
-    (void)readJsonObjectFile(prefsPath, &prefsExists, &prefsValid);
-    if (prefsExists && !prefsValid && !loadedOk) {
-        backupCorruptFileIfNeededLocked(prefsPath);
+    if (!loadedOk) {
+        bool prefsExists = false;
+        bool prefsValid = false;
+        (void)readJsonObjectFile(prefsPath, &prefsExists, &prefsValid);
+        if (prefsExists && !prefsValid) {
+            backupCorruptFileIfNeededLocked(prefsPath);
+        }
     }
 
     QJsonObject sectionObj = root.value(sectionKey).toObject();
@@ -492,6 +567,16 @@ bool UserPreferencesStore::migrateLegacyFilesIfNeeded() {
     bool ok = false;
     (void)readRootObject(&ok);
     return ok;
+}
+
+int UserPreferencesStore::diskWriteCount() {
+    QMutexLocker locker(&storeMutex());
+    return cacheState().diskWrites;
+}
+
+void UserPreferencesStore::resetDiskWriteCount() {
+    QMutexLocker locker(&storeMutex());
+    cacheState().diskWrites = 0;
 }
 
 } // namespace omniframe::io

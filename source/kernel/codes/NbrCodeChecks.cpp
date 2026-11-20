@@ -152,6 +152,18 @@ double evalBendingBandMNm(double lambda, double lambdaP, double lambdaR,
     return Mcr_MNm;
 }
 
+/// Interpolacao trilinear para FLT (NBR 8800:2024 D.2.1 / Anexo E) com fator Cb e teto Mcap (Mpl ou My_e).
+/// Preserva monotonicidade nao crescente em lambda e continuidade C0 em lambdaP e lambdaR (independentes de Cb).
+double evalFltBandMNm(double lambda, double lambdaP, double lambdaR, double cb,
+                      double Mpl_MNm, double Mr_MNm, double Mcr_MNm, double Mcap_MNm) {
+    if (lambda <= lambdaP) return Mcap_MNm;
+    if (lambda <= lambdaR && (lambdaR > lambdaP + 1e-12)) {
+        const double lin = Mpl_MNm - (Mpl_MNm - Mr_MNm) * ((lambda - lambdaP) / (lambdaR - lambdaP));
+        return std::min(Mcap_MNm, cb * lin);
+    }
+    return std::min(Mcap_MNm, Mcr_MNm);
+}
+
 /// Fator de cisalhamento NBR 8800:2024 Sec. 5.4.3.1.1 (kN).
 double evalShearBandkN(double lambda, double lambdaP, double lambdaR, double Vpl_kN, double gammaA1) {
     if (lambda <= lambdaP) return Vpl_kN / gammaA1;
@@ -216,7 +228,7 @@ std::vector<RebarPoint> buildPerimeterBars(double bx_m, double hy_m, double dPri
     const double yMax = std::max(1e-4, 0.5 * hy_m - dPrime);
 
     std::vector<std::pair<double, double>> coords;
-    coords.reserve(static_cast<size_t>(4 * (nSide - 1)));
+    coords.reserve(4u * static_cast<size_t>(nSide - 1));
     for (int i = 0; i < nSide; ++i) {
         const double t = -1.0 + 2.0 * static_cast<double>(i) / static_cast<double>(nSide - 1);
         coords.emplace_back(t * xMax, yMax);  // borda superior
@@ -688,8 +700,8 @@ SteelCheckResult NbrCodeChecks::checkSteelMember8800(const SteelSectionSpec& sec
     const double Mlim_x_kNm = 1.50 * g.Wx * fy * 1e3 / gammaA1; // 5.4.2.2
     const double Mlim_y_kNm = 1.50 * g.Wy * fy * 1e3 / gammaA1; // 5.4.2.2
 
-    double Mx_Rd_cand = Mlim_x_kNm;
-    double My_Rd_cand = Mlim_y_kNm;
+    double Mx_Rd_cand;
+    double My_Rd_cand;
     std::string governingBend = "Esbeltez/Plastificacao";
 
     if (sec.kind == SteelSectionKind::IShapeRolled || sec.kind == SteelSectionKind::IShapeWelded) {
@@ -701,17 +713,18 @@ SteelCheckResult NbrCodeChecks::checkSteelMember8800(const SteelSectionSpec& sec
         const double lamP_w = 3.76 * std::sqrt(E / fy);
         const double lamR_w = 5.70 * std::sqrt(E / fy);
 
-        // FLT (Tabela D.1 + D.2.8-a))
+        // FLT (Tabela D.1 + D.2.8-a)): lambdaR independente de Cb; resultado multiplicado por Cb e limitado por Mpl
         const double lam_LT = Lb / g.ry;
         const double lamP_LT = 1.76 * std::sqrt(E / fy);
         const double beta1 = (fy - sigmaR) * g.Wx / (E * g.J);
         const double Mcr_LT_MNm = cb * (kPi * kPi * E * g.Iy / (Lb * Lb)) *
             std::sqrt((g.Cw / g.Iy) * (1.0 + 0.039 * g.J * Lb * Lb / std::max(1e-18, g.Cw)));
         const double lamR_LT = (beta1 > 1e-12)
-            ? (1.38 * cb * std::sqrt(g.Iy * g.J) / (g.ry * g.J * beta1)) *
-                  std::sqrt(1.0 + std::sqrt(1.0 + 27.0 * g.Cw * beta1 * beta1 / (cb * cb * g.Iy)))
+            ? (1.38 * std::sqrt(g.Iy * g.J) / (g.ry * g.J * beta1)) *
+                  std::sqrt(1.0 + std::sqrt(1.0 + 27.0 * g.Cw * beta1 * beta1 / g.Iy))
             : 1e9;
-        double Mx_FLT_MNm = evalBendingBandMNm(lam_LT, lamP_LT, lamR_LT, Mpl_x_MNm, Mr_x_MNm, Mcr_LT_MNm);
+        double Mx_FLT_MNm = evalFltBandMNm(
+            lam_LT, lamP_LT, lamR_LT, cb, Mpl_x_MNm, Mr_x_MNm, Mcr_LT_MNm, Mpl_x_MNm);
 
         // FLM (Tabela D.1 + D.2.8-f))
         const double lam_f = g.bFlange / g.tf;
@@ -725,7 +738,7 @@ SteelCheckResult NbrCodeChecks::checkSteelMember8800(const SteelSectionSpec& sec
         }
         double Mx_FLM_MNm = evalBendingBandMNm(lam_f, lamP_f, lamR_f, Mpl_x_MNm, Mr_x_MNm, Mcr_f_MNm);
 
-        double Mx_FLA_MNm = Mpl_x_MNm;
+        double Mx_FLA_MNm;
         if (lam_w <= lamR_w) {
             Mx_FLA_MNm = evalBendingBandMNm(lam_w, lamP_w, lamR_w, Mpl_x_MNm, fy * g.Wx, fy * g.Wx);
         } else {
@@ -744,7 +757,8 @@ SteelCheckResult NbrCodeChecks::checkSteelMember8800(const SteelSectionSpec& sec
             const double lamP_pg = 1.10 * std::sqrt(E / fy);
             const double lamR_pg = kPi * std::sqrt(E / (fy - sigmaR));
             const double Mcr_pg_MNm = (cb * kPi * kPi * E * kpg * g.Wx) / (lam_pg * lam_pg);
-            Mx_FLT_MNm = evalBendingBandMNm(lam_pg, lamP_pg, lamR_pg, My_MNm, Mr_e_MNm, Mcr_pg_MNm);
+            Mx_FLT_MNm = evalFltBandMNm(
+                lam_pg, lamP_pg, lamR_pg, cb, My_MNm, Mr_e_MNm, Mcr_pg_MNm, My_MNm);
             Mx_FLA_MNm = My_MNm;
             governingBend = "Anexo E (Alma Esbelta)";
         }
@@ -791,7 +805,7 @@ SteelCheckResult NbrCodeChecks::checkSteelMember8800(const SteelSectionSpec& sec
             const double MrLT = (fy - sigmaR) * W_ax;
             const double lamRLT = 2.0 * E * factorJA / std::max(1e-9, MrLT);
             const double McrLT = (2.0 * cb * E * factorJA) / std::max(1e-9, lamLT);
-            Mflt = evalBendingBandMNm(lamLT, lamPLT, lamRLT, Mpl, MrLT, McrLT);
+            Mflt = evalFltBandMNm(lamLT, lamPLT, lamRLT, cb, Mpl, MrLT, McrLT, Mpl);
             return std::min({Mflm, Mfla, Mflt}) * 1e3 / gammaA1;
         };
         Mx_Rd_cand = evalBoxAxis(g.Zx, g.Wx, g.bFlange, g.tf, g.hFlat, g.tw, g.ry);
@@ -816,7 +830,7 @@ SteelCheckResult NbrCodeChecks::checkSteelMember8800(const SteelSectionSpec& sec
         const double lamRLT = 2.0 * E * factorJA / std::max(1e-9, MrX);
         const double lamLT = Lb / g.ry;
         const double McrX = (2.0 * cb * E * factorJA) / std::max(1e-9, lamLT);
-        Mx_Rd_cand = evalBendingBandMNm(lamLT, lamPLT, lamRLT, MplX, MrX, McrX) * 1e3 / gammaA1;
+        Mx_Rd_cand = evalFltBandMNm(lamLT, lamPLT, lamRLT, cb, MplX, MrX, McrX, MplX) * 1e3 / gammaA1;
         My_Rd_cand = (g.Zy * fy * 1e3) / gammaA1;
     } else {
         Mx_Rd_cand = (g.Zx * fy * 1e3) / gammaA1;

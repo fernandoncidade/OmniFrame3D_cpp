@@ -12,7 +12,7 @@ StressInvariants PostProcessor::computeStressInvariants(const Eigen::Matrix<doub
          s(5), s(4), s(2);
 
     Eigen::SelfAdjointEigenSolver<Mat3> es(T);
-    const Vec3 evals = es.eigenvalues(); // crescente: evals(0) <= evals(1) <= evals(2)
+    const auto& evals = es.eigenvalues(); // crescente: evals(0) <= evals(1) <= evals(2)
 
     StressInvariants inv;
     inv.sigma1 = evals(2);

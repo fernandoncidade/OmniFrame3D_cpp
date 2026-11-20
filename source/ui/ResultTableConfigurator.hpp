@@ -1,10 +1,13 @@
 #pragma once
 
+#include "ResultTableModel.hpp"
+
 #include <QColor>
 #include <QHash>
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <Qt>
@@ -14,8 +17,7 @@
 class QEvent;
 class QMenu;
 class QPoint;
-class QTableWidget;
-class QTableWidgetItem;
+class QTableView;
 
 namespace omniframe {
 
@@ -42,13 +44,6 @@ enum class TableRowOrderMode {
 };
 
 /**
- * @brief Papéis de dados customizados armazenados nos itens das tabelas de resultados.
- */
-inline constexpr int kResultTableSummaryRowRole = Qt::UserRole + 10;
-inline constexpr int kResultTableRowCategoryRole = Qt::UserRole + 11;
-inline constexpr int kResultTableEntityIdRole = Qt::UserRole + 12;
-
-/**
  * @brief Gerencia configuração estrutural, seleção, ordenação inteligente, quebra dinâmica de
  * cabeçalhos, coloração adaptativa, menu de contexto persistente, atalhos e exportação das
  * tabelas do painel "Tabelas de Resultados e Diagnóstico Estrutural".
@@ -62,9 +57,9 @@ public:
     ~ResultTableConfigurator() override = default;
 
     /**
-     * @brief Configura inicialmente uma QTableWidget com o padrão visual e interativo completo.
+     * @brief Configura inicialmente uma QTableView/QTableWidget com o padrão visual e interativo completo.
      */
-    void configureTable(QTableWidget* table,
+    void configureTable(QTableView* table,
                         ResultTableKind kind,
                         const QStringList& headers,
                         bool isLightTheme);
@@ -73,13 +68,13 @@ public:
      * @brief Atualiza os rótulos originais do cabeçalho (ex.: após troca de idioma) preservando
      * larguras ajustadas, visibilidade das colunas, quebra de linha dinâmica e ordenação.
      */
-    void updateHeaders(QTableWidget* table, const QStringList& headers);
+    void updateHeaders(QTableView* table, const QStringList& headers);
 
     /**
      * @brief Reaplica ordem das linhas, ordenação ativa (mantendo "Σ Reações" ao fim),
      * larguras ideais iniciais na primeira população com dados e cores/estado visual.
      */
-    void afterTablePopulated(QTableWidget* table);
+    void afterTablePopulated(QTableView* table);
 
     /**
      * @brief Atualiza paleta, QSS, cores-padrão e viewport de todas as tabelas registradas.
@@ -89,49 +84,49 @@ public:
     /**
      * @brief Habilita ou desabilita o modo de ordenação ao clicar no cabeçalho.
      */
-    void setSortingModeEnabled(QTableWidget* table, bool enabled);
-    [[nodiscard]] bool isSortingModeEnabled(const QTableWidget* table) const;
+    void setSortingModeEnabled(QTableView* table, bool enabled);
+    [[nodiscard]] bool isSortingModeEnabled(const QTableView* table) const;
 
     /**
      * @brief Executa ordenação inteligente (numérica, intervalos [min; max], unidades e natural)
      * mantendo linhas de resumo estrutural fixadas na última linha.
      */
-    void sortTableByColumn(QTableWidget* table, int column, Qt::SortOrder order);
+    void sortTableByColumn(QTableView* table, int column, Qt::SortOrder order);
 
     /**
      * @brief Define o modo de ordem das linhas (Adicionar no Fim vs Adicionar no Topo).
      */
-    void setRowOrderMode(QTableWidget* table, TableRowOrderMode mode);
-    [[nodiscard]] TableRowOrderMode rowOrderMode(const QTableWidget* table) const;
+    void setRowOrderMode(QTableView* table, TableRowOrderMode mode);
+    [[nodiscard]] TableRowOrderMode rowOrderMode(const QTableView* table) const;
 
     /**
      * @brief Inverte fisicamente a ordem atual das linhas exibidas (mantendo linha de resumo no fim).
      */
-    void invertTableRows(QTableWidget* table);
+    void invertTableRows(QTableView* table);
 
     /**
      * @brief Controla visibilidade de colunas individuais e restauração.
      */
-    void setColumnVisible(QTableWidget* table, int column, bool visible);
-    void showAllColumns(QTableWidget* table);
-    void resetColumns(QTableWidget* table);
+    void setColumnVisible(QTableView* table, int column, bool visible);
+    void showAllColumns(QTableView* table);
+    void resetColumns(QTableView* table);
 
     /**
      * @brief Controla exibição de cores nas colunas e seleção das colunas coloridas.
      */
-    void setShowColumnColors(QTableWidget* table, bool enabled);
-    [[nodiscard]] bool showColumnColors(const QTableWidget* table) const;
-    void setColumnColored(QTableWidget* table, int column, bool colored);
-    [[nodiscard]] bool isColumnColored(const QTableWidget* table, int column) const;
-    void setAllColumnsColored(QTableWidget* table, bool colored);
-    void resetColumnColors(QTableWidget* table);
+    void setShowColumnColors(QTableView* table, bool enabled);
+    [[nodiscard]] bool showColumnColors(const QTableView* table) const;
+    void setColumnColored(QTableView* table, int column, bool colored);
+    [[nodiscard]] bool isColumnColored(const QTableView* table, int column) const;
+    void setAllColumnsColored(QTableView* table, bool colored);
+    void resetColumnColors(QTableView* table);
 
     /**
      * @brief Configura e consulta cores semânticas por categoria de linha.
      */
-    void setCategoryColor(QTableWidget* table, const QString& categoryKey, const QColor& color);
-    [[nodiscard]] QColor categoryColor(const QTableWidget* table, const QString& categoryKey) const;
-    void resetCategoryColors(QTableWidget* table);
+    void setCategoryColor(QTableView* table, const QString& categoryKey, const QColor& color);
+    [[nodiscard]] QColor categoryColor(const QTableView* table, const QString& categoryKey) const;
+    void resetCategoryColors(QTableView* table);
 
     /**
      * @brief Calcula cor de texto (preto ou branco) de máximo contraste via luminância relativa sRGB.
@@ -141,62 +136,62 @@ public:
     /**
      * @brief Configura opções de filtragem de exportação.
      */
-    void setExportOnlyActiveColumns(QTableWidget* table, bool activeOnly);
-    [[nodiscard]] bool exportOnlyActiveColumns(const QTableWidget* table) const;
-    void setExportOnlySelectedCells(QTableWidget* table, bool selectedOnly);
-    [[nodiscard]] bool exportOnlySelectedCells(const QTableWidget* table) const;
-    void resetExportOptions(QTableWidget* table);
+    void setExportOnlyActiveColumns(QTableView* table, bool activeOnly);
+    [[nodiscard]] bool exportOnlyActiveColumns(const QTableView* table) const;
+    void setExportOnlySelectedCells(QTableView* table, bool selectedOnly);
+    [[nodiscard]] bool exportOnlySelectedCells(const QTableView* table) const;
+    void resetExportOptions(QTableView* table);
 
     /**
      * @brief Copia seleção (com ou sem cabeçalhos) ou tabela inteira para a área de transferência em TSV.
      */
-    void copySelectionToClipboard(QTableWidget* table, bool includeHeaders) const;
-    void copyWholeTableToClipboard(QTableWidget* table) const;
+    void copySelectionToClipboard(QTableView* table, bool includeHeaders) const;
+    void copyWholeTableToClipboard(QTableView* table) const;
 
     /**
      * @brief Exporta os dados respeitando opções ativas para .xlsx, .csv, .txt, .json ou .xml.
      */
-    [[nodiscard]] bool exportTableToFile(QTableWidget* table,
+    [[nodiscard]] bool exportTableToFile(QTableView* table,
                                          const QString& filePath,
                                          QString* errorMessage = nullptr) const;
 
     /**
      * @brief Abre diálogo de salvamento não bloqueante quando gerenciado por WindowZOrderManager.
      */
-    void showExportDialog(QTableWidget* table);
+    void showExportDialog(QTableView* table);
 
     /**
      * @brief Constrói o menu de contexto completo para a tabela ou seu cabeçalho horizontal.
      */
-    [[nodiscard]] QMenu* createTableContextMenu(QTableWidget* table,
+    [[nodiscard]] QMenu* createTableContextMenu(QTableView* table,
                                                 QWidget* parent = nullptr,
                                                 bool triggeredFromHeader = false);
 
     /**
      * @brief Recalcula a quebra dinâmica em palavras dos cabeçalhos e altura do QHeaderView.
      */
-    void updateHeaderWordWrap(QTableWidget* table);
+    void updateHeaderWordWrap(QTableView* table);
 
     /**
      * @brief Seleciona todas as células e colunas (equivalente ao botão de canto superior esquerdo).
      */
-    void selectCornerAll(QTableWidget* table);
+    void selectCornerAll(QTableView* table);
 
     /**
      * @brief Restaura todas as opções configuráveis da tabela para seus padrões iniciais.
      */
-    void resetAllDefaults(QTableWidget* table);
+    void resetAllDefaults(QTableView* table);
 
     /**
      * @brief Serializa e restaura o estado configurável de uma tabela ou de todas as tabelas.
      */
-    [[nodiscard]] QJsonObject saveTableStateToJson(const QTableWidget* table) const;
-    void loadTableStateFromJson(QTableWidget* table, const QJsonObject& obj);
+    [[nodiscard]] QJsonObject saveTableStateToJson(const QTableView* table) const;
+    void loadTableStateFromJson(QTableView* table, const QJsonObject& obj);
     [[nodiscard]] QJsonObject saveAllTablesToJson() const;
     void loadAllTablesFromJson(const QJsonObject& tablesObj);
 
 signals:
-    void configurationChanged(QTableWidget* table);
+    void configurationChanged(QTableView* table);
     void nodeDoubleClicked(unsigned int nodeId);
     void elementDoubleClicked(unsigned int elementId);
     void continuumElementDoubleClicked(unsigned int elementId, const QString& typeName);
@@ -207,7 +202,7 @@ protected:
 
 private:
     struct TableState {
-        QTableWidget* table = nullptr;
+        QPointer<QTableView> table;
         ResultTableKind kind = ResultTableKind::Displacements;
         QStringList originalHeaders;
         QHash<QString, QColor> categoryColors;
@@ -232,25 +227,25 @@ private:
         QColor lightDefault;
     };
 
-    TableState* findState(QTableWidget* table);
-    const TableState* findState(const QTableWidget* table) const;
+    TableState* findState(QTableView* table);
+    const TableState* findState(const QTableView* table) const;
 
     static std::vector<CategorySpec> categoriesForKind(ResultTableKind kind);
     static QString defaultCategoryForKind(ResultTableKind kind);
     static QHash<QString, QColor> buildDefaultCategoryColors(ResultTableKind kind, bool isLightTheme);
 
-    void applyStructuralConfig(QTableWidget* table, const QStringList& headers);
-    void applyVisualThemeToTable(QTableWidget* table, bool isLightTheme);
+    void applyStructuralConfig(QTableView* table, const QStringList& headers);
+    void applyVisualThemeToTable(QTableView* table, bool isLightTheme);
     void applyIdealColumnWidths(TableState& state, bool forceResetWidths);
     void syncColoredDelegateState(const TableState& state);
     void handleHeaderSectionClicked(TableState& state, int logicalColumn);
     void selectHeaderColumnRange(TableState& state, int startCol, int endCol, bool preserveExisting);
     void handleCellDoubleClicked(const TableState& state, int row, int column);
-    void reverseTableRowsInPlace(QTableWidget* table, bool keepSummaryPinnedLast);
+    void reverseTableRowsInPlace(QTableView* table, bool keepSummaryPinnedLast);
     void showContextMenuAt(TableState& state, const QPoint& globalPos, bool fromHeader);
     void pickCategoryColor(TableState& state, const QString& categoryKey);
 
-    [[nodiscard]] bool isSummaryRow(const QTableWidget* table, int row) const;
+    [[nodiscard]] bool isSummaryRow(const QTableView* table, int row) const;
     [[nodiscard]] QList<int> columnsToProcess(const TableState& state, bool applyExportFilter) const;
     [[nodiscard]] QList<int> rowsToProcess(const TableState& state, bool applyExportFilter) const;
     [[nodiscard]] QString buildTsvText(const TableState& state,
@@ -258,7 +253,7 @@ private:
                                        const QList<int>& cols,
                                        bool includeHeaders) const;
 
-    WindowZOrderManager* m_windowManager = nullptr;
+    QPointer<WindowZOrderManager> m_windowManager;
     bool m_isLightTheme = false;
     bool m_applyingSavedState = false;
     std::vector<TableState> m_tables;

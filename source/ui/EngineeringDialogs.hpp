@@ -4,11 +4,20 @@
 #include "io/PdfReportGenerator.hpp"
 #include "render/Viewport3D.hpp"
 #include "solver/FemSolver3D.hpp"
+#include "ui/AsyncAnalysisExecutor.hpp"
 
 #include <QDialog>
+#include <QMetaObject>
 #include <QPointer>
+#include <cstdint>
 #include <functional>
+#include <memory>
+#include <stop_token>
+#include <type_traits>
+#include <utility>
 #include <vector>
+
+class QCloseEvent;
 
 class QCheckBox;
 class QComboBox;
@@ -45,17 +54,28 @@ public:
         std::function<void(const SolverResult&)> onStaticOrNonlinearCompleted,
         std::function<void(const QString&)> onStatusMsg,
         std::function<void()> onModelMutated = {},
-        std::function<void()> onMetadataUpdated = {});
+        std::function<void()> onMetadataUpdated = {},
+        std::function<std::uint64_t()> modelRevisionProvider = {},
+        ui::AsyncAnalysisExecutor* executor = nullptr);
+    ~AnalysisSuiteDialog() override;
 
     const kernel::ModalResult* latestModalResult() const { return m_hasModal ? &m_modalRes : nullptr; }
     const kernel::BucklingResult* latestBucklingResult() const { return m_hasBuckling ? &m_bucklingRes : nullptr; }
     const kernel::NonlinearResult* latestNonlinearResult() const { return m_hasNonlinear ? &m_nonlinearRes : nullptr; }
-    bool isBusy() const { return m_busy; }
+    bool isBusy() const;
+    QString currentStatusText() const;
 
     void refreshContext();
+    void requestCancelAsync();
+    void runCustomAsyncTaskForTest(std::function<void()> taskFn);
+    void runStaleRevisionCheckTaskForTest(std::function<void()> taskFn);
+
+signals:
+    void asyncJobFinished(bool success);
 
 protected:
     void changeEvent(QEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void onRunCombosAsync();
@@ -77,7 +97,54 @@ private slots:
 private:
     void retranslateUi();
     void setBusyState(bool busy, const QString& statusText = QString());
+    bool prepareSuiteJob(const QString& busyText);
+    void finishSuiteJobStatus(bool ok, const QString& statusText);
+    void discardStaleSuiteResult();
+    void handleExternalExecutorBusyChanged(bool busy);
     void refreshSeismicLoadCases();
+    std::uint64_t currentModelRevision() const noexcept;
+
+    template <typename ResultT, typename WorkFn, typename ApplyFn, typename ErrFn>
+    void submitSuiteTask(const QString& busyText,
+                         WorkFn&& workFn,
+                         ApplyFn&& applyFn,
+                         ErrFn&& errFn) {
+        if (!prepareSuiteJob(busyText) || !m_model) {
+            return;
+        }
+        const std::uint64_t startRev = currentModelRevision();
+        auto snapshot = std::make_shared<StructuralModel>(m_model->cloneWithoutHistory());
+        QPointer<AnalysisSuiteDialog> self(this);
+        auto workPtr = std::make_shared<std::decay_t<WorkFn>>(std::forward<WorkFn>(workFn));
+        auto applyPtr = std::make_shared<std::decay_t<ApplyFn>>(std::forward<ApplyFn>(applyFn));
+        auto errPtr = std::make_shared<std::decay_t<ErrFn>>(std::forward<ErrFn>(errFn));
+        if (!m_executor->submit<ResultT>(
+                this,
+                [snapshot, workPtr](std::stop_token stopToken) -> ResultT {
+                    return (*workPtr)(snapshot, stopToken);
+                },
+                [self, startRev, applyPtr](const ResultT& res, std::uint64_t, bool) {
+                    if (!self) {
+                        return;
+                    }
+                    self->m_activeSuiteJobId = 0;
+                    if (startRev != self->currentModelRevision()) {
+                        self->discardStaleSuiteResult();
+                        return;
+                    }
+                    (*applyPtr)(res);
+                },
+                [self, errPtr](const QString& errMsg) {
+                    if (!self) {
+                        return;
+                    }
+                    self->m_activeSuiteJobId = 0;
+                    (*errPtr)(errMsg);
+                },
+                &m_activeSuiteJobId)) {
+            setBusyState(false);
+        }
+    }
 
     StructuralModel* m_model = nullptr;
     Viewport3D* m_viewport = nullptr;
@@ -86,6 +153,11 @@ private:
     std::function<void(const QString&)> m_onStatus;
     std::function<void()> m_onModelMutated;
     std::function<void()> m_onMetadataUpdated;
+    std::function<std::uint64_t()> m_modelRevisionProvider;
+    std::uint64_t m_localRevision = 0;
+    QPointer<ui::AsyncAnalysisExecutor> m_executor;
+    QMetaObject::Connection m_executorBusyConn;
+    std::uint64_t m_activeSuiteJobId = 0;
 
     QTabWidget* m_tabs = nullptr;
     QProgressBar* m_progressBar = nullptr;
@@ -307,6 +379,7 @@ private:
     QComboBox* m_matCombo = nullptr;
     QComboBox* m_bcPresetCombo = nullptr;
     QDoubleSpinBox* m_thicknessSpin = nullptr;
+    QLabel* m_pressureLabel = nullptr;
     QDoubleSpinBox* m_pressureSpin = nullptr;
     QDoubleSpinBox* m_origXSpin = nullptr;
     QDoubleSpinBox* m_origYSpin = nullptr;
@@ -335,7 +408,7 @@ public:
     PostProcessControlDialog(
         QWidget* parent,
         Viewport3D* viewport,
-        std::function<bool()> onEnsureDcrMap = {});
+        std::function<void(std::function<void(bool)>)> onEnsureDcrMapAsync = {});
 
     void syncFromViewport();
 
@@ -356,7 +429,8 @@ private:
     void retranslateUi();
 
     Viewport3D* m_viewport = nullptr;
-    std::function<bool()> m_onEnsureDcrMap;
+    std::function<void(std::function<void(bool)>)> m_onEnsureDcrMapAsync;
+    std::uint64_t m_dcrRequestSeq = 0;
 
     QComboBox* m_contourCombo = nullptr;
     QCheckBox* m_showMeshCheck = nullptr;
@@ -388,7 +462,7 @@ public:
         Viewport3D* viewport,
         const SolverResult* lastSolverResult,
         std::function<void()> onRequestPdfExport,
-        std::function<bool()> onRequestStaticSolve = {});
+        std::function<void(std::function<void(bool)>)> onRequestStaticSolveAsync = {});
 
     void runAudit();
     io::PdfReportOptions buildOptions() const;
@@ -398,12 +472,13 @@ protected:
 
 private:
     void retranslateUi();
+    void applyAuditDcrMapToViewport();
 
     StructuralModel* m_model = nullptr;
     Viewport3D* m_viewport = nullptr;
     const SolverResult* m_lastSolver = nullptr;
     std::function<void()> m_onPdfExport;
-    std::function<bool()> m_onRequestStaticSolve;
+    std::function<void(std::function<void(bool)>)> m_onRequestStaticSolveAsync;
 
     QComboBox* m_caaCombo = nullptr;
     QComboBox* m_rebarCombo = nullptr;

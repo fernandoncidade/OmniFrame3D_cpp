@@ -2,17 +2,21 @@
 
 #include "../core/StructuralModel.hpp"
 #include "../kernel/mesh/MeshGenerator.hpp"
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace omniframe::io {
 
 struct DxfImportOptions {
+    static constexpr std::size_t kDefaultMaxFileSizeBytes = 128ULL * 1024ULL * 1024ULL;
+
     double nodeMergeTolerance = 1e-6;
     MaterialId defaultMaterialId = 1;
     SectionId defaultSectionId = 1;
     bool importPolylinesAsFrames = true;
     std::string layerFilter; // vazio = todas as layers
+    std::size_t maxFileSizeBytes = kDefaultMaxFileSizeBytes;
 };
 
 struct DxfInteropReport {

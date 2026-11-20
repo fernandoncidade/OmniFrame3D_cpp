@@ -238,6 +238,7 @@ struct ColorRGB {
 
     static ColorRGB jet(double val) {
         // val in [0, 1]
+        if (!std::isfinite(val)) val = 0.0;
         double t = std::clamp(val, 0.0, 1.0);
         float r = static_cast<float>(std::clamp(1.5 - std::abs(4.0 * t - 3.0), 0.0, 1.0));
         float g = static_cast<float>(std::clamp(1.5 - std::abs(4.0 * t - 2.0), 0.0, 1.0));
@@ -246,6 +247,7 @@ struct ColorRGB {
     }
 
     static ColorRGB jetThemed(double val, bool isLightCanvas) {
+        if (!std::isfinite(val)) val = 0.0;
         if (!isLightCanvas) {
             return jet(val);
         }
@@ -257,9 +259,10 @@ struct ColorRGB {
             {0.84f, 0.44f, 0.00f},
             {0.78f, 0.08f, 0.12f}
         }};
-        const double scaled = std::clamp(val, 0.0, 1.0) * 4.0;
-        const int idx = std::min(3, static_cast<int>(std::floor(scaled)));
-        const float f = static_cast<float>(scaled - static_cast<double>(idx));
+        const double t = std::clamp(val, 0.0, 1.0);
+        const double scaled = t * 4.0;
+        const int idx = std::clamp(static_cast<int>(std::floor(scaled)), 0, 3);
+        const float f = std::clamp(static_cast<float>(scaled - static_cast<double>(idx)), 0.0f, 1.0f);
         const auto& c0 = stops[idx];
         const auto& c1 = stops[idx + 1];
         return {
@@ -271,6 +274,7 @@ struct ColorRGB {
     }
 
     static ColorRGB viridis(double val) {
+        if (!std::isfinite(val)) val = 0.0;
         double t = std::clamp(val, 0.0, 1.0);
         // Polynomial approximation to Viridis
         float r = static_cast<float>(std::clamp(0.267 + t * (0.0048 + t * (2.82 - t * 2.09)), 0.0, 1.0));

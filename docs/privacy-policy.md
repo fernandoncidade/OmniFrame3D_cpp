@@ -14,8 +14,8 @@
 
 # POLÍTICA DE PRIVACIDADE — OMNIFRAME 3D
 
-**Versão:** `2026.11.18.0`  
-**Data:** `18 de novembro de 2026`  
+**Versão:** `2026.11.20.0`  
+**Data:** `20 de novembro de 2026`  
 **Desenvolvedor / Controlador:** Fernando Nillsson Cidade (Desenvolvedor Individual)  
 **E-mail de Contato e Privacidade:** `linceu_lighthouse@outlook.com`  
 **Site Oficial do Projeto:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -48,13 +48,13 @@ Todo processamento estrutural permanece sob controle exclusivo do usuário, na R
 
 - **Dados de Engenharia em Memória:** Coordenadas nodais $(X, Y, Z)$, conectividade de barras, materiais ($E, \nu, \alpha, \gamma$), seções transversais ($A, I_y, I_z, J$), ângulo de roll, rótulas, apoios, molas, deslocamentos prescritos e cargas nodais/distribuídas.
 - **Arquivos Salvos Explicitamente pelo Usuário:** Modelos estruturais no formato JSON aberto **`.omniframe`**, arquivos de interoperabilidade CAD/BIM (**`.dxf`**, **`.ifc`**), relatórios técnicos (**`.pdf`**, **`.html`**, **`.md`**) e conjuntos de resultados (**`.json`**, **`.csv`**, **`.vtk`**) são gravados **apenas** na pasta selecionada explicitamente pelo usuário nos diálogos padrão do Windows ou via argumentos explícitos na CLI.
-- **Preferências Locais Mínimas, Recuperação de Sessão e Logs Diagnósticos:** A escolha de idioma, tema visual, estilo de interface, perfil gráfico OpenGL e preferências locais de janela/painéis/tabelas são salvos localmente de forma consolidada no arquivo único JSON `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (ou no contêiner isolado equivalente quando executado via pacote MSIX). Cópias locais de recuperação de rascunho não salvo (`%LOCALAPPDATA%\OmniFrame\recovery\`) e logs técnicos diários de execução sem dados pessoais (`%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log`, máximo de 10 arquivos com rotação automática) também permanecem estritamente locais na estação do usuário.
+- **Preferências Locais Mínimas, Recuperação de Sessão e Logs Diagnósticos:** A escolha de idioma, tema visual, estilo de interface, perfil gráfico OpenGL e preferências locais de janela/painéis/tabelas são salvos localmente de forma consolidada no arquivo único JSON `%LOCALAPPDATA%\OmniFrame\user_preferences.json` (ou no contêiner isolado equivalente quando executado via pacote MSIX). O pacote atômico único de recuperação de rascunho por sessão (`%LOCALAPPDATA%\OmniFrame\recovery\`, protegido com `QLockFile` contra colisão entre janelas simultâneas) e logs técnicos diários de execução sem dados pessoais (`%LOCALAPPDATA%\OmniFrame\log\omniframe_aaaa-mm-dd.log`, máximo de 10 arquivos com rotação automática) também permanecem estritamente locais na estação do usuário.
 
 ---
 
 ## 4. Capacidade Declarada no Manifesto MSIX (`runFullTrust`)
 
-Para distribuição em pacote MSIX na Microsoft Store (Política 10.6), o manifesto [`repo/AppxManifest.xml`](../repo/AppxManifest.xml) declara exclusivamente a capacidade `<rescap:Capability Name="runFullTrust" />`, estritamente necessária por se tratar de aplicação desktop nativa Win32 em C++23 / Qt 6 com aceleração OpenGL 3.3 Core e acesso às caixas de diálogo padrão do Windows para abrir e salvar projetos `.omniframe` e relatórios escolhidos pelo usuário. Nenhuma capacidade de localização, câmera, microfone ou contatos é declarada ou acessada.
+Para distribuição em pacote MSIX na Microsoft Store (Política 10.6), o manifesto `AppxManifest.xml` declara exclusivamente a capacidade `<rescap:Capability Name="runFullTrust" />`, estritamente necessária por se tratar de aplicação desktop nativa Win32 em C++23 / Qt 6 com aceleração OpenGL 3.3 Core e acesso às caixas de diálogo padrão do Windows para abrir e salvar projetos `.omniframe` e relatórios escolhidos pelo usuário. Nenhuma capacidade de localização, câmera, microfone ou contatos é declarada ou acessada.
 
 ---
 
@@ -83,8 +83,8 @@ O usuário exerce controle pleno sobre todos os dados locais:
 
 # PRIVACY POLICY — OMNIFRAME 3D
 
-**Version:** `2026.11.18.0`  
-**Date:** `November 18, 2026`  
+**Version:** `2026.11.20.0`  
+**Date:** `November 20, 2026`  
 **Developer / Controller:** Fernando Nillsson Cidade (Individual Developer)  
 **Privacy & Support Email:** `linceu_lighthouse@outlook.com`  
 **Official Project Website:** [https://github.com/fernandoncidade/OmniFrame_cpp](https://github.com/fernandoncidade/OmniFrame_cpp)
@@ -117,13 +117,13 @@ All structural processing remains solely under user control in the RAM, CPU, and
 
 - **In-Memory Engineering Data:** Nodal coordinates $(X, Y, Z)$, member connectivity, materials ($E, \nu, \alpha, \gamma$), cross-sections ($A, I_y, I_z, J$), roll angles, hinges, supports, elastic springs, prescribed displacements, and nodal/distributed loads.
 - **Files Explicitly Saved by the User:** Structural models in open JSON **`.omniframe`** format, CAD/BIM interoperability files (**`.dxf`**, **`.ifc`**), technical reports (**`.pdf`**, **`.html`**, **`.md`**), and exported result datasets (**`.json`**, **`.csv`**, **`.vtk`**) are written **only** to the folder explicitly selected by the user through standard Windows dialogs or explicit CLI arguments.
-- **Minimal Local Preferences, Session Recovery & Diagnostic Logs:** Interface language, visual theme, UI style mode, OpenGL graphics profile, and local window/panel/table layout settings are saved locally in a single consolidated JSON file (`%LOCALAPPDATA%\OmniFrame\user_preferences.json`, or in the equivalent isolated container when run as an MSIX package). Local unsaved draft recovery snapshots (`%LOCALAPPDATA%\OmniFrame\recovery\`) and daily execution logs containing no personal data (`%LOCALAPPDATA%\OmniFrame\log\omniframe_yyyy-mm-dd.log`, capped at 10 files via automatic rotation) also remain strictly local on the user's machine.
+- **Minimal Local Preferences, Session Recovery & Diagnostic Logs:** Interface language, visual theme, UI style mode, OpenGL graphics profile, and local window/panel/table layout settings are saved locally in a single consolidated JSON file (`%LOCALAPPDATA%\OmniFrame\user_preferences.json`, or in the equivalent isolated container when run as an MSIX package). The single atomic per-session draft recovery bundle (`%LOCALAPPDATA%\OmniFrame\recovery\`, protected by `QLockFile` against collisions across multiple windows) and daily execution logs containing no personal data (`%LOCALAPPDATA%\OmniFrame\log\omniframe_yyyy-mm-dd.log`, capped at 10 files via automatic rotation) also remain strictly local on the user's machine.
 
 ---
 
 ## 4. Capability Declared in the MSIX Manifest (`runFullTrust`)
 
-For MSIX package distribution on the Microsoft Store (Policy 10.6), the manifest [`repo/AppxManifest.xml`](../repo/AppxManifest.xml) declares exclusively the `<rescap:Capability Name="runFullTrust" />` capability, strictly required because this is a native Win32 C++23 / Qt 6 desktop application with OpenGL 3.3 Core acceleration and access to standard Windows file dialogs to open and save user-chosen `.omniframe` projects and reports. No location, camera, microphone, or contacts capabilities are declared or accessed.
+For MSIX package distribution on the Microsoft Store (Policy 10.6), the manifest `AppxManifest.xml` declares exclusively the `<rescap:Capability Name="runFullTrust" />` capability, strictly required because this is a native Win32 C++23 / Qt 6 desktop application with OpenGL 3.3 Core acceleration and access to standard Windows file dialogs to open and save user-chosen `.omniframe` projects and reports. No location, camera, microphone, or contacts capabilities are declared or accessed.
 
 ---
 

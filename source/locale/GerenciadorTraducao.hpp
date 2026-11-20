@@ -23,6 +23,9 @@ class GerenciadorTraducao : public QObject {
 
 public:
     static GerenciadorTraducao& instance();
+    static void shutdown();
+
+    ~GerenciadorTraducao() override;
 
     void inicializar();
     bool definir_idioma(const QString& codigo_idioma);
@@ -44,11 +47,10 @@ public:
 
 signals:
     void idioma_alterado(const QString& codigo_idioma);
-    void idiomaAlterado(Idioma novoIdioma);
+    void idiomaAlterado(omniframe::locale::Idioma novoIdioma);
 
 private:
     explicit GerenciadorTraducao(QObject* parent = nullptr);
-    ~GerenciadorTraducao() override;
 
     bool aplicar_traducao();
     void carregar_configuracao_idioma();

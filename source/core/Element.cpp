@@ -154,6 +154,7 @@ kernel::Beam1DProps makeBeamProps(const Element& elem, const StructuralModel& mo
     p.A = sec ? sec->A : 0.08;
     p.Iy = sec ? sec->Iy : 1e-3;
     p.Iz = sec ? sec->Iz : 1e-3;
+    p.Iyz = sec ? sec->Iyz : 0.0;
     p.J = sec ? sec->J : 5e-4;
     p.Asy = (sec && sec->Asy > 0.0) ? sec->Asy : ((5.0 / 6.0) * p.A);
     p.Asz = (sec && sec->Asz > 0.0) ? sec->Asz : ((5.0 / 6.0) * p.A);
@@ -337,7 +338,7 @@ InternalForces Element::evaluateAt(double xi, const StructuralModel& model) cons
         return res;
     }
 
-    // Cargas locais distribuídas
+    // Cargas locais distribuídas (ou recuperadas do equilíbrio das forças de extremidade pós-processadas em LoadCase)
     Vec3 qLoc{0.0, 0.0, 0.0};
     if (distLoad.active) {
         if (distLoad.coordSystem == CoordSystem::Global) {
@@ -347,6 +348,16 @@ InternalForces Element::evaluateAt(double xi, const StructuralModel& model) cons
             qLoc = {ql.x(), ql.y(), ql.z()};
         } else {
             qLoc = distLoad.w;
+        }
+    } else if (hasResults) {
+        if (!(releases.start[0] && releases.end[0])) {
+            qLoc.x = -(localEndForces(0) + localEndForces(6)) / L;
+        }
+        if (!(releases.start[1] && releases.end[1])) {
+            qLoc.y = -(localEndForces(1) + localEndForces(7)) / L;
+        }
+        if (!(releases.start[2] && releases.end[2])) {
+            qLoc.z = -(localEndForces(2) + localEndForces(8)) / L;
         }
     }
 

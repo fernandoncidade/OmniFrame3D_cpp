@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <iostream>
+#include <string_view>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -231,7 +232,7 @@ std::vector<std::string> commandLineArgumentsUtf8(int argc, char* argv[]) {
         for (int i = 0; i < wargc; ++i) {
             out.push_back(QString::fromWCharArray(wargv[i]).toUtf8().toStdString());
         }
-        LocalFree(wargv);
+        LocalFree(static_cast<HLOCAL>(wargv));
         return out;
     }
 #endif
@@ -365,7 +366,7 @@ bool installWindowsCliIntegration(const QString& referenceExePath, QString* deta
     // 1. Atualiza HKCU\Environment\Path sem apagar entradas existentes
     QString currentUserPath;
     readRegistryString(HKEY_CURRENT_USER, L"Environment", L"Path", currentUserPath);
-    QStringList parts = currentUserPath.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    const QStringList parts = currentUserPath.split(QLatin1Char(';'), Qt::SkipEmptyParts);
     QStringList cleanedParts;
     bool alreadyPresent = false;
     for (const QString& item : parts) {
@@ -458,10 +459,10 @@ bool installWindowsCliIntegration(const QString& referenceExePath, QString* deta
 
     if (detailsOut) {
         *detailsOut = QStringLiteral("PATH=%1; AppPaths=%2; Assoc=%3; Dir=%4")
-            .arg(pathOk ? QStringLiteral("OK") : QStringLiteral("FAIL"))
-            .arg(appPathsOk ? QStringLiteral("OK") : QStringLiteral("FAIL"))
-            .arg(assocOk ? QStringLiteral("OK") : QStringLiteral("FAIL"))
-            .arg(normDir);
+            .arg(pathOk ? QStringLiteral("OK") : QStringLiteral("FAIL"),
+                 appPathsOk ? QStringLiteral("OK") : QStringLiteral("FAIL"),
+                 assocOk ? QStringLiteral("OK") : QStringLiteral("FAIL"),
+                 normDir);
     }
     return pathOk && appPathsOk;
 #endif
@@ -553,37 +554,25 @@ bool openInteractiveCliTerminal(bool usePowerShell,
         ? binDir
         : QDir::toNativeSeparators(QDir::cleanPath(workingDir));
 
-    QString appName;
-    QString cmdLine;
-    if (usePowerShell) {
-        appName = QStringLiteral("powershell.exe");
-        const QString psScript =
-            QStringLiteral("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ") +
-            QStringLiteral("[Console]::InputEncoding=[System.Text.Encoding]::UTF8; ") +
-            QStringLiteral("$OutputEncoding=[System.Text.Encoding]::UTF8; ") +
-            QStringLiteral("omniframe-cli --version; ") +
-            QStringLiteral("Write-Host 'OmniFrame 3D CLI (PowerShell) - Execute: omniframe-cli --help' -ForegroundColor Cyan");
-        cmdLine = QStringLiteral("powershell.exe -NoLogo -NoExit -Command %1").arg(quoteWindowsArgument(psScript));
-    } else {
-        appName = QStringLiteral("cmd.exe");
-        cmdLine = QStringLiteral("cmd.exe /K \"chcp 65001 >nul && title OmniFrame 3D CLI (CMD) && omniframe-cli --version && echo Execute: omniframe-cli --help\"");
-    }
+    const TerminalLaunchSpec spec = buildInteractiveCliTerminalSpec(
+        usePowerShell ? TerminalShell::PowerShell : TerminalShell::Cmd,
+        std::filesystem::path(st.cliBinaryPath.toStdWString()),
+        std::filesystem::path(workDir.toStdWString()));
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
-    std::wstring wCmdLine = cmdLine.toStdWString();
-    const std::wstring wWorkDir = workDir.toStdWString();
+    std::wstring wCmdLine = spec.commandLine;
 
     const BOOL ok = CreateProcessW(
-        nullptr,
+        spec.applicationPath.c_str(),
         wCmdLine.data(),
         nullptr,
         nullptr,
         FALSE,
         CREATE_NEW_CONSOLE,
         nullptr,
-        wWorkDir.c_str(),
+        spec.workingDirectory.empty() ? nullptr : spec.workingDirectory.c_str(),
         &si,
         &pi);
 
@@ -591,7 +580,7 @@ bool openInteractiveCliTerminal(bool usePowerShell,
         if (errorOut) {
             *errorOut = QStringLiteral("CreateProcessW falhou (%1) ao iniciar %2.")
                 .arg(static_cast<unsigned long>(GetLastError()))
-                .arg(appName);
+                .arg(QString::fromStdWString(spec.applicationPath));
         }
         return false;
     }
@@ -600,6 +589,140 @@ bool openInteractiveCliTerminal(bool usePowerShell,
     CloseHandle(pi.hProcess);
     return true;
 #endif
+}
+
+namespace {
+
+std::filesystem::path resolveSystem32Directory(const std::filesystem::path& overrideDir) {
+    if (!overrideDir.empty()) {
+        return overrideDir.lexically_normal();
+    }
+#ifdef _WIN32
+    std::wstring sysBuf(MAX_PATH + 1, L'\0');
+    UINT len = ::GetSystemDirectoryW(sysBuf.data(), static_cast<UINT>(sysBuf.size()));
+    if (len > sysBuf.size()) {
+        sysBuf.resize(len + 1, L'\0');
+        len = ::GetSystemDirectoryW(sysBuf.data(), static_cast<UINT>(sysBuf.size()));
+    }
+    if (len > 0) {
+        sysBuf.resize(len);
+        return std::filesystem::path(sysBuf).lexically_normal();
+    }
+    wchar_t rootBuf[MAX_PATH + 1] = {};
+    const DWORD rLen = ::GetEnvironmentVariableW(L"SystemRoot", rootBuf, MAX_PATH + 1);
+    if (rLen > 0 && rLen <= MAX_PATH) {
+        return (std::filesystem::path(rootBuf) / L"System32").lexically_normal();
+    }
+    return std::filesystem::path(L"C:\\Windows\\System32");
+#else
+    return std::filesystem::path(L"/Windows/System32");
+#endif
+}
+
+std::wstring stripQuotesAndControlsW(std::wstring_view in) {
+    std::wstring out;
+    out.reserve(in.size());
+    for (wchar_t ch : in) {
+        if (ch == L'"' || ch == L'\r' || ch == L'\n' || ch == L'\0') continue;
+        out.push_back(ch);
+    }
+    return out;
+}
+
+std::wstring quoteWinArgW(std::wstring_view arg) {
+    if (arg.empty()) return L"\"\"";
+    bool needsQuotes = false;
+    for (wchar_t ch : arg) {
+        if (ch == L' ' || ch == L'\t' || ch == L'\n' || ch == L'\v' || ch == L'"') {
+            needsQuotes = true;
+            break;
+        }
+    }
+    if (!needsQuotes) return std::wstring(arg);
+    std::wstring out;
+    out.reserve(arg.size() + 4);
+    out.push_back(L'"');
+    std::size_t backslashes = 0;
+    for (wchar_t ch : arg) {
+        if (ch == L'\\') {
+            ++backslashes;
+        } else if (ch == L'"') {
+            out.append(backslashes * 2 + 1, L'\\');
+            out.push_back(L'"');
+            backslashes = 0;
+        } else {
+            if (backslashes > 0) {
+                out.append(backslashes, L'\\');
+                backslashes = 0;
+            }
+            out.push_back(ch);
+        }
+    }
+    if (backslashes > 0) {
+        out.append(backslashes * 2, L'\\');
+    }
+    out.push_back(L'"');
+    return out;
+}
+
+std::wstring escapePowerShellSingleQuotedW(std::wstring_view raw) {
+    std::wstring out;
+    out.reserve(raw.size() + 4);
+    out.push_back(L'\'');
+    for (wchar_t ch : raw) {
+        if (ch == L'\r' || ch == L'\n' || ch == L'\0') continue;
+        if (ch == L'\'') {
+            out.append(L"''");
+        } else {
+            out.push_back(ch);
+        }
+    }
+    out.push_back(L'\'');
+    return out;
+}
+
+} // namespace
+
+TerminalLaunchSpec buildInteractiveCliTerminalSpec(
+    TerminalShell shell,
+    const std::filesystem::path& cliExePath,
+    const std::filesystem::path& workingDir,
+    const std::filesystem::path& systemDirOverride) {
+    TerminalLaunchSpec spec;
+    const std::filesystem::path sysDir = resolveSystem32Directory(systemDirOverride);
+    std::filesystem::path normCli = cliExePath.lexically_normal();
+    normCli.make_preferred();
+    std::filesystem::path normWork = workingDir.empty() ? normCli.parent_path() : workingDir.lexically_normal();
+    normWork.make_preferred();
+    spec.workingDirectory = stripQuotesAndControlsW(normWork.wstring());
+
+    if (shell == TerminalShell::PowerShell) {
+        std::filesystem::path psExe = (sysDir / L"WindowsPowerShell" / L"v1.0" / L"powershell.exe").lexically_normal();
+        psExe.make_preferred();
+        spec.applicationPath = psExe.wstring();
+
+        const std::wstring cliSingle = escapePowerShellSingleQuotedW(normCli.wstring());
+        const std::wstring psScript =
+            L"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+            L"[Console]::InputEncoding=[System.Text.Encoding]::UTF8; "
+            L"$OutputEncoding=[System.Text.Encoding]::UTF8; "
+            L"& " + cliSingle + L" --version; "
+            L"Write-Host ('OmniFrame 3D CLI (PowerShell) - Execute: ' + " + cliSingle +
+            L" + ' --help') -ForegroundColor Cyan";
+        spec.commandLine = quoteWinArgW(spec.applicationPath) +
+            L" -NoLogo -NoExit -Command " + quoteWinArgW(psScript);
+    } else {
+        std::filesystem::path cmdExe = (sysDir / L"cmd.exe").lexically_normal();
+        cmdExe.make_preferred();
+        spec.applicationPath = cmdExe.wstring();
+
+        const std::wstring cliCmdSafe = stripQuotesAndControlsW(normCli.wstring());
+        spec.commandLine = quoteWinArgW(spec.applicationPath) +
+            L" /K \"chcp 65001 >nul && title OmniFrame 3D CLI (CMD) && \"" +
+            cliCmdSafe +
+            L"\" --version && echo Execute: omniframe-cli --help\"";
+    }
+    return spec;
 }
 
 int forwardGuiArgsToCliIfRequested(int argc, char* argv[], QStringList& outFilesToOpen) {

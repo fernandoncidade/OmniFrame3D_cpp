@@ -1,5 +1,6 @@
 #include "Corotational1D.hpp"
 #include <Eigen/Geometry>
+#include <Eigen/QR>
 #include <algorithm>
 #include <cmath>
 
@@ -64,27 +65,45 @@ Eigen::Matrix<double, 12, 12> applyStaticReleaseCondensation(
     }
 
     Eigen::FullPivLU<MatX> lu(k_rr);
-    Eigen::Matrix<double, 12, 12> kOut = Eigen::Matrix<double, 12, 12>::Zero();
+    lu.setThreshold(1e-12);
+    MatX condKr;
+    VecX condFr;
     if (lu.isInvertible()) {
-        MatX kRed = k_kk - k_kr * lu.solve(k_kr.transpose());
-        for (int i = 0; i < nKeep; ++i) {
-            for (int j = 0; j < nKeep; ++j) {
-                kOut(keepIdx[i], keepIdx[j]) = kRed(i, j);
-            }
-        }
-        if (fInOut) {
-            VecX fRed = f_k - k_kr * lu.solve(f_r);
-            fInOut->setZero();
-            for (int i = 0; i < nKeep; ++i) {
-                (*fInOut)(keepIdx[i]) = fRed(i);
-            }
-        }
+        condKr = lu.solve(MatX(k_kr.transpose()));
+        if (fInOut) condFr = lu.solve(f_r);
     } else {
-        for (int i = 0; i < nKeep; ++i) {
-            for (int j = 0; j < nKeep; ++j) kOut(keepIdx[i], keepIdx[j]) = k(keepIdx[i], keepIdx[j]);
+        // [AUD-010] Fallback robusto por decomposição ortogonal completa para liberações singulares
+        // (ex.: ambos os extremos com liberação torsional/axial ou múltipla rótula), evitando
+        // retornar rigidez não condensada em barras rotuladas (`makeTrussReleases()`).
+        Eigen::CompleteOrthogonalDecomposition<MatX> cod(k_rr);
+        cod.setThreshold(1e-12);
+        condKr = cod.solve(MatX(k_kr.transpose()));
+        if (fInOut) condFr = cod.solve(f_r);
+    }
+
+    Eigen::Matrix<double, 12, 12> kOut = Eigen::Matrix<double, 12, 12>::Zero();
+    MatX kRed = k_kk - k_kr * condKr;
+    kRed = 0.5 * (kRed + kRed.transpose());
+    for (int i = 0; i < nKeep; ++i) {
+        for (int j = 0; j < nKeep; ++j) {
+            kOut(keepIdx[i], keepIdx[j]) = kRed(i, j);
         }
-        if (fInOut) {
-            for (int r : relIdx) (*fInOut)(r) = 0.0;
+    }
+    if (fInOut) {
+        VecX fRed = f_k - k_kr * condFr;
+        fInOut->setZero();
+        for (int i = 0; i < nKeep; ++i) {
+            (*fInOut)(keepIdx[i]) = fRed(i);
+        }
+    }
+
+    // Regra de liberação torsional efetiva: se qualquer extremidade libera torção,
+    // a barra não pode transmitir torque entre nós.
+    if (relStart[3] || relEnd[3]) {
+        for (int idx : {3, 9}) {
+            kOut.row(idx).setZero();
+            kOut.col(idx).setZero();
+            if (fInOut) (*fInOut)(idx) = 0.0;
         }
     }
     return kOut;
@@ -195,17 +214,19 @@ Corotational1DEvalResult CorotationalBeam3D::evaluate(
         Eigen::Matrix<double, 12, 1> uLoc = T0 * uGlob;
 
         Eigen::Matrix<double, 12, 12> kmLoc = BeamTruss1D::computeUncondensedLocalStiffness(pRef);
-        const double axialForce = (props.E * props.A / L0) * (uLoc(6) - uLoc(0));
-        Eigen::Matrix<double, 12, 1> fLoc = kmLoc * uLoc;
-
-        if (props.formulation != Beam1DFormulation::Truss3D) {
-            kmLoc = applyStaticReleaseCondensation(kmLoc, releaseStart, releaseEnd, &fLoc);
-        }
-
+        const bool axialReleased = releaseStart[0] || releaseEnd[0];
+        const double axialForce = axialReleased ? 0.0 : (props.E * props.A / L0) * (uLoc(6) - uLoc(0));
         const Eigen::Matrix<double, 12, 12> kgLoc =
             BeamTruss1D::computeLocalGeometricStiffness(axialForce, L0, props.formulation);
+
+        // [AUD-010] Em P-Delta, condensar (k_el + k_g) e fLoc = (k_el + k_g) * uLoc em conjunto
+        // para nunca reinjetar momentos espúrios em DOFs rotulados.
         Eigen::Matrix<double, 12, 12> ktLoc = kmLoc + kgLoc;
-        fLoc += kgLoc * uLoc;
+        Eigen::Matrix<double, 12, 1> fLoc = ktLoc * uLoc;
+
+        if (props.formulation != Beam1DFormulation::Truss3D) {
+            ktLoc = applyStaticReleaseCondensation(ktLoc, releaseStart, releaseEnd, &fLoc);
+        }
 
         out.currentLength = L0 + (uLoc(6) - uLoc(0));
         out.axialForce = axialForce;
@@ -266,15 +287,39 @@ Corotational1DEvalResult CorotationalBeam3D::evaluate(
         return out;
     }
 
-    // Construção da tríade corrotacional R_e = [r1, r2, r3] a partir do vetor alma médio
-    Vec3 pAvg = 0.5 * (R1 * R0.col(1) + R2 * R0.col(1));
-    Vec3 v3 = r1.cross(pAvg);
-    if (v3.squaredNorm() < 1e-12) {
-        pAvg = 0.5 * (R1 * R0.col(2) + R2 * R0.col(2));
-        v3 = r1.cross(pAvg);
+    // [AUD-010] Construção da tríade corrotacional R_e = [r1, r2, r3] a partir do vetor alma médio,
+    // com cadeia de fallbacks ortonormais robusta para rotações extremas e barras paralelas ao eixo X global.
+    Vec3 r2 = Vec3::Zero();
+    Vec3 r3 = Vec3::Zero();
+    const Vec3 pAvgY = 0.5 * (R1 * R0.col(1) + R2 * R0.col(1));
+    Vec3 v3 = r1.cross(pAvgY);
+    if (v3.squaredNorm() >= 1e-12) {
+        r3 = v3.normalized();
+        r2 = r3.cross(r1).normalized();
+    } else {
+        const Vec3 pAvgZ = 0.5 * (R1 * R0.col(2) + R2 * R0.col(2));
+        Vec3 v2 = pAvgZ.cross(r1);
+        if (v2.squaredNorm() >= 1e-12) {
+            r2 = v2.normalized();
+            r3 = r1.cross(r2).normalized();
+        } else {
+            Vec3 v3End = r1.cross(R1 * R0.col(1));
+            if (v3End.squaredNorm() >= 1e-12) {
+                r3 = v3End.normalized();
+                r2 = r3.cross(r1).normalized();
+            } else {
+                Vec3 v2End = (R1 * R0.col(2)).cross(r1);
+                if (v2End.squaredNorm() >= 1e-12) {
+                    r2 = v2End.normalized();
+                    r3 = r1.cross(r2).normalized();
+                } else {
+                    const Vec3 ref = (std::abs(r1.x()) < 0.9) ? Vec3(1.0, 0.0, 0.0) : Vec3(0.0, 1.0, 0.0);
+                    r3 = r1.cross(ref).normalized();
+                    r2 = r3.cross(r1).normalized();
+                }
+            }
+        }
     }
-    const Vec3 r3 = v3.normalized();
-    const Vec3 r2 = r3.cross(r1);
     Mat3 Re;
     Re.col(0) = r1;
     Re.col(1) = r2;
@@ -315,19 +360,45 @@ Corotational1DEvalResult CorotationalBeam3D::evaluate(
     Eigen::Matrix<double, 6, 6> DNat = Eigen::Matrix<double, 6, 6>::Zero();
 
     if (plasticParams == nullptr || fibers == nullptr || fibers->empty()) {
-        // Caminho elástico linear local exato (inclui Timoshenko ou Euler-Bernoulli)
+        // Caminho elástico linear local exato (inclui Timoshenko ou Euler-Bernoulli e Iyz != 0)
         const double kAx = (props.E * props.A) / L0;
         const double kTor = (props.G * props.J) / L0;
         const double L02 = L0 * L0;
+        double effIy = props.Iy;
+        double effIz = props.Iz;
+        double effAsy = props.Asy;
+        double effAsz = props.Asz;
+        Eigen::Matrix<double, 6, 6> R6 = Eigen::Matrix<double, 6, 6>::Identity();
+        const bool hasIyz = std::isfinite(props.Iyz) && std::abs(props.Iyz) > 1e-18;
+        if (hasIyz) {
+            const double avg = 0.5 * (props.Iy + props.Iz);
+            const double diff = 0.5 * (props.Iy - props.Iz);
+            const double rad = std::hypot(diff, props.Iyz);
+            const double alpha = 0.5 * std::atan2(-2.0 * props.Iyz, props.Iy - props.Iz);
+            const double c = std::cos(alpha);
+            const double s = std::sin(alpha);
+            effIy = avg + rad;
+            effIz = std::max(1e-18, avg - rad);
+            if (effAsy > 0.0 && effAsz > 0.0) {
+                const double ay = effAsy, az = effAsz;
+                effAsy = std::max(1e-12, ay * c * c + az * s * s);
+                effAsz = std::max(1e-12, ay * s * s + az * c * c);
+            }
+            R6(2, 2) = c;  R6(2, 3) = s;
+            R6(3, 2) = -s; R6(3, 3) = c;
+            R6(4, 4) = c;  R6(4, 5) = s;
+            R6(5, 4) = -s; R6(5, 5) = c;
+        }
+
         double phiY = 0.0, phiZ = 0.0;
         if (props.formulation == Beam1DFormulation::Timoshenko3D) {
-            if (props.G > 1e-12 && props.Asy > 1e-12) phiY = (12.0 * props.E * props.Iz) / (props.G * props.Asy * L02);
-            if (props.G > 1e-12 && props.Asz > 1e-12) phiZ = (12.0 * props.E * props.Iy) / (props.G * props.Asz * L02);
+            if (props.G > 1e-12 && effAsy > 1e-12) phiY = (12.0 * props.E * effIz) / (props.G * effAsy * L02);
+            if (props.G > 1e-12 && effAsz > 1e-12) phiZ = (12.0 * props.E * effIy) / (props.G * effAsz * L02);
         }
-        const double c3y = ((4.0 + phiZ) * props.E * props.Iy) / (L0 * (1.0 + phiZ));
-        const double c4y = ((2.0 - phiZ) * props.E * props.Iy) / (L0 * (1.0 + phiZ));
-        const double c3z = ((4.0 + phiY) * props.E * props.Iz) / (L0 * (1.0 + phiY));
-        const double c4z = ((2.0 - phiY) * props.E * props.Iz) / (L0 * (1.0 + phiY));
+        const double c3y = ((4.0 + phiZ) * props.E * effIy) / (L0 * (1.0 + phiZ));
+        const double c4y = ((2.0 - phiZ) * props.E * effIy) / (L0 * (1.0 + phiZ));
+        const double c3z = ((4.0 + phiY) * props.E * effIz) / (L0 * (1.0 + phiY));
+        const double c4z = ((2.0 - phiY) * props.E * effIz) / (L0 * (1.0 + phiY));
 
         DNat(0, 0) = kAx;
         DNat(1, 1) = kTor;
@@ -335,6 +406,11 @@ Corotational1DEvalResult CorotationalBeam3D::evaluate(
         DNat(4, 2) = c4y; DNat(4, 4) = c3y;
         DNat(3, 3) = c3z; DNat(3, 5) = c4z;
         DNat(5, 3) = c4z; DNat(5, 5) = c3z;
+
+        if (hasIyz) {
+            DNat = R6.transpose() * DNat * R6;
+            DNat = 0.5 * (DNat + DNat.transpose());
+        }
 
         Eigen::Matrix<double, 6, 1> qNat;
         qNat << uAx, phiTwist, th1y, th1z, th2y, th2z;

@@ -20,41 +20,97 @@ StructuralModel::StructuralModel() {
     pushUndo();
 }
 
-NodeId StructuralModel::getNextNodeId() const {
-    int maxId = 0;
-    for (const auto& n : m_nodes) {
-        if (n.id > maxId) maxId = n.id;
+void StructuralModel::invalidateAllIndices() const {
+    m_nodeIndexDirty = true;
+    m_elementIndexDirty = true;
+    m_materialIndexDirty = true;
+    m_sectionIndexDirty = true;
+}
+
+void StructuralModel::rebuildNodeIndex() const {
+    m_nodeIndexById.clear();
+    m_nodeIndexById.reserve(m_nodes.size());
+    m_maxNodeId = 0;
+    for (std::size_t i = 0; i < m_nodes.size(); ++i) {
+        const NodeId id = m_nodes[i].id;
+        m_nodeIndexById[id] = i;
+        if (id > m_maxNodeId) m_maxNodeId = id;
     }
-    return maxId + 1;
+    m_nodeIndexDirty = false;
+}
+
+void StructuralModel::rebuildElementIndex() const {
+    m_elementIndexById.clear();
+    m_elementIndexById.reserve(m_elements.size());
+    m_maxElementId = 0;
+    for (std::size_t i = 0; i < m_elements.size(); ++i) {
+        const ElementId id = m_elements[i].id;
+        m_elementIndexById[id] = i;
+        if (id > m_maxElementId) m_maxElementId = id;
+    }
+    m_elementIndexDirty = false;
+}
+
+void StructuralModel::rebuildMaterialIndex() const {
+    m_materialIndexById.clear();
+    m_materialIndexById.reserve(m_materials.size());
+    m_maxMaterialId = 0;
+    for (std::size_t i = 0; i < m_materials.size(); ++i) {
+        const MaterialId id = m_materials[i].id;
+        m_materialIndexById[id] = i;
+        if (id > m_maxMaterialId) m_maxMaterialId = id;
+    }
+    m_materialIndexDirty = false;
+}
+
+void StructuralModel::rebuildSectionIndex() const {
+    m_sectionIndexById.clear();
+    m_sectionIndexById.reserve(m_sections.size());
+    m_maxSectionId = 0;
+    for (std::size_t i = 0; i < m_sections.size(); ++i) {
+        const SectionId id = m_sections[i].id;
+        m_sectionIndexById[id] = i;
+        if (id > m_maxSectionId) m_maxSectionId = id;
+    }
+    m_sectionIndexDirty = false;
+}
+
+NodeId StructuralModel::getNextNodeId() const {
+    if (m_nodeIndexDirty || m_nodeIndexById.size() != m_nodes.size()) {
+        rebuildNodeIndex();
+    }
+    return m_maxNodeId + 1;
 }
 
 ElementId StructuralModel::getNextElementId() const {
-    int maxId = 0;
-    for (const auto& e : m_elements) {
-        if (e.id > maxId) maxId = e.id;
+    if (m_elementIndexDirty || m_elementIndexById.size() != m_elements.size()) {
+        rebuildElementIndex();
     }
-    return maxId + 1;
+    return m_maxElementId + 1;
 }
 
 MaterialId StructuralModel::getNextMaterialId() const {
-    int maxId = 0;
-    for (const auto& m : m_materials) {
-        if (m.id > maxId) maxId = m.id;
+    if (m_materialIndexDirty || m_materialIndexById.size() != m_materials.size()) {
+        rebuildMaterialIndex();
     }
-    return maxId + 1;
+    return m_maxMaterialId + 1;
 }
 
 SectionId StructuralModel::getNextSectionId() const {
-    int maxId = 0;
-    for (const auto& s : m_sections) {
-        if (s.id > maxId) maxId = s.id;
+    if (m_sectionIndexDirty || m_sectionIndexById.size() != m_sections.size()) {
+        rebuildSectionIndex();
     }
-    return maxId + 1;
+    return m_maxSectionId + 1;
 }
 
 NodeId StructuralModel::addNode(double x, double y, double z) {
     NodeId id = getNextNodeId();
     m_nodes.emplace_back(id, x, y, z);
+    if (!m_nodeIndexDirty) {
+        m_nodeIndexById[id] = m_nodes.size() - 1;
+        if (id > m_maxNodeId) m_maxNodeId = id;
+    }
+    ++m_geometryRevision;
     pushUndo();
     return id;
 }
@@ -65,21 +121,61 @@ NodeId StructuralModel::addNode(const Node& node) {
         n.id = getNextNodeId();
     }
     m_nodes.push_back(n);
+    if (!m_nodeIndexDirty) {
+        m_nodeIndexById[n.id] = m_nodes.size() - 1;
+        if (n.id > m_maxNodeId) m_maxNodeId = n.id;
+    }
+    ++m_geometryRevision;
     pushUndo();
     return n.id;
 }
 
 bool StructuralModel::removeNode(NodeId id) {
+    if (!findNode(id)) return false;
     auto it = std::find_if(m_nodes.begin(), m_nodes.end(), [id](const Node& n) { return n.id == id; });
     if (it == m_nodes.end()) return false;
 
-    // Remove elementos conectados ao nó
-    std::erase_if(m_elements, [id](const Element& e) {
-        return e.nodeStart == id || e.nodeEnd == id;
+    std::unordered_set<ElementId> removedElemIds;
+    std::erase_if(m_elements, [id, &removedElemIds](const Element& e) {
+        if (e.nodeStart == id || e.nodeEnd == id) {
+            removedElemIds.insert(e.id);
+            return true;
+        }
+        return false;
+    });
+
+    for (ElementId eid : removedElemIds) {
+        m_selectedElements.erase(eid);
+    }
+
+    for (auto& lc : m_loadCases) {
+        std::erase_if(lc.nodalLoads, [id](const kernel::NodalLoadPatternEntry& nl) {
+            return nl.nodeId == id;
+        });
+        if (!removedElemIds.empty()) {
+            std::erase_if(lc.elementLoads, [&removedElemIds](const kernel::ElementLoadPatternEntry& el) {
+                return removedElemIds.find(el.elementId) != removedElemIds.end();
+            });
+        }
+    }
+
+    std::erase_if(m_rigidLinks, [id](const RigidLinkSpec& rl) {
+        return rl.masterNode == id || rl.slaveNode == id;
+    });
+
+    std::erase_if(m_rigidDiaphragms, [id](RigidDiaphragmSpec& rd) {
+        if (rd.masterNode == id) return true;
+        std::erase(rd.slaveNodes, id);
+        return rd.slaveNodes.empty();
     });
 
     m_selectedNodes.erase(id);
     m_nodes.erase(it);
+    m_nodeIndexDirty = true;
+    if (!removedElemIds.empty()) {
+        m_elementIndexDirty = true;
+    }
+    ++m_geometryRevision;
     pushUndo();
     return true;
 }
@@ -90,6 +186,11 @@ ElementId StructuralModel::addElement(NodeId start, NodeId end, MaterialId mid, 
 
     ElementId id = getNextElementId();
     m_elements.emplace_back(id, start, end, mid, sid, roll);
+    if (!m_elementIndexDirty) {
+        m_elementIndexById[id] = m_elements.size() - 1;
+        if (id > m_maxElementId) m_maxElementId = id;
+    }
+    ++m_geometryRevision;
     pushUndo();
     return id;
 }
@@ -100,16 +201,30 @@ ElementId StructuralModel::addElement(const Element& elem) {
         e.id = getNextElementId();
     }
     m_elements.push_back(e);
+    if (!m_elementIndexDirty) {
+        m_elementIndexById[e.id] = m_elements.size() - 1;
+        if (e.id > m_maxElementId) m_maxElementId = e.id;
+    }
+    ++m_geometryRevision;
     pushUndo();
     return e.id;
 }
 
 bool StructuralModel::removeElement(ElementId id) {
+    if (!findElement(id)) return false;
     auto it = std::find_if(m_elements.begin(), m_elements.end(), [id](const Element& e) { return e.id == id; });
     if (it == m_elements.end()) return false;
 
+    for (auto& lc : m_loadCases) {
+        std::erase_if(lc.elementLoads, [id](const kernel::ElementLoadPatternEntry& el) {
+            return el.elementId == id;
+        });
+    }
+
     m_selectedElements.erase(id);
     m_elements.erase(it);
+    m_elementIndexDirty = true;
+    ++m_geometryRevision;
     pushUndo();
     return true;
 }
@@ -119,22 +234,39 @@ MaterialId StructuralModel::addMaterial(const Material& mat) {
     if (m.id <= 0) {
         m.id = getNextMaterialId();
     } else if (Material* existing = findMaterial(m.id)) {
-        const bool inUse = std::any_of(m_elements.begin(), m_elements.end(),
-                                       [&](const Element& e) { return e.materialId == m.id; });
+        const bool inUse =
+            std::any_of(m_elements.begin(), m_elements.end(),
+                        [&](const Element& e) { return e.materialId == m.id; }) ||
+            std::any_of(m_surfaceMesh.elements.begin(), m_surfaceMesh.elements.end(),
+                        [&](const kernel::MeshElement& me) { return me.materialId == m.id; });
         if (m.id > 2 && !inUse) {
             existing->id = getNextMaterialId();
+            m_materialIndexDirty = true;
         } else {
             m.id = getNextMaterialId();
         }
     }
     m_materials.push_back(m);
+    if (!m_materialIndexDirty) {
+        m_materialIndexById[m.id] = m_materials.size() - 1;
+        if (m.id > m_maxMaterialId) m_maxMaterialId = m.id;
+    }
+    ++m_geometryRevision;
     return m.id;
 }
 
 bool StructuralModel::removeMaterial(MaterialId id) {
     auto it = std::find_if(m_materials.begin(), m_materials.end(), [id](const Material& m) { return m.id == id; });
     if (it == m_materials.end()) return false;
+    const bool inUse =
+        std::any_of(m_elements.begin(), m_elements.end(),
+                    [id](const Element& e) { return e.materialId == id; }) ||
+        std::any_of(m_surfaceMesh.elements.begin(), m_surfaceMesh.elements.end(),
+                    [id](const kernel::MeshElement& me) { return me.materialId == id; });
+    if (inUse) return false;
     m_materials.erase(it);
+    m_materialIndexDirty = true;
+    ++m_geometryRevision;
     return true;
 }
 
@@ -143,77 +275,134 @@ SectionId StructuralModel::addCrossSection(const CrossSection& sec) {
     if (s.id <= 0) {
         s.id = getNextSectionId();
     } else if (CrossSection* existing = findCrossSection(s.id)) {
-        const bool inUse = std::any_of(m_elements.begin(), m_elements.end(),
-                                       [&](const Element& e) { return e.sectionId == s.id; });
+        const bool inUse =
+            std::any_of(m_elements.begin(), m_elements.end(),
+                        [&](const Element& e) { return e.sectionId == s.id; }) ||
+            std::any_of(m_surfaceMesh.elements.begin(), m_surfaceMesh.elements.end(),
+                        [&](const kernel::MeshElement& me) { return me.sectionId == s.id; });
         if (s.id > 4 && !inUse) {
             existing->id = getNextSectionId();
+            m_sectionIndexDirty = true;
         } else {
             s.id = getNextSectionId();
         }
     }
     m_sections.push_back(s);
+    if (!m_sectionIndexDirty) {
+        m_sectionIndexById[s.id] = m_sections.size() - 1;
+        if (s.id > m_maxSectionId) m_maxSectionId = s.id;
+    }
+    ++m_geometryRevision;
     return s.id;
 }
 
 bool StructuralModel::removeCrossSection(SectionId id) {
     auto it = std::find_if(m_sections.begin(), m_sections.end(), [id](const CrossSection& s) { return s.id == id; });
     if (it == m_sections.end()) return false;
+    const bool inUse =
+        std::any_of(m_elements.begin(), m_elements.end(),
+                    [id](const Element& e) { return e.sectionId == id; }) ||
+        std::any_of(m_surfaceMesh.elements.begin(), m_surfaceMesh.elements.end(),
+                    [id](const kernel::MeshElement& me) { return me.sectionId == id; });
+    if (inUse) return false;
     m_sections.erase(it);
+    m_sectionIndexDirty = true;
+    ++m_geometryRevision;
     return true;
 }
 
 Node* StructuralModel::findNode(NodeId id) {
-    for (auto& n : m_nodes) {
-        if (n.id == id) return &n;
-    }
-    return nullptr;
+    return const_cast<Node*>(static_cast<const StructuralModel*>(this)->findNode(id));
 }
 
 const Node* StructuralModel::findNode(NodeId id) const {
-    for (const auto& n : m_nodes) {
-        if (n.id == id) return &n;
+    if (m_nodeIndexDirty || m_nodeIndexById.size() != m_nodes.size()) {
+        rebuildNodeIndex();
+    }
+    if (const auto it = m_nodeIndexById.find(id); it != m_nodeIndexById.end()) {
+        const std::size_t idx = it->second;
+        if (idx < m_nodes.size() && m_nodes[idx].id == id) {
+            return &m_nodes[idx];
+        }
+        rebuildNodeIndex();
+        if (const auto it2 = m_nodeIndexById.find(id); it2 != m_nodeIndexById.end()) {
+            const std::size_t idx2 = it2->second;
+            if (idx2 < m_nodes.size() && m_nodes[idx2].id == id) {
+                return &m_nodes[idx2];
+            }
+        }
     }
     return nullptr;
 }
 
 Element* StructuralModel::findElement(ElementId id) {
-    for (auto& e : m_elements) {
-        if (e.id == id) return &e;
-    }
-    return nullptr;
+    return const_cast<Element*>(static_cast<const StructuralModel*>(this)->findElement(id));
 }
 
 const Element* StructuralModel::findElement(ElementId id) const {
-    for (const auto& e : m_elements) {
-        if (e.id == id) return &e;
+    if (m_elementIndexDirty || m_elementIndexById.size() != m_elements.size()) {
+        rebuildElementIndex();
+    }
+    if (const auto it = m_elementIndexById.find(id); it != m_elementIndexById.end()) {
+        const std::size_t idx = it->second;
+        if (idx < m_elements.size() && m_elements[idx].id == id) {
+            return &m_elements[idx];
+        }
+        rebuildElementIndex();
+        if (const auto it2 = m_elementIndexById.find(id); it2 != m_elementIndexById.end()) {
+            const std::size_t idx2 = it2->second;
+            if (idx2 < m_elements.size() && m_elements[idx2].id == id) {
+                return &m_elements[idx2];
+            }
+        }
     }
     return nullptr;
 }
 
 Material* StructuralModel::findMaterial(MaterialId id) {
-    for (auto& m : m_materials) {
-        if (m.id == id) return &m;
-    }
-    return nullptr;
+    return const_cast<Material*>(static_cast<const StructuralModel*>(this)->findMaterial(id));
 }
 
 const Material* StructuralModel::findMaterial(MaterialId id) const {
-    for (const auto& m : m_materials) {
-        if (m.id == id) return &m;
+    if (m_materialIndexDirty || m_materialIndexById.size() != m_materials.size()) {
+        rebuildMaterialIndex();
+    }
+    if (const auto it = m_materialIndexById.find(id); it != m_materialIndexById.end()) {
+        const std::size_t idx = it->second;
+        if (idx < m_materials.size() && m_materials[idx].id == id) {
+            return &m_materials[idx];
+        }
+        rebuildMaterialIndex();
+        if (const auto it2 = m_materialIndexById.find(id); it2 != m_materialIndexById.end()) {
+            const std::size_t idx2 = it2->second;
+            if (idx2 < m_materials.size() && m_materials[idx2].id == id) {
+                return &m_materials[idx2];
+            }
+        }
     }
     return nullptr;
 }
 
 CrossSection* StructuralModel::findCrossSection(SectionId id) {
-    for (auto& s : m_sections) {
-        if (s.id == id) return &s;
-    }
-    return nullptr;
+    return const_cast<CrossSection*>(static_cast<const StructuralModel*>(this)->findCrossSection(id));
 }
 
 const CrossSection* StructuralModel::findCrossSection(SectionId id) const {
-    for (const auto& s : m_sections) {
-        if (s.id == id) return &s;
+    if (m_sectionIndexDirty || m_sectionIndexById.size() != m_sections.size()) {
+        rebuildSectionIndex();
+    }
+    if (const auto it = m_sectionIndexById.find(id); it != m_sectionIndexById.end()) {
+        const std::size_t idx = it->second;
+        if (idx < m_sections.size() && m_sections[idx].id == id) {
+            return &m_sections[idx];
+        }
+        rebuildSectionIndex();
+        if (const auto it2 = m_sectionIndexById.find(id); it2 != m_sectionIndexById.end()) {
+            const std::size_t idx2 = it2->second;
+            if (idx2 < m_sections.size() && m_sections[idx2].id == id) {
+                return &m_sections[idx2];
+            }
+        }
     }
     return nullptr;
 }
@@ -226,6 +415,7 @@ void StructuralModel::selectNode(NodeId id, bool clearOthers) {
     if (findNode(id)) {
         m_selectedNodes.insert(id);
     }
+    ++m_geometryRevision;
 }
 
 void StructuralModel::selectElement(ElementId id, bool clearOthers) {
@@ -236,6 +426,7 @@ void StructuralModel::selectElement(ElementId id, bool clearOthers) {
     if (findElement(id)) {
         m_selectedElements.insert(id);
     }
+    ++m_geometryRevision;
 }
 
 void StructuralModel::toggleNodeSelection(NodeId id) {
@@ -244,6 +435,7 @@ void StructuralModel::toggleNodeSelection(NodeId id) {
     } else if (findNode(id)) {
         m_selectedNodes.insert(id);
     }
+    ++m_geometryRevision;
 }
 
 void StructuralModel::toggleElementSelection(ElementId id) {
@@ -252,34 +444,66 @@ void StructuralModel::toggleElementSelection(ElementId id) {
     } else if (findElement(id)) {
         m_selectedElements.insert(id);
     }
+    ++m_geometryRevision;
 }
 
 void StructuralModel::clearSelection() {
     m_selectedNodes.clear();
     m_selectedElements.clear();
+    ++m_geometryRevision;
 }
 
 void StructuralModel::deleteSelected() {
     if (m_selectedNodes.empty() && m_selectedElements.empty()) return;
 
-    for (ElementId eid : m_selectedElements) {
-        auto it = std::find_if(m_elements.begin(), m_elements.end(), [eid](const Element& e) { return e.id == eid; });
-        if (it != m_elements.end()) {
-            m_elements.erase(it);
-        }
-    }
-    m_selectedElements.clear();
+    std::unordered_set<ElementId> removedElemIds = m_selectedElements;
+    const std::unordered_set<NodeId> removedNodeIds = m_selectedNodes;
 
-    for (NodeId nid : m_selectedNodes) {
-        std::erase_if(m_elements, [nid](const Element& e) {
-            return e.nodeStart == nid || e.nodeEnd == nid;
+    std::erase_if(m_elements, [&](const Element& e) {
+        if (removedElemIds.find(e.id) != removedElemIds.end() ||
+            removedNodeIds.find(e.nodeStart) != removedNodeIds.end() ||
+            removedNodeIds.find(e.nodeEnd) != removedNodeIds.end()) {
+            removedElemIds.insert(e.id);
+            return true;
+        }
+        return false;
+    });
+    m_selectedElements.clear();
+    m_elementIndexDirty = true;
+
+    if (!removedNodeIds.empty()) {
+        std::erase_if(m_nodes, [&removedNodeIds](const Node& n) {
+            return removedNodeIds.find(n.id) != removedNodeIds.end();
         });
-        auto it = std::find_if(m_nodes.begin(), m_nodes.end(), [nid](const Node& n) { return n.id == nid; });
-        if (it != m_nodes.end()) {
-            m_nodes.erase(it);
+        m_nodeIndexDirty = true;
+        std::erase_if(m_rigidLinks, [&removedNodeIds](const RigidLinkSpec& rl) {
+            return removedNodeIds.find(rl.masterNode) != removedNodeIds.end() ||
+                   removedNodeIds.find(rl.slaveNode) != removedNodeIds.end();
+        });
+        std::erase_if(m_rigidDiaphragms, [&removedNodeIds](RigidDiaphragmSpec& rd) {
+            if (removedNodeIds.find(rd.masterNode) != removedNodeIds.end()) return true;
+            std::erase_if(rd.slaveNodes, [&removedNodeIds](NodeId sid) {
+                return removedNodeIds.find(sid) != removedNodeIds.end();
+            });
+            return rd.slaveNodes.empty();
+        });
+    }
+
+    for (auto& lc : m_loadCases) {
+        if (!removedNodeIds.empty()) {
+            std::erase_if(lc.nodalLoads, [&removedNodeIds](const kernel::NodalLoadPatternEntry& nl) {
+                return removedNodeIds.find(nl.nodeId) != removedNodeIds.end();
+            });
+        }
+        if (!removedElemIds.empty()) {
+            std::erase_if(lc.elementLoads, [&removedElemIds](const kernel::ElementLoadPatternEntry& el) {
+                return removedElemIds.find(el.elementId) != removedElemIds.end();
+            });
         }
     }
+
     m_selectedNodes.clear();
+    ++m_geometryRevision;
     pushUndo();
 }
 
@@ -367,6 +591,14 @@ ModelValidation StructuralModel::validate() const {
             addError("ERR_NODE_NONFINITE",
                      "Nó " + std::to_string(n.id) + " possui coordenadas ou forças não finitas.",
                      "Node", std::to_string(n.id));
+        } else {
+            constexpr double kMaxPhysCoordM = 1e9;
+            if (std::abs(n.position.x) > kMaxPhysCoordM || std::abs(n.position.y) > kMaxPhysCoordM ||
+                std::abs(n.position.z) > kMaxPhysCoordM) {
+                addError("ERR_NODE_COORD_RANGE",
+                         "Nó " + std::to_string(n.id) + " possui coordenadas fora dos limites físicos (|coord| <= 1e9 m).",
+                         "Node", std::to_string(n.id));
+            }
         }
         for (int i = 0; i < 6; ++i) {
             if (!std::isfinite(n.support.springStiffness[i]) || n.support.springStiffness[i] < 0.0 ||
@@ -436,6 +668,7 @@ ModelValidation StructuralModel::validate() const {
     meshNodeMap.reserve(m_surfaceMesh.nodes.size());
     std::unordered_set<NodeId> connectedMeshNodes;
     connectedMeshNodes.reserve(m_surfaceMesh.nodes.size());
+    bool hasMeshConnectivityErrors = false;
 
     for (const auto& mn : m_surfaceMesh.nodes) {
         if (mn.id <= 0 || !meshNodeMap.emplace(mn.id, &mn).second) {
@@ -444,9 +677,19 @@ ModelValidation StructuralModel::validate() const {
                      "SurfaceMesh", "M" + std::to_string(mn.id));
         }
         if (!isFiniteKVec3(mn.position) || !isFiniteKVec3(mn.nodalForce) || !isFiniteKVec3(mn.nodalMoment)) {
+            hasMeshConnectivityErrors = true;
             addError("ERR_MESH_NODE_NONFINITE",
                      "Nó de malha M" + std::to_string(mn.id) + " possui coordenadas ou carregamentos não finitos.",
                      "SurfaceMesh", "M" + std::to_string(mn.id));
+        } else {
+            constexpr double kMaxPhysCoordM = 1e9;
+            if (std::abs(mn.position.x()) > kMaxPhysCoordM || std::abs(mn.position.y()) > kMaxPhysCoordM ||
+                std::abs(mn.position.z()) > kMaxPhysCoordM) {
+                hasMeshConnectivityErrors = true;
+                addError("ERR_MESH_NODE_COORD_RANGE",
+                         "Nó de malha M" + std::to_string(mn.id) + " possui coordenadas fora dos limites físicos (|coord| <= 1e9 m).",
+                         "SurfaceMesh", "M" + std::to_string(mn.id));
+            }
         }
         for (int i = 0; i < 6; ++i) {
             if (!std::isfinite(mn.springStiffness[i]) || mn.springStiffness[i] < 0.0 ||
@@ -486,12 +729,14 @@ ModelValidation StructuralModel::validate() const {
         }
         const size_t reqN = minNodesForCell(me.type);
         if (me.nodeIds.size() < reqN) {
+            hasMeshConnectivityErrors = true;
             addError("ERR_MESH_ELEM_NODES",
                      "Elemento de malha E" + std::to_string(me.id) + " tem menos nós do que o exigido para sua topologia.",
                      "SurfaceMesh", "E" + std::to_string(me.id));
         }
         for (NodeId nid : me.nodeIds) {
             if (meshNodeMap.find(nid) == meshNodeMap.end()) {
+                hasMeshConnectivityErrors = true;
                 addError("ERR_MESH_MISSING_NODE",
                          "Elemento de malha E" + std::to_string(me.id) + " referencia nó de malha inexistente (" + std::to_string(nid) + ").",
                          "SurfaceMesh", "E" + std::to_string(me.id));
@@ -517,25 +762,105 @@ ModelValidation StructuralModel::validate() const {
     }
 
     if (hasMesh) {
-        const auto qm = kernel::MeshGenerator::evaluateQuality(m_surfaceMesh);
-        if (qm.invertedOrDegenerateCount > 0) {
-            addError("ERR_MESH_DEGENERATE",
-                     "A malha 2D/3D contém " + std::to_string(qm.invertedOrDegenerateCount) +
-                     " elemento(s) invertido(s) ou degenerado(s) (Jacobiano mínimo = " +
-                     std::to_string(qm.minJacobian) + ").",
-                     "MeshQuality");
-        } else if (qm.maxAspectRatio > 25.0 || qm.maxSkewness > 0.88) {
-            addWarning("WARN_MESH_QUALITY",
-                       "Malha 2D/3D com distorção elevada (razão de aspecto máx. = " +
-                       std::to_string(qm.maxAspectRatio) + ", skewness máx. = " +
-                       std::to_string(qm.maxSkewness) + ").",
-                       "MeshQuality");
+        if (!hasMeshConnectivityErrors) {
+            const auto qm = kernel::MeshGenerator::evaluateQuality(m_surfaceMesh);
+            if (qm.invertedOrDegenerateCount > 0) {
+                addError("ERR_MESH_DEGENERATE",
+                         "A malha 2D/3D contém " + std::to_string(qm.invertedOrDegenerateCount) +
+                         " elemento(s) invertido(s) ou degenerado(s) (Jacobiano mínimo = " +
+                         std::to_string(qm.minJacobian) + ").",
+                         "MeshQuality");
+            } else if (qm.maxAspectRatio > 25.0 || qm.maxSkewness > 0.88) {
+                addWarning("WARN_MESH_QUALITY",
+                           "Malha 2D/3D com distorção elevada (razão de aspecto máx. = " +
+                           std::to_string(qm.maxAspectRatio) + ", skewness máx. = " +
+                           std::to_string(qm.maxSkewness) + ").",
+                           "MeshQuality");
+            }
         }
         for (const auto& mn : m_surfaceMesh.nodes) {
             if (connectedMeshNodes.find(mn.id) == connectedMeshNodes.end()) {
                 addWarning("WARN_MESH_ISOLATED_NODE",
                            "Nó de malha M" + std::to_string(mn.id) + " não está conectado a nenhum elemento de malha.",
                            "SurfaceMesh", "M" + std::to_string(mn.id));
+            }
+        }
+    }
+
+    // Validação de restrições MPC (RigidLink e RigidDiaphragm) e conflito Dirichlet vs escravo MPC
+    for (const auto& rl : m_rigidLinks) {
+        const Node* mn = findNode(rl.masterNode);
+        const Node* sn = findNode(rl.slaveNode);
+        if (!mn || !sn) {
+            addError("ERR_MPC_MISSING_NODE",
+                     "Link rígido referencia nó mestre (" + std::to_string(rl.masterNode) +
+                     ") ou escravo (" + std::to_string(rl.slaveNode) + ") inexistente.",
+                     "MPC");
+            continue;
+        }
+        if (rl.masterNode == rl.slaveNode) {
+            addError("ERR_MPC_INVALID",
+                     "Link rígido possui nó mestre e escravo idênticos (" + std::to_string(rl.masterNode) + ").",
+                     "MPC", std::to_string(rl.masterNode));
+            continue;
+        }
+        connectedNodes.insert(rl.masterNode);
+        connectedNodes.insert(rl.slaveNode);
+        const int maxDof = rl.coupleRotations ? 6 : 3;
+        for (int d = 0; d < maxDof; ++d) {
+            if (sn->support.fixed[d] || sn->support.hasPrescribed[d]) {
+                addError("ERR_MPC_SUPPORT_CONFLICT",
+                         "Nó escravo " + std::to_string(rl.slaveNode) +
+                         " de link rígido possui apoio Dirichlet ou deslocamento prescrito conflitante no DOF " +
+                         std::to_string(d) + ".",
+                         "BoundaryCondition", std::to_string(rl.slaveNode));
+                break;
+            }
+        }
+    }
+
+    for (const auto& rd : m_rigidDiaphragms) {
+        if (rd.normalAxis < 0 || rd.normalAxis > 2) {
+            addError("ERR_MPC_INVALID",
+                     "Diafragma rígido possui eixo normal inválido (" + std::to_string(rd.normalAxis) + ").",
+                     "MPC");
+            continue;
+        }
+        const Node* mn = findNode(rd.masterNode);
+        if (!mn) {
+            addError("ERR_MPC_MISSING_NODE",
+                     "Diafragma rígido referencia nó mestre inexistente (" + std::to_string(rd.masterNode) + ").",
+                     "MPC", std::to_string(rd.masterNode));
+            continue;
+        }
+        connectedNodes.insert(rd.masterNode);
+        const int ax1 = (rd.normalAxis + 1) % 3;
+        const int ax2 = (rd.normalAxis + 2) % 3;
+        const int rAx = 3 + rd.normalAxis;
+        for (NodeId sid : rd.slaveNodes) {
+            if (sid == rd.masterNode) {
+                addError("ERR_MPC_INVALID",
+                         "Diafragma rígido inclui o próprio nó mestre (" + std::to_string(sid) + ") como escravo.",
+                         "MPC", std::to_string(sid));
+                continue;
+            }
+            const Node* sn = findNode(sid);
+            if (!sn) {
+                addError("ERR_MPC_MISSING_NODE",
+                         "Diafragma rígido referencia nó escravo inexistente (" + std::to_string(sid) + ").",
+                         "MPC", std::to_string(sid));
+                continue;
+            }
+            connectedNodes.insert(sid);
+            for (int d : {ax1, ax2, rAx}) {
+                if (sn->support.fixed[d] || sn->support.hasPrescribed[d]) {
+                    addError("ERR_MPC_SUPPORT_CONFLICT",
+                             "Nó escravo " + std::to_string(sid) +
+                             " de diafragma rígido possui apoio Dirichlet ou deslocamento prescrito conflitante no DOF " +
+                             std::to_string(d) + ".",
+                             "BoundaryCondition", std::to_string(sid));
+                    break;
+                }
             }
         }
     }
@@ -547,22 +872,25 @@ ModelValidation StructuralModel::validate() const {
     }
 
     // Nós 1D isolados (tolerando nós que coincidem com nós ativos da malha 2D/3D acoplada)
-    for (const auto& n : m_nodes) {
-        if (connectedNodes.find(n.id) != connectedNodes.end()) continue;
-        bool coupledToActiveMesh = false;
-        if (hasMesh) {
-            for (const auto& mn : m_surfaceMesh.nodes) {
-                if (connectedMeshNodes.find(mn.id) == connectedMeshNodes.end()) continue;
-                const double dx = n.position.x - mn.position.x();
-                const double dy = n.position.y - mn.position.y();
-                const double dz = n.position.z - mn.position.z();
-                if (dx * dx + dy * dy + dz * dz <= 1e-10) {
-                    coupledToActiveMesh = true;
-                    break;
-                }
+    if (hasMesh) {
+        SpatialPointHash activeMeshPointHash(1e-4);
+        activeMeshPointHash.reserve(connectedMeshNodes.size());
+        for (std::size_t idx = 0; idx < m_surfaceMesh.nodes.size(); ++idx) {
+            const auto& mn = m_surfaceMesh.nodes[idx];
+            if (connectedMeshNodes.find(mn.id) == connectedMeshNodes.end()) continue;
+            activeMeshPointHash.insert(mn.position.x(), mn.position.y(), mn.position.z(), idx);
+        }
+        for (const auto& n : m_nodes) {
+            if (connectedNodes.find(n.id) != connectedNodes.end()) continue;
+            if (!activeMeshPointHash.findNearestWithinSq(n.position.x, n.position.y, n.position.z, 1e-10)) {
+                addError("ERR_ISOLATED_NODE",
+                         "Nó " + std::to_string(n.id) + " está isolado sem nenhuma barra ou elemento conectado.",
+                         "Topology", std::to_string(n.id));
             }
         }
-        if (!coupledToActiveMesh) {
+    } else {
+        for (const auto& n : m_nodes) {
+            if (connectedNodes.find(n.id) != connectedNodes.end()) continue;
             addError("ERR_ISOLATED_NODE",
                      "Nó " + std::to_string(n.id) + " está isolado sem nenhuma barra ou elemento conectado.",
                      "Topology", std::to_string(n.id));
@@ -581,10 +909,13 @@ ModelValidation StructuralModel::validate() const {
         std::unordered_map<NodeId, size_t> meshToV;
 
         auto quantKey = [](double x, double y, double z) -> std::string {
-            const long long qx = std::llround(x * 1e5);
-            const long long qy = std::llround(y * 1e5);
-            const long long qz = std::llround(z * 1e5);
-            return std::to_string(qx) + ":" + std::to_string(qy) + ":" + std::to_string(qz);
+            auto safeQuant = [](double v) -> long long {
+                if (!std::isfinite(v) || std::abs(v) > 1e9) return 0LL;
+                return std::llround(v * 1e5);
+            };
+            return std::to_string(safeQuant(x)) + ":" +
+                   std::to_string(safeQuant(y)) + ":" +
+                   std::to_string(safeQuant(z));
         };
         std::unordered_map<std::string, size_t> posToV;
 
@@ -819,9 +1150,8 @@ void StructuralModel::syncAutoCapturedViewportLoadCase() {
     }
 
     for (auto& lc : m_loadCases) {
-        if (lc.name == "G1 - Cargas do Modelo (Viewport)") {
-            captureInto(lc);
-        } else if (lc.name == "G1 - Peso Próprio (NBR 6118)" && hasAnyViewportLoad) {
+        if (lc.name == "G1 - Cargas do Modelo (Viewport)" ||
+            (lc.name == "G1 - Peso Próprio (NBR 6118)" && hasAnyViewportLoad)) {
             captureInto(lc);
         }
     }
@@ -842,6 +1172,8 @@ void StructuralModel::clear() {
     m_solverOptions = kernel::LinearSolverOptions{};
     m_preservedUnknownJson.clear();
     m_serializationWarnings.clear();
+    invalidateAllIndices();
+    ++m_geometryRevision;
     populateStandardCatalog();
     pushUndo();
 }
@@ -863,6 +1195,8 @@ void StructuralModel::clearAll() {
     m_solverOptions = kernel::LinearSolverOptions{};
     m_preservedUnknownJson.clear();
     m_serializationWarnings.clear();
+    invalidateAllIndices();
+    ++m_geometryRevision;
     clearUndoHistory();
 }
 
@@ -871,11 +1205,120 @@ void StructuralModel::clearResults() {
     for (auto& e : m_elements) e.clearResults();
     for (auto& mn : m_surfaceMesh.nodes) mn.clearResults();
     for (auto& me : m_surfaceMesh.elements) me.clearResults();
+    ++m_geometryRevision;
 }
 
 void StructuralModel::clearUndoHistory() {
-    m_history.clear();
+    std::vector<ModelState>().swap(m_history);
     m_undoIndex = 0;
+}
+
+namespace {
+
+std::size_t estimateStateContainersBytes(
+    const std::vector<Node>& nodes,
+    const std::vector<Element>& elements,
+    const std::vector<Material>& materials,
+    const std::vector<CrossSection>& sections,
+    const std::vector<kernel::LoadCase>& loadCases,
+    const std::vector<kernel::LoadCombination>& loadCombinations,
+    const std::vector<kernel::LoadHistory>& loadHistories,
+    const std::vector<RigidLinkSpec>& rigidLinks,
+    const std::vector<RigidDiaphragmSpec>& rigidDiaphragms,
+    const kernel::MeshContainer& surfaceMesh) noexcept {
+    std::size_t total = 0;
+    total += nodes.capacity() * sizeof(Node);
+    total += elements.capacity() * sizeof(Element);
+    total += materials.capacity() * sizeof(Material);
+    total += sections.capacity() * sizeof(CrossSection);
+    total += loadCases.capacity() * sizeof(kernel::LoadCase);
+    for (const auto& lc : loadCases) {
+        total += lc.nodalLoads.capacity() * sizeof(kernel::NodalLoadPatternEntry);
+        total += lc.elementLoads.capacity() * sizeof(kernel::ElementLoadPatternEntry);
+    }
+    total += loadCombinations.capacity() * sizeof(kernel::LoadCombination);
+    for (const auto& comb : loadCombinations) {
+        total += comb.factors.capacity() * sizeof(kernel::LoadCombinationFactor);
+    }
+    total += loadHistories.capacity() * sizeof(kernel::LoadHistory);
+    for (const auto& lh : loadHistories) {
+        total += lh.points.capacity() * sizeof(kernel::LoadHistoryPoint);
+    }
+    total += rigidLinks.capacity() * sizeof(RigidLinkSpec);
+    total += rigidDiaphragms.capacity() * sizeof(RigidDiaphragmSpec);
+    for (const auto& rd : rigidDiaphragms) {
+        total += rd.slaveNodes.capacity() * sizeof(NodeId);
+    }
+    total += surfaceMesh.nodes.capacity() * sizeof(kernel::MeshNode);
+    total += surfaceMesh.elements.capacity() * sizeof(kernel::MeshElement);
+    for (const auto& me : surfaceMesh.elements) {
+        total += me.nodeIds.capacity() * sizeof(kernel::NodeId);
+    }
+    return total;
+}
+
+} // namespace
+
+std::size_t StructuralModel::estimatedHistoryMemoryBytes() const noexcept {
+    std::size_t total = m_history.capacity() * sizeof(ModelState);
+    for (const ModelState& st : m_history) {
+        total += estimateStateContainersBytes(
+            st.nodes,
+            st.elements,
+            st.materials,
+            st.sections,
+            st.loadCases,
+            st.loadCombinations,
+            st.loadHistories,
+            st.rigidLinks,
+            st.rigidDiaphragms,
+            st.surfaceMesh);
+    }
+    return total;
+}
+
+std::size_t StructuralModel::estimatedMemoryBytes() const noexcept {
+    std::size_t total = sizeof(StructuralModel);
+    total += estimateStateContainersBytes(
+        m_nodes,
+        m_elements,
+        m_materials,
+        m_sections,
+        m_loadCases,
+        m_loadCombinations,
+        m_loadHistories,
+        m_rigidLinks,
+        m_rigidDiaphragms,
+        m_surfaceMesh);
+    total += m_preservedUnknownJson.capacity();
+    total += m_serializationWarnings.capacity() * sizeof(std::string);
+    total += estimatedHistoryMemoryBytes();
+    return total;
+}
+
+StructuralModel StructuralModel::cloneWithoutHistory() const {
+    StructuralModel out;
+    out.clearAll();
+    out.m_nodes = m_nodes;
+    out.m_elements = m_elements;
+    out.m_materials = m_materials;
+    out.m_sections = m_sections;
+    out.m_selectedNodes = m_selectedNodes;
+    out.m_selectedElements = m_selectedElements;
+    out.m_loadCases = m_loadCases;
+    out.m_loadCombinations = m_loadCombinations;
+    out.m_loadHistories = m_loadHistories;
+    out.m_rigidLinks = m_rigidLinks;
+    out.m_rigidDiaphragms = m_rigidDiaphragms;
+    out.m_solverOptions = m_solverOptions;
+    out.m_metadata = m_metadata;
+    out.m_surfaceMesh = m_surfaceMesh;
+    out.m_preservedUnknownJson = m_preservedUnknownJson;
+    out.m_serializationWarnings = m_serializationWarnings;
+    out.m_geometryRevision = m_geometryRevision;
+    out.m_batchUpdateDepth = 0;
+    out.invalidateAllIndices();
+    return out;
 }
 
 StructuralModel StructuralModel::createBuildingFrameExample() {
@@ -1140,9 +1583,31 @@ void StructuralModel::restoreState(const ModelState& state) {
     m_surfaceMesh = state.surfaceMesh;
     m_selectedNodes.clear();
     m_selectedElements.clear();
+    invalidateAllIndices();
+    ++m_geometryRevision;
+}
+
+void StructuralModel::beginBatchUpdate() {
+    ++m_batchUpdateDepth;
+}
+
+void StructuralModel::endBatchUpdate(bool pushUndoAtEnd) {
+    if (m_batchUpdateDepth > 0) {
+        --m_batchUpdateDepth;
+    }
+    if (m_batchUpdateDepth == 0) {
+        ++m_geometryRevision;
+        if (pushUndoAtEnd) {
+            pushUndo();
+        }
+    }
 }
 
 void StructuralModel::pushUndo() {
+    if (m_batchUpdateDepth > 0) {
+        return;
+    }
+    ++m_geometryRevision;
     if (m_undoIndex < m_history.size()) {
         m_history.erase(m_history.begin() + static_cast<ptrdiff_t>(m_undoIndex + 1), m_history.end());
     }

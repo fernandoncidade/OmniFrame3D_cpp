@@ -3,6 +3,7 @@
 
 #include <QAbstractItemView>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QColor>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -22,7 +23,6 @@
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
-#include <QThread>
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -75,7 +75,7 @@ std::size_t applyStepFramesToViewport(Viewport3D* viewport,
 }
 
 void initReadOnlyTable(QTableWidget* tbl, const QStringList& headers) {
-    tbl->setColumnCount(headers.size());
+    tbl->setColumnCount(static_cast<int>(headers.size()));
     tbl->setHorizontalHeaderLabels(headers);
     tbl->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -138,7 +138,8 @@ void retranslateComboItems(QComboBox* combo, const std::initializer_list<const c
 
 void retranslateTaggedWidgets(QWidget* root) {
     if (!root) return;
-    for (QObject* obj : root->findChildren<QObject*>()) {
+    const QList<QObject*> children = root->findChildren<QObject*>();
+    for (QObject* obj : children) {
         const QVariant keyVar = obj->property("omniTrKey");
         if (!keyVar.isValid()) continue;
         const QString translated = GerenciadorTraducao::trText(keyVar.toString());
@@ -198,20 +199,6 @@ void copySolvedNodalElementResults(const StructuralModel& src, StructuralModel& 
     }
 }
 
-template <typename ResultT, typename WorkFn, typename DoneFn>
-void runAsyncJob(QObject* contextObj, WorkFn&& workFn, DoneFn&& doneFn) {
-    auto payload = std::make_shared<ResultT>();
-    QThread* worker = QThread::create([payload, fn = std::forward<WorkFn>(workFn)]() mutable {
-        *payload = fn();
-    });
-    QObject::connect(worker, &QThread::finished, contextObj,
-                     [payload, worker, onDone = std::forward<DoneFn>(doneFn)]() mutable {
-                         onDone(*payload);
-                         worker->deleteLater();
-                     });
-    worker->start();
-}
-
 } // namespace
 
 // ==========================================
@@ -225,7 +212,9 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
     std::function<void(const SolverResult&)> onStaticOrNonlinearCompleted,
     std::function<void(const QString&)> onStatusMsg,
     std::function<void()> onModelMutated,
-    std::function<void()> onMetadataUpdated)
+    std::function<void()> onMetadataUpdated,
+    std::function<std::uint64_t()> modelRevisionProvider,
+    ui::AsyncAnalysisExecutor* executor)
     : QDialog(parent),
       m_model(model),
       m_viewport(viewport),
@@ -233,7 +222,12 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
       m_onCompleted(std::move(onStaticOrNonlinearCompleted)),
       m_onStatus(std::move(onStatusMsg)),
       m_onModelMutated(std::move(onModelMutated)),
-      m_onMetadataUpdated(std::move(onMetadataUpdated)) {
+      m_onMetadataUpdated(std::move(onMetadataUpdated)),
+      m_modelRevisionProvider(std::move(modelRevisionProvider)),
+      m_executor(executor) {
+    if (!m_executor) {
+        m_executor = new ui::AsyncAnalysisExecutor([this]() { return currentModelRevision(); }, this);
+    }
     setModal(false);
     setWindowModality(Qt::NonModal);
     resize(840, 620);
@@ -622,7 +616,143 @@ AnalysisSuiteDialog::AnalysisSuiteDialog(
     bottomRow->addWidget(m_btnClose);
     root->addLayout(bottomRow);
 
+    if (m_executor) {
+        m_executorBusyConn = connect(
+            m_executor,
+            &ui::AsyncAnalysisExecutor::busyChanged,
+            this,
+            &AnalysisSuiteDialog::handleExternalExecutorBusyChanged);
+        if (m_executor->isBusy()) {
+            handleExternalExecutorBusyChanged(true);
+        }
+    }
+
     retranslateUi();
+}
+
+AnalysisSuiteDialog::~AnalysisSuiteDialog() {
+    if (m_executorBusyConn) {
+        disconnect(m_executorBusyConn);
+        m_executorBusyConn = QMetaObject::Connection{};
+    }
+    if (m_executor && m_activeSuiteJobId != 0) {
+        m_executor->abandonAndWaitForJob(m_activeSuiteJobId, 5000);
+        m_activeSuiteJobId = 0;
+    }
+}
+
+bool AnalysisSuiteDialog::isBusy() const {
+    return m_busy || (m_executor && m_executor->isBusy());
+}
+
+void AnalysisSuiteDialog::closeEvent(QCloseEvent* event) {
+    if (m_executor && m_activeSuiteJobId != 0) {
+        m_executor->requestCancelForJob(m_activeSuiteJobId);
+    }
+    QDialog::closeEvent(event);
+}
+
+void AnalysisSuiteDialog::requestCancelAsync() {
+    if (m_executor && m_activeSuiteJobId != 0) {
+        m_executor->abandonAndWaitForJob(m_activeSuiteJobId, 5000);
+        m_activeSuiteJobId = 0;
+    }
+    if (m_busy) {
+        setBusyState(false);
+    }
+}
+
+bool AnalysisSuiteDialog::prepareSuiteJob(const QString& busyText) {
+    if (!m_model) {
+        return false;
+    }
+    if (!m_executor || isBusy()) {
+        if (m_statusLabel && !m_busy) {
+            m_statusLabel->setText(GerenciadorTraducao::trText(
+                "Outro cálculo ou análise já está em andamento; aguarde a conclusão."));
+        }
+        return false;
+    }
+    setBusyState(true, busyText);
+    return true;
+}
+
+void AnalysisSuiteDialog::finishSuiteJobStatus(bool ok, const QString& statusText) {
+    setBusyState(false, statusText);
+    emit asyncJobFinished(ok);
+}
+
+void AnalysisSuiteDialog::discardStaleSuiteResult() {
+    finishSuiteJobStatus(false, GerenciadorTraducao::trText("Modelo modificado durante a análise; resultado descartado."));
+}
+
+void AnalysisSuiteDialog::handleExternalExecutorBusyChanged(bool busy) {
+    if (busy) {
+        if (m_activeSuiteJobId == 0) {
+            setBusyState(true, GerenciadorTraducao::trText("Cálculo em andamento na janela principal; aguarde..."));
+        }
+        return;
+    }
+    if (m_activeSuiteJobId == 0 && m_busy) {
+        setBusyState(false, GerenciadorTraducao::trText("Pronto."));
+    }
+}
+
+QString AnalysisSuiteDialog::currentStatusText() const {
+    return m_statusLabel ? m_statusLabel->text() : QString();
+}
+
+std::uint64_t AnalysisSuiteDialog::currentModelRevision() const noexcept {
+    const std::uint64_t extRev = m_modelRevisionProvider ? m_modelRevisionProvider() : 0;
+    return extRev + m_localRevision;
+}
+
+void AnalysisSuiteDialog::runCustomAsyncTaskForTest(std::function<void()> taskFn) {
+    if (!m_executor || isBusy()) {
+        if (m_statusLabel && !m_busy) {
+            m_statusLabel->setText(GerenciadorTraducao::trText(
+                "Outro cálculo ou análise já está em andamento; aguarde a conclusão."));
+        }
+        return;
+    }
+    setBusyState(true, GerenciadorTraducao::trText("Executando tarefa assíncrona..."));
+    QPointer<AnalysisSuiteDialog> self(this);
+    if (!m_executor->submit<int>(
+            this,
+            [fn = std::move(taskFn)](std::stop_token) -> int {
+                if (fn) fn();
+                return 0;
+            },
+            [self](int, std::uint64_t, bool) {
+                if (!self) return;
+                self->m_activeSuiteJobId = 0;
+                self->finishSuiteJobStatus(true, GerenciadorTraducao::trText("Pronto."));
+            },
+            [self](const QString& errMsg) {
+                if (!self) return;
+                self->m_activeSuiteJobId = 0;
+                self->finishSuiteJobStatus(false, GerenciadorTraducao::trText("Exceção capturada na análise: %1").arg(errMsg));
+            },
+            &m_activeSuiteJobId)) {
+        setBusyState(false);
+    }
+}
+
+void AnalysisSuiteDialog::runStaleRevisionCheckTaskForTest(std::function<void()> taskFn) {
+    submitSuiteTask<int>(
+        GerenciadorTraducao::trText("Executando tarefa assíncrona com validação de revisão..."),
+        [fn = std::move(taskFn)](const std::shared_ptr<StructuralModel>&, std::stop_token) -> int {
+            if (fn) {
+                fn();
+            }
+            return 1;
+        },
+        [this](int) {
+            finishSuiteJobStatus(true, GerenciadorTraducao::trText("Pronto."));
+        },
+        [this](const QString& errMsg) {
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Exceção capturada na análise: %1").arg(errMsg));
+        });
 }
 
 void AnalysisSuiteDialog::changeEvent(QEvent* event) {
@@ -698,7 +828,7 @@ void AnalysisSuiteDialog::retranslateUi() {
     m_btnRunNl->setText(GerenciadorTraducao::trText("Resolver Trajetória Não Linear"));
     m_btnPlayNl->setText(GerenciadorTraducao::trText("Animar Passos no Viewport 3D"));
     m_btnClose->setText(GerenciadorTraducao::trText("Fechar"));
-    if (!m_busy) {
+    if (!isBusy()) {
         m_statusLabel->setText(GerenciadorTraducao::trText("Pronto."));
     }
 }
@@ -722,6 +852,10 @@ void AnalysisSuiteDialog::refreshSeismicLoadCases() {
 }
 
 void AnalysisSuiteDialog::refreshContext() {
+    ++m_localRevision;
+    if (m_executor && m_activeSuiteJobId != 0) {
+        m_executor->requestCancelForJob(m_activeSuiteJobId);
+    }
     m_hasCombos = false;
     m_combosResults.clear();
     m_hasModal = false;
@@ -743,7 +877,7 @@ void AnalysisSuiteDialog::refreshContext() {
     if (m_nlTable) m_nlTable->setRowCount(0);
     if (m_specResultLabel) m_specResultLabel->setText(QStringLiteral("-"));
     if (m_seisResultLabel) m_seisResultLabel->setText(QStringLiteral("-"));
-    if (!m_busy && m_statusLabel) {
+    if (!isBusy() && m_statusLabel) {
         m_statusLabel->setText(GerenciadorTraducao::trText("Modelo atualizado. Execute as análises desejadas para o estado atual."));
     }
 }
@@ -775,13 +909,10 @@ void AnalysisSuiteDialog::setBusyState(bool busy, const QString& statusText) {
 }
 
 void AnalysisSuiteDialog::onRunCombosAsync() {
-    if (!m_model || m_busy) return;
+    if (!m_model) return;
     kernel::LinearSolverOptions opts = m_model->solverOptions();
     opts.type = static_cast<kernel::LinearSolverType>(m_linearSolverCombo->currentData().toInt());
     m_model->solverOptions().type = opts.type;
-
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Resolvendo casos de carga e combinações em segundo plano..."));
 
     struct ComboPack {
         bool ok = false;
@@ -790,54 +921,60 @@ void AnalysisSuiteDialog::onRunCombosAsync() {
         std::vector<kernel::CaseDisplacementResult> combos;
         kernel::EnvelopeExtremes env;
         SolverResult baseStatic;
-        StructuralModel solvedModel;
+        std::shared_ptr<StructuralModel> solvedModel;
     };
 
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<ComboPack>(
-        this,
-        [snapshot = std::move(snapshot), opts]() mutable -> ComboPack {
+    submitSuiteTask<ComboPack>(
+        GerenciadorTraducao::trText("Resolvendo casos de carga e combinações em segundo plano..."),
+        [opts](const std::shared_ptr<StructuralModel>& snapshot, std::stop_token stopToken) -> ComboPack {
             ComboPack pack;
-            pack.baseStatic = FemSolver3D::solveWithOptions(snapshot, opts);
+            pack.baseStatic = FemSolver3D::solveWithOptions(*snapshot, opts, stopToken);
             pack.ok = FemSolver3D::solveLoadCasesAndCombinations(
-                snapshot, opts, pack.cases, pack.combos, pack.env, &pack.err);
+                *snapshot, opts, pack.cases, pack.combos, pack.env, &pack.err, stopToken);
             if (!pack.ok && pack.err.empty()) {
                 pack.err = pack.baseStatic.errorMessage;
             }
-            pack.solvedModel = std::move(snapshot);
+            pack.solvedModel = snapshot;
             return pack;
         },
-        [self](const ComboPack& pack) {
-            if (!self) return;
-            self->m_combosTable->setRowCount(0);
-            self->m_combosResults.clear();
+        [this](const ComboPack& pack) {
+            m_combosTable->setRowCount(0);
+            m_combosResults.clear();
             auto appendRows = [&](const QString& kind, const std::vector<kernel::CaseDisplacementResult>& vec) {
                 for (const auto& r : vec) {
-                    const int row = self->m_combosTable->rowCount();
-                    self->m_combosTable->insertRow(row);
-                    self->m_combosTable->setItem(row, 0, makeItem(QString::number(r.caseOrComboId)));
-                    self->m_combosTable->setItem(row, 1, makeItem(kind));
-                    self->m_combosTable->setItem(row, 2, makeItem(QString::fromStdString(r.name), Qt::AlignLeft | Qt::AlignVCenter));
-                    self->m_combosTable->setItem(row, 3, makeItem(QString::number(maxTranslationalDisp(pack.solvedModel, r.U_full) * 1000.0, 'f', 3)));
-                    self->m_combosTable->setItem(row, 4, makeItem(QStringLiteral("OK")));
-                    self->m_combosResults.push_back(r);
+                    const int row = m_combosTable->rowCount();
+                    m_combosTable->insertRow(row);
+                    m_combosTable->setItem(row, 0, makeItem(QString::number(r.caseOrComboId)));
+                    m_combosTable->setItem(row, 1, makeItem(kind));
+                    m_combosTable->setItem(row, 2, makeItem(QString::fromStdString(r.name), Qt::AlignLeft | Qt::AlignVCenter));
+                    const double dispMm = pack.solvedModel
+                        ? maxTranslationalDisp(*pack.solvedModel, r.U_full) * 1000.0
+                        : 0.0;
+                    m_combosTable->setItem(row, 3, makeItem(QString::number(dispMm, 'f', 3)));
+                    m_combosTable->setItem(row, 4, makeItem(QStringLiteral("OK")));
+                    m_combosResults.push_back(r);
                 }
             };
             appendRows(GerenciadorTraducao::trText("Caso"), pack.cases);
             appendRows(GerenciadorTraducao::trText("Combinação"), pack.combos);
-            self->m_hasCombos = pack.ok && !self->m_combosResults.empty();
-            if (!self->m_combosResults.empty()) {
-                self->m_combosTable->selectRow(0);
+            m_hasCombos = pack.ok && !m_combosResults.empty();
+            if (!m_combosResults.empty()) {
+                m_combosTable->selectRow(0);
             }
 
-            if (pack.baseStatic.success && self->m_model) {
-                copySolvedNodalElementResults(pack.solvedModel, *self->m_model);
-                if (self->m_onCompleted) self->m_onCompleted(pack.baseStatic);
+            if (pack.baseStatic.success && pack.solvedModel && m_model) {
+                copySolvedNodalElementResults(*pack.solvedModel, *m_model);
+                if (m_onCompleted) m_onCompleted(pack.baseStatic);
             }
-            self->setBusyState(false, pack.ok
-                ? GerenciadorTraducao::trText("Combinações e estática resolvidas (%1 casos, %2 combinações).")
-                      .arg(pack.cases.size()).arg(pack.combos.size())
-                : GerenciadorTraducao::trText("Falha na análise: %1").arg(QString::fromStdString(pack.err)));
+            finishSuiteJobStatus(
+                pack.ok,
+                pack.ok
+                    ? GerenciadorTraducao::trText("Combinações e estática resolvidas (%1 casos, %2 combinações).")
+                          .arg(pack.cases.size()).arg(pack.combos.size())
+                    : GerenciadorTraducao::trText("Falha na análise: %1").arg(QString::fromStdString(pack.err)));
+        },
+        [this](const QString& errMsg) {
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Falha na análise: %1").arg(errMsg));
         });
 }
 
@@ -855,47 +992,46 @@ void AnalysisSuiteDialog::onPlotSelectedCombo() {
     m_viewport->setPostMeshAnimationField(field.meshNodes);
     m_viewport->setAnimationPlaying(false);
     m_statusLabel->setText(GerenciadorTraducao::trText("Plotado no Viewport 3D: %1 (|u|máx = %2 mm)")
-                               .arg(label)
-                               .arg(field.maxTranslationalNorm * 1000.0, 0, 'f', 3));
+                               .arg(label, QString::number(field.maxTranslationalNorm * 1000.0, 'f', 3)));
 }
 
 void AnalysisSuiteDialog::onRunModalAsync() {
-    if (!m_model || m_busy) return;
     kernel::ModalOptions opts;
     opts.numModes = m_modalModesSpin->value();
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Calculando modos naturais de vibração..."));
 
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<kernel::ModalResult>(
-        this,
-        [snapshot = std::move(snapshot), opts]() -> kernel::ModalResult {
-            return FemSolver3D::solveModal(snapshot, opts);
+    submitSuiteTask<kernel::ModalResult>(
+        GerenciadorTraducao::trText("Calculando modos naturais de vibração..."),
+        [opts](const std::shared_ptr<StructuralModel>& snapshot, std::stop_token stopToken) -> kernel::ModalResult {
+            return FemSolver3D::solveModal(*snapshot, opts, stopToken);
         },
-        [self](const kernel::ModalResult& res) {
-            if (!self) return;
-            self->m_modalRes = res;
-            self->m_hasModal = res.success;
-            self->m_modalTable->setRowCount(0);
+        [this](const kernel::ModalResult& res) {
+            m_modalRes = res;
+            m_hasModal = res.success;
+            m_modalTable->setRowCount(0);
             for (const auto& m : res.modes) {
-                const int row = self->m_modalTable->rowCount();
-                self->m_modalTable->insertRow(row);
-                self->m_modalTable->setItem(row, 0, makeItem(QString::number(m.modeIndex)));
-                self->m_modalTable->setItem(row, 1, makeItem(QString::number(m.frequencyHz, 'f', 3)));
-                self->m_modalTable->setItem(row, 2, makeItem(QString::number(m.periodSec, 'f', 4)));
-                self->m_modalTable->setItem(row, 3, makeItem(QString::number(m.omega, 'f', 2)));
-                self->m_modalTable->setItem(row, 4, makeItem(
+                const int row = m_modalTable->rowCount();
+                m_modalTable->insertRow(row);
+                m_modalTable->setItem(row, 0, makeItem(QString::number(m.modeIndex)));
+                m_modalTable->setItem(row, 1, makeItem(QString::number(m.frequencyHz, 'f', 3)));
+                m_modalTable->setItem(row, 2, makeItem(QString::number(m.periodSec, 'f', 4)));
+                m_modalTable->setItem(row, 3, makeItem(QString::number(m.omega, 'f', 2)));
+                m_modalTable->setItem(row, 4, makeItem(
                     QStringLiteral("%1% / %2% / %3%")
                         .arg(m.effectiveMassRatio[0] * 100.0, 0, 'f', 1)
                         .arg(m.effectiveMassRatio[1] * 100.0, 0, 'f', 1)
                         .arg(m.effectiveMassRatio[2] * 100.0, 0, 'f', 1)));
             }
             if (!res.modes.empty()) {
-                self->m_modalTable->selectRow(0);
+                m_modalTable->selectRow(0);
             }
-            self->setBusyState(false, res.success
-                ? GerenciadorTraducao::trText("Análise modal concluída (%1 modos).").arg(res.modes.size())
-                : GerenciadorTraducao::trText("Erro modal: %1").arg(QString::fromStdString(res.errorMessage)));
+            finishSuiteJobStatus(
+                res.success,
+                res.success
+                    ? GerenciadorTraducao::trText("Análise modal concluída (%1 modos).").arg(res.modes.size())
+                    : GerenciadorTraducao::trText("Erro modal: %1").arg(QString::fromStdString(res.errorMessage)));
+        },
+        [this](const QString& errMsg) {
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Erro modal: %1").arg(errMsg));
         });
 }
 
@@ -916,41 +1052,41 @@ void AnalysisSuiteDialog::onPlotSelectedMode() {
 }
 
 void AnalysisSuiteDialog::onRunBucklingAsync() {
-    if (!m_model || m_busy) return;
     kernel::BucklingOptions opts;
     opts.numModes = m_bucklingModesSpin->value();
     opts.includeNegativeFactors = m_bucklingNegCheck->isChecked();
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Calculando fatores críticos de flambagem linear..."));
 
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<kernel::BucklingResult>(
-        this,
-        [snapshot = std::move(snapshot), opts]() mutable -> kernel::BucklingResult {
-            return FemSolver3D::solveBuckling(snapshot, opts);
+    submitSuiteTask<kernel::BucklingResult>(
+        GerenciadorTraducao::trText("Calculando fatores críticos de flambagem linear..."),
+        [opts](const std::shared_ptr<StructuralModel>& snapshot, std::stop_token stopToken) -> kernel::BucklingResult {
+            return FemSolver3D::solveBuckling(*snapshot, opts, stopToken);
         },
-        [self](const kernel::BucklingResult& res) {
-            if (!self) return;
-            self->m_bucklingRes = res;
-            self->m_hasBuckling = res.success;
-            self->m_bucklingTable->setRowCount(0);
+        [this](const kernel::BucklingResult& res) {
+            m_bucklingRes = res;
+            m_hasBuckling = res.success;
+            m_bucklingTable->setRowCount(0);
             for (std::size_t i = 0; i < res.loadFactors.size(); ++i) {
-                const int row = self->m_bucklingTable->rowCount();
+                const int row = m_bucklingTable->rowCount();
                 const double lf = res.loadFactors[i];
-                self->m_bucklingTable->insertRow(row);
-                self->m_bucklingTable->setItem(row, 0, makeItem(QString::number(i + 1)));
-                self->m_bucklingTable->setItem(row, 1, makeItem(QString::number(lf, 'f', 4)));
+                m_bucklingTable->insertRow(row);
+                m_bucklingTable->setItem(row, 0, makeItem(QString::number(i + 1)));
+                m_bucklingTable->setItem(row, 1, makeItem(QString::number(lf, 'f', 4)));
                 const bool crit = (lf > 0.0 && lf < 1.0);
-                self->m_bucklingTable->setItem(row, 2, makeItem(
+                m_bucklingTable->setItem(row, 2, makeItem(
                     crit ? GerenciadorTraducao::trText("CRÍTICO (λ < 1)")
                          : GerenciadorTraducao::trText("Estável para carga unitária")));
             }
             if (!res.loadFactors.empty()) {
-                self->m_bucklingTable->selectRow(0);
+                m_bucklingTable->selectRow(0);
             }
-            self->setBusyState(false, res.success
-                ? GerenciadorTraducao::trText("Flambagem concluída (%1 modos).").arg(res.loadFactors.size())
-                : GerenciadorTraducao::trText("Erro flambagem: %1").arg(QString::fromStdString(res.errorMessage)));
+            finishSuiteJobStatus(
+                res.success,
+                res.success
+                    ? GerenciadorTraducao::trText("Flambagem concluída (%1 modos).").arg(res.loadFactors.size())
+                    : GerenciadorTraducao::trText("Erro flambagem: %1").arg(QString::fromStdString(res.errorMessage)));
+        },
+        [this](const QString& errMsg) {
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Erro flambagem: %1").arg(errMsg));
         });
 }
 
@@ -998,7 +1134,6 @@ void AnalysisSuiteDialog::onApplyBucklingImperfection() {
 }
 
 void AnalysisSuiteDialog::onRunHarmonicAsync() {
-    if (!m_model || m_busy) return;
     kernel::HarmonicOptions opts;
     opts.structuralLossEta = m_harmEtaSpin->value();
     const double f0 = m_harmFMinSpin->value();
@@ -1008,44 +1143,49 @@ void AnalysisSuiteDialog::onRunHarmonicAsync() {
         const double t = (nSteps > 1) ? static_cast<double>(i) / (nSteps - 1) : 0.0;
         opts.frequenciesHz.push_back(f0 + t * (f1 - f0));
     }
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Executando varredura em frequência harmônica (FRF)..."));
 
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<kernel::HarmonicResult>(
-        this,
-        [snapshot = std::move(snapshot), opts]() -> kernel::HarmonicResult {
-            return FemSolver3D::solveHarmonic(snapshot, opts);
+    submitSuiteTask<kernel::HarmonicResult>(
+        GerenciadorTraducao::trText("Executando varredura em frequência harmônica (FRF)..."),
+        [opts](const std::shared_ptr<StructuralModel>& snapshot, std::stop_token stopToken) -> kernel::HarmonicResult {
+            return FemSolver3D::solveHarmonic(*snapshot, opts, stopToken);
         },
-        [self](const kernel::HarmonicResult& res) {
-            if (!self || !self->m_model) return;
-            self->m_harmonicRes = res;
-            self->m_hasHarmonic = res.success;
-            self->m_harmonicTable->setRowCount(0);
+        [this](const kernel::HarmonicResult& res) {
+            if (!m_model) {
+                finishSuiteJobStatus(false, GerenciadorTraducao::trText("Modelo indisponível."));
+                return;
+            }
+            m_harmonicRes = res;
+            m_hasHarmonic = res.success;
+            m_harmonicTable->setRowCount(0);
             int peakRow = 0;
             double peakDisp = -1.0;
             for (std::size_t i = 0; i < res.sweep.size(); ++i) {
                 const auto& st = res.sweep[i];
-                const double uMax = maxTranslationalDisp(*self->m_model, st.amplitudeFull) * 1000.0;
+                const double uMax = maxTranslationalDisp(*m_model, st.amplitudeFull) * 1000.0;
                 if (uMax > peakDisp) {
                     peakDisp = uMax;
                     peakRow = static_cast<int>(i);
                 }
-                const int row = self->m_harmonicTable->rowCount();
-                self->m_harmonicTable->insertRow(row);
-                self->m_harmonicTable->setItem(row, 0, makeItem(QString::number(i + 1)));
-                self->m_harmonicTable->setItem(row, 1, makeItem(QString::number(st.frequencyHz, 'f', 2)));
-                self->m_harmonicTable->setItem(row, 2, makeItem(QString::number(st.omega, 'f', 2)));
-                self->m_harmonicTable->setItem(row, 3, makeItem(QString::number(uMax, 'f', 4)));
+                const int row = m_harmonicTable->rowCount();
+                m_harmonicTable->insertRow(row);
+                m_harmonicTable->setItem(row, 0, makeItem(QString::number(i + 1)));
+                m_harmonicTable->setItem(row, 1, makeItem(QString::number(st.frequencyHz, 'f', 2)));
+                m_harmonicTable->setItem(row, 2, makeItem(QString::number(st.omega, 'f', 2)));
+                m_harmonicTable->setItem(row, 3, makeItem(QString::number(uMax, 'f', 4)));
             }
             if (!res.sweep.empty()) {
-                self->m_harmonicTable->selectRow(peakRow);
+                m_harmonicTable->selectRow(peakRow);
             }
-            self->setBusyState(false, res.success
-                ? GerenciadorTraducao::trText("Harmônica concluída (pico em f = %1 Hz, %2 mm).")
-                      .arg(res.sweep.empty() ? 0.0 : res.sweep[static_cast<std::size_t>(peakRow)].frequencyHz, 0, 'f', 2)
-                      .arg(std::max(0.0, peakDisp), 0, 'f', 3)
-                : GerenciadorTraducao::trText("Erro harmônica: %1").arg(QString::fromStdString(res.errorMessage)));
+            finishSuiteJobStatus(
+                res.success,
+                res.success
+                    ? GerenciadorTraducao::trText("Harmônica concluída (pico em f = %1 Hz, %2 mm).")
+                          .arg(res.sweep.empty() ? 0.0 : res.sweep[static_cast<std::size_t>(peakRow)].frequencyHz, 0, 'f', 2)
+                          .arg(std::max(0.0, peakDisp), 0, 'f', 3)
+                    : GerenciadorTraducao::trText("Erro harmônica: %1").arg(QString::fromStdString(res.errorMessage)));
+        },
+        [this](const QString& errMsg) {
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Erro harmônica: %1").arg(errMsg));
         });
 }
 
@@ -1064,7 +1204,6 @@ void AnalysisSuiteDialog::onPlotSelectedHarmonicStep() {
 }
 
 void AnalysisSuiteDialog::onRunSpectrumAsync() {
-    if (!m_model || m_busy) return;
     kernel::ModalOptions mOpts;
     mOpts.numModes = m_modalModesSpin->value();
     kernel::ResponseSpectrumOptions sOpts;
@@ -1072,32 +1211,39 @@ void AnalysisSuiteDialog::onRunSpectrumAsync() {
     sOpts.modalDampingZeta = m_specZetaSpin->value();
     sOpts.directionScale = {m_specDirX->value(), m_specDirY->value(), m_specDirZ->value()};
     sOpts.spectrumCurve = kernel::DynamicSolver::buildNbr15421SpectrumCurve(
-        m_specAgSpin->value(), m_specCaSpin->value(), m_specCvSpin->value(), 4.0, 100);
+        m_specAgSpin->value(), m_specCaSpin->value(), m_specCvSpin->value(), 4.0, 100, sOpts.modalDampingZeta);
 
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Calculando resposta sísmica espectral..."));
-
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<kernel::ResponseSpectrumResult>(
-        this,
-        [snapshot = std::move(snapshot), sOpts, mOpts]() -> kernel::ResponseSpectrumResult {
-            return FemSolver3D::solveResponseSpectrum(snapshot, sOpts, mOpts);
+    submitSuiteTask<kernel::ResponseSpectrumResult>(
+        GerenciadorTraducao::trText("Calculando resposta sísmica espectral..."),
+        [sOpts, mOpts](const std::shared_ptr<StructuralModel>& snapshot, std::stop_token stopToken) -> kernel::ResponseSpectrumResult {
+            return FemSolver3D::solveResponseSpectrum(*snapshot, sOpts, mOpts, stopToken);
         },
-        [self](const kernel::ResponseSpectrumResult& res) {
-            if (!self || !self->m_model) return;
-            self->m_specRes = res;
-            self->m_hasSpec = res.success;
+        [this](const kernel::ResponseSpectrumResult& res) {
+            if (!m_model) {
+                finishSuiteJobStatus(false, GerenciadorTraducao::trText("Modelo indisponível."));
+                return;
+            }
+            m_specRes = res;
+            m_hasSpec = res.success;
             if (res.success) {
-                const double uPeakMm = maxTranslationalDisp(*self->m_model, res.combinedDisplacementFull) * 1000.0;
-                self->m_specResultLabel->setText(
+                const double uPeakMm = maxTranslationalDisp(*m_model, res.combinedDisplacementFull) * 1000.0;
+                m_specResultLabel->setText(
                     GerenciadorTraducao::trText("Deslocamento espectral máximo combinado: %1 mm").arg(uPeakMm, 0, 'f', 3));
             } else {
-                self->m_specResultLabel->setText(
+                m_specResultLabel->setText(
                     GerenciadorTraducao::trText("Erro espectro: %1").arg(QString::fromStdString(res.errorMessage)));
             }
-            self->setBusyState(false, res.success
-                ? GerenciadorTraducao::trText("Espectro de resposta concluído.")
-                : GerenciadorTraducao::trText("Falha no espectro de resposta."));
+            finishSuiteJobStatus(
+                res.success,
+                res.success
+                    ? GerenciadorTraducao::trText("Espectro de resposta concluído.")
+                    : GerenciadorTraducao::trText("Falha no espectro de resposta."));
+        },
+        [this](const QString& errMsg) {
+            if (m_specResultLabel) {
+                m_specResultLabel->setText(GerenciadorTraducao::trText("Erro espectro: %1").arg(errMsg));
+            }
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Falha no espectro de resposta."));
         });
 }
 
@@ -1118,7 +1264,6 @@ void AnalysisSuiteDialog::onPlotSpectrumResult() {
 }
 
 void AnalysisSuiteDialog::onRunSeismicAsync() {
-    if (!m_model || m_busy) return;
     kernel::TransientOptions opts;
     opts.scheme = static_cast<kernel::TransientScheme>(m_seisSchemeCombo->currentData().toInt());
     opts.dt = m_seisDtSpin->value();
@@ -1129,20 +1274,18 @@ void AnalysisSuiteDialog::onRunSeismicAsync() {
     const double omega = 2.0 * std::numbers::pi * m_seisFreqSpin->value();
     const int dir = m_seisDirCombo->currentIndex();
 
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, isForceHistory
-        ? GerenciadorTraducao::trText("Integrando histórico temporal de forças F(t) (Newmark / HHT)...")
-        : GerenciadorTraducao::trText("Integrando histórico temporal sísmico (Newmark / HHT)..."));
-
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<kernel::TransientResult>(
-        this,
-        [snapshot = std::move(snapshot), opts, isForceHistory, baseCaseId, amp, omega, dir]() -> kernel::TransientResult {
+    submitSuiteTask<kernel::TransientResult>(
+        isForceHistory
+            ? GerenciadorTraducao::trText("Integrando histórico temporal de forças F(t) (Newmark / HHT)...")
+            : GerenciadorTraducao::trText("Integrando histórico temporal sísmico (Newmark / HHT)..."),
+        [opts, isForceHistory, baseCaseId, amp, omega, dir](
+            const std::shared_ptr<StructuralModel>& snapshot,
+            std::stop_token stopToken) -> kernel::TransientResult {
             if (isForceHistory) {
                 auto scaleFn = [amp, omega](double t, int /*step*/) -> double {
                     return amp * std::sin(omega * t);
                 };
-                return FemSolver3D::solveTransient(snapshot, scaleFn, baseCaseId, opts);
+                return FemSolver3D::solveTransient(*snapshot, scaleFn, baseCaseId, opts, stopToken);
             }
             auto accelFn = [amp, omega, dir](double t, int /*step*/) -> kernel::Vec3 {
                 const double env = std::exp(-0.4 * t);
@@ -1151,24 +1294,35 @@ void AnalysisSuiteDialog::onRunSeismicAsync() {
                 v[std::clamp(dir, 0, 2)] = a;
                 return v;
             };
-            return FemSolver3D::solveSeismic(snapshot, accelFn, opts);
+            return FemSolver3D::solveSeismic(*snapshot, accelFn, opts, stopToken);
         },
-        [self](const kernel::TransientResult& res) {
-            if (!self || !self->m_model) return;
-            self->m_seisRes = res;
-            self->m_hasSeis = res.success;
+        [this](const kernel::TransientResult& res) {
+            if (!m_model) {
+                finishSuiteJobStatus(false, GerenciadorTraducao::trText("Modelo indisponível."));
+                return;
+            }
+            m_seisRes = res;
+            m_hasSeis = res.success;
             if (res.success) {
-                const double peakMm = maxTranslationalDisp(*self->m_model, res.peakDisplacementFull) * 1000.0;
-                self->m_seisResultLabel->setText(
+                const double peakMm = maxTranslationalDisp(*m_model, res.peakDisplacementFull) * 1000.0;
+                m_seisResultLabel->setText(
                     GerenciadorTraducao::trText("Passos integrados: %1 | Pico de deslocamento: %2 mm")
                         .arg(res.history.size()).arg(peakMm, 0, 'f', 3));
             } else {
-                self->m_seisResultLabel->setText(
+                m_seisResultLabel->setText(
                     GerenciadorTraducao::trText("Erro transiente: %1").arg(QString::fromStdString(res.errorMessage)));
             }
-            self->setBusyState(false, res.success
-                ? GerenciadorTraducao::trText("Integração temporal concluída.")
-                : GerenciadorTraducao::trText("Falha na integração temporal."));
+            finishSuiteJobStatus(
+                res.success,
+                res.success
+                    ? GerenciadorTraducao::trText("Integração temporal concluída.")
+                    : GerenciadorTraducao::trText("Falha na integração temporal."));
+        },
+        [this](const QString& errMsg) {
+            if (m_seisResultLabel) {
+                m_seisResultLabel->setText(GerenciadorTraducao::trText("Erro transiente: %1").arg(errMsg));
+            }
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Falha na integração temporal."));
         });
 }
 
@@ -1190,7 +1344,6 @@ void AnalysisSuiteDialog::onPlaySeismicHistory() {
 }
 
 void AnalysisSuiteDialog::onRunNonlinearAsync() {
-    if (!m_model || m_busy) return;
     kernel::NonlinearOptions opts;
     opts.method = static_cast<kernel::NonlinearMethod>(m_nlMethodCombo->currentData().toInt());
     opts.kinematics = static_cast<kernel::NonlinearKinematics>(m_nlKinCombo->currentData().toInt());
@@ -1199,52 +1352,53 @@ void AnalysisSuiteDialog::onRunNonlinearAsync() {
     opts.fullNewtonTangent = m_nlFullNewtonCheck->isChecked();
     opts.enableLineSearch = m_nlLineSearchCheck->isChecked();
 
-    StructuralModel snapshot = *m_model;
-    setBusyState(true, GerenciadorTraducao::trText("Executando solver não linear incremental em segundo plano..."));
-
     struct NlPack {
         kernel::NonlinearResult nlRes;
-        StructuralModel solvedModel;
+        std::shared_ptr<StructuralModel> solvedModel;
     };
 
-    QPointer<AnalysisSuiteDialog> self(this);
-    runAsyncJob<NlPack>(
-        this,
-        [snapshot = std::move(snapshot), opts]() mutable -> NlPack {
+    submitSuiteTask<NlPack>(
+        GerenciadorTraducao::trText("Executando solver não linear incremental em segundo plano..."),
+        [opts](const std::shared_ptr<StructuralModel>& snapshot, std::stop_token stopToken) -> NlPack {
             NlPack p;
-            p.nlRes = FemSolver3D::solveNonlinear(snapshot, opts);
-            p.solvedModel = std::move(snapshot);
+            p.nlRes = FemSolver3D::solveNonlinear(*snapshot, opts, stopToken);
+            p.solvedModel = snapshot;
             return p;
         },
-        [self](const NlPack& p) {
-            if (!self) return;
-            self->m_nonlinearRes = p.nlRes;
-            self->m_hasNonlinear = p.nlRes.success;
-            self->m_nlTable->setRowCount(0);
+        [this](const NlPack& p) {
+            m_nonlinearRes = p.nlRes;
+            m_hasNonlinear = p.nlRes.success;
+            m_nlTable->setRowCount(0);
             for (const auto& step : p.nlRes.history) {
-                const int row = self->m_nlTable->rowCount();
-                self->m_nlTable->insertRow(row);
-                self->m_nlTable->setItem(row, 0, makeItem(QString::number(step.stepIndex)));
-                self->m_nlTable->setItem(row, 1, makeItem(QString::number(step.loadFactor, 'f', 4)));
-                self->m_nlTable->setItem(row, 2, makeItem(QString::number(step.iterations)));
-                self->m_nlTable->setItem(row, 3, makeItem(QString::number(step.residualNorm, 'e', 2)));
-                self->m_nlTable->setItem(row, 4, makeItem(step.anyYielded ? GerenciadorTraducao::trText("SIM") : GerenciadorTraducao::trText("Não")));
+                const int row = m_nlTable->rowCount();
+                m_nlTable->insertRow(row);
+                m_nlTable->setItem(row, 0, makeItem(QString::number(step.stepIndex)));
+                m_nlTable->setItem(row, 1, makeItem(QString::number(step.loadFactor, 'f', 4)));
+                m_nlTable->setItem(row, 2, makeItem(QString::number(step.iterations)));
+                m_nlTable->setItem(row, 3, makeItem(QString::number(step.residualNorm, 'e', 2)));
+                m_nlTable->setItem(row, 4, makeItem(step.anyYielded ? GerenciadorTraducao::trText("SIM") : GerenciadorTraducao::trText("Não")));
             }
-            if (p.nlRes.success && self->m_model) {
-                copySolvedNodalElementResults(p.solvedModel, *self->m_model);
+            if (p.nlRes.success && p.solvedModel && m_model) {
+                copySolvedNodalElementResults(*p.solvedModel, *m_model);
                 SolverResult sr;
                 sr.success = true;
-                sr.totalNodes = static_cast<int>(self->m_model->getNodes().size());
-                sr.totalElements = static_cast<int>(self->m_model->getElements().size());
-                sr.totalDofs = static_cast<int>(p.nlRes.finalU_full.size() > 0 ? p.nlRes.finalU_full.size() : p.solvedModel.getNodes().size() * 6);
-                sr.equilibrium.isBalanced = true;
-                sr.maxNodalDisplacement = maxTranslationalDisp(p.solvedModel, p.nlRes.finalU_full);
-                for (const auto& el : p.solvedModel.getElements()) {
+                sr.totalNodes = static_cast<int>(m_model->getNodes().size());
+                sr.totalElements = static_cast<int>(m_model->getElements().size());
+                sr.totalDofs = static_cast<int>(p.nlRes.finalU_full.size() > 0 ? p.nlRes.finalU_full.size() : p.solvedModel->getNodes().size() * 6);
+                sr.equilibrium.sumAppliedForces = {p.nlRes.sumAppliedForces.x(), p.nlRes.sumAppliedForces.y(), p.nlRes.sumAppliedForces.z()};
+                sr.equilibrium.sumReactions = {p.nlRes.sumReactions.x(), p.nlRes.sumReactions.y(), p.nlRes.sumReactions.z()};
+                sr.equilibrium.sumAppliedMoments = {p.nlRes.sumAppliedMoments.x(), p.nlRes.sumAppliedMoments.y(), p.nlRes.sumAppliedMoments.z()};
+                sr.equilibrium.sumReactionMoments = {p.nlRes.sumReactionMoments.x(), p.nlRes.sumReactionMoments.y(), p.nlRes.sumReactionMoments.z()};
+                sr.equilibrium.residualForces = {p.nlRes.residualForces.x(), p.nlRes.residualForces.y(), p.nlRes.residualForces.z()};
+                sr.equilibrium.residualMoments = {p.nlRes.residualMoments.x(), p.nlRes.residualMoments.y(), p.nlRes.residualMoments.z()};
+                sr.equilibrium.isBalanced = p.nlRes.equilibriumBalanced;
+                sr.maxNodalDisplacement = maxTranslationalDisp(*p.solvedModel, p.nlRes.finalU_full);
+                for (const auto& el : p.solvedModel->getElements()) {
                     if (!el.hasResults) continue;
                     ElementExtremes ex;
                     ex.elementId = el.id;
                     for (int k = 0; k <= 10; ++k) {
-                        const auto f = el.evaluateAt(static_cast<double>(k) / 10.0, p.solvedModel);
+                        const auto f = el.evaluateAt(static_cast<double>(k) / 10.0, *p.solvedModel);
                         if (k == 0) {
                             ex.N_min = ex.N_max = f.N;
                             ex.Vy_min = ex.Vy_max = f.Vy;
@@ -1270,13 +1424,18 @@ void AnalysisSuiteDialog::onRunNonlinearAsync() {
                     }
                     sr.elementExtremes.push_back(ex);
                 }
-                if (self->m_onCompleted) self->m_onCompleted(sr);
+                if (m_onCompleted) m_onCompleted(sr);
             }
-            self->setBusyState(false, p.nlRes.success
-                ? GerenciadorTraducao::trText("Análise não linear concluída (λ = %1, %2 iterações).")
-                      .arg(p.nlRes.achievedLoadFactor, 0, 'f', 3)
-                      .arg(p.nlRes.totalIterations)
-                : GerenciadorTraducao::trText("Erro não linear: %1").arg(QString::fromStdString(p.nlRes.errorMessage)));
+            finishSuiteJobStatus(
+                p.nlRes.success,
+                p.nlRes.success
+                    ? GerenciadorTraducao::trText("Análise não linear concluída (λ = %1, %2 iterações).")
+                          .arg(p.nlRes.achievedLoadFactor, 0, 'f', 3)
+                          .arg(p.nlRes.totalIterations)
+                    : GerenciadorTraducao::trText("Erro não linear: %1").arg(QString::fromStdString(p.nlRes.errorMessage)));
+        },
+        [this](const QString& errMsg) {
+            finishSuiteJobStatus(false, GerenciadorTraducao::trText("Erro não linear: %1").arg(errMsg));
         });
 }
 
@@ -1996,6 +2155,7 @@ void LoadCombinationsDialog::onGenerateNbrCombos() {
         if (lc.category == kernel::LoadCaseCategory::Live) g = qPsi.psi2;
         else if (lc.category == kernel::LoadCaseCategory::Wind) g = wPsi.psi2;
         else if (lc.category == kernel::LoadCaseCategory::Thermal) g = 0.3;
+        else if (lc.category == kernel::LoadCaseCategory::Seismic) g = 0.0;
         els.factors.push_back({lc.id, g});
     }
     m_model->addLoadCombination(els);
@@ -2156,7 +2316,8 @@ MeshGeneratorDialog::MeshGeneratorDialog(
     addTrRow(form, "Material da Malha:", m_matCombo, this);
     addTrRow(form, "Espessura (Casca 2D):", m_thicknessSpin, this);
     addTrRow(form, "Condição de Contorno:", m_bcPresetCombo, this);
-    addTrRow(form, "Pressão / Carga Z (2D/3D):", m_pressureSpin, this);
+    m_pressureLabel = new QLabel(GerenciadorTraducao::trText("Pressão Normal / Carga Z (2D):"), this);
+    form->addRow(m_pressureLabel, m_pressureSpin);
     addTrRow(form, "Origem (X / Y / Z):", [this]() {
         auto* w = new QWidget(this);
         auto* h = new QHBoxLayout(w);
@@ -2277,6 +2438,18 @@ void MeshGeneratorDialog::updateParameterEnablement() {
     if (m_thicknessSpin) {
         m_thicknessSpin->setEnabled(is2D);
     }
+    if (m_pressureLabel && m_pressureSpin) {
+        if (is1D) {
+            m_pressureLabel->setText(GerenciadorTraducao::trText("Carga Linear Z (1D):"));
+            m_pressureSpin->setSuffix(QStringLiteral(" kN/m"));
+        } else if (is2D) {
+            m_pressureLabel->setText(GerenciadorTraducao::trText("Pressão Normal / Carga Z (2D):"));
+            m_pressureSpin->setSuffix(QStringLiteral(" kPa"));
+        } else {
+            m_pressureLabel->setText(GerenciadorTraducao::trText("Força de Corpo / Carga Volumétrica Z (3D):"));
+            m_pressureSpin->setSuffix(QStringLiteral(" kN/m³"));
+        }
+    }
 }
 
 void MeshGeneratorDialog::changeEvent(QEvent* event) {
@@ -2311,6 +2484,7 @@ void MeshGeneratorDialog::retranslateUi() {
     m_btnFitBounds->setText(GerenciadorTraducao::trText("Ajustar ao Contorno do Modelo"));
     m_btnClear->setText(GerenciadorTraducao::trText("Limpar Malha"));
     m_btnClose->setText(GerenciadorTraducao::trText("Fechar"));
+    updateParameterEnablement();
     updateQualityReport();
 }
 
@@ -2323,47 +2497,82 @@ void MeshGeneratorDialog::onGenerateMesh() {
     const int nx = m_nxSpin->value();
     const int ny = m_nySpin->value();
     const int nz = m_nzSpin->value();
+    const int meshTypeIdx = m_meshTypeCombo ? m_meshTypeCombo->currentIndex() : 1;
+    const bool isSolid3D = (meshTypeIdx >= 5);
 
     kernel::MeshContainer mesh;
-    switch (m_meshTypeCombo->currentIndex()) {
-        case 0:
-            mesh = kernel::MeshGenerator::generateLineMesh(orig, orig + kernel::Vec3(lx, 0.0, 0.0), nx);
-            break;
-        case 1:
-            mesh = kernel::MeshGenerator::generateStructuredQuadGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, false);
-            break;
-        case 2:
-            mesh = kernel::MeshGenerator::generateStructuredQuadGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, true);
-            break;
-        case 3:
-            mesh = kernel::MeshGenerator::generateStructuredTriGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, true);
-            break;
-        case 4: {
-            const std::vector<Eigen::Vector2d> poly = {
-                {0.0, 0.0}, {lx, 0.0}, {lx, ly}, {0.0, ly}
-            };
-            mesh = kernel::MeshGenerator::triangulatePolygonDelaunay(
-                poly, m_delaunayEdgeSpin->value(), 4, orig, kernel::Vec3::UnitX(), kernel::Vec3::UnitY());
-            break;
-        }
-        case 5:
-            mesh = kernel::MeshGenerator::generateStructuredHexGrid(orig, kernel::Vec3(lx, ly, lz), nx, ny, nz, false);
-            break;
-        case 6:
-            mesh = kernel::MeshGenerator::generateStructuredHexGrid(orig, kernel::Vec3(lx, ly, lz), nx, ny, nz, true);
-            break;
-        case 7:
-            mesh = kernel::MeshGenerator::generateStructuredTetGrid(orig, kernel::Vec3(lx, ly, lz), nx, ny, nz);
-            break;
-        case 8: {
-            kernel::MeshContainer base = m_model->surfaceMesh();
-            if (base.elements.empty()) {
-                base = kernel::MeshGenerator::generateStructuredQuadGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, false);
+    try {
+        switch (meshTypeIdx) {
+            case 0:
+                mesh = kernel::MeshGenerator::generateLineMesh(orig, orig + kernel::Vec3(lx, 0.0, 0.0), nx);
+                break;
+            case 1:
+                mesh = kernel::MeshGenerator::generateStructuredQuadGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, false);
+                break;
+            case 2:
+                mesh = kernel::MeshGenerator::generateStructuredQuadGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, true);
+                break;
+            case 3:
+                mesh = kernel::MeshGenerator::generateStructuredTriGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, true);
+                break;
+            case 4: {
+                const std::vector<Eigen::Vector2d> poly = {
+                    {0.0, 0.0}, {lx, 0.0}, {lx, ly}, {0.0, ly}
+                };
+                mesh = kernel::MeshGenerator::triangulatePolygonDelaunay(
+                    poly, m_delaunayEdgeSpin->value(), 4, orig, kernel::Vec3::UnitX(), kernel::Vec3::UnitY());
+                break;
             }
-            mesh = kernel::MeshGenerator::extrudeSurfaceTo3D(base, kernel::Vec3(0.0, 0.0, lz), nz, false);
-            break;
+            case 5:
+                mesh = kernel::MeshGenerator::generateStructuredHexGrid(orig, kernel::Vec3(lx, ly, lz), nx, ny, nz, false);
+                break;
+            case 6:
+                mesh = kernel::MeshGenerator::generateStructuredHexGrid(orig, kernel::Vec3(lx, ly, lz), nx, ny, nz, true);
+                break;
+            case 7:
+                mesh = kernel::MeshGenerator::generateStructuredTetGrid(orig, kernel::Vec3(lx, ly, lz), nx, ny, nz);
+                break;
+            case 8: {
+                kernel::MeshContainer base = m_model->surfaceMesh();
+                if (!base.elements.empty()) {
+                    bool allShells = true;
+                    for (const auto& bel : base.elements) {
+                        if (!bel.isShell()) {
+                            allShells = false;
+                            break;
+                        }
+                    }
+                    if (!allShells) {
+                        if (m_qualityLabel) {
+                            m_qualityLabel->setText(GerenciadorTraducao::trText(
+                                "Erro: a extrusão 2D -> 3D requer uma malha base 2D (Tri3/Quad4). Limpe a malha atual ou gere uma malha 2D antes de extrudar."));
+                        }
+                        return;
+                    }
+                } else {
+                    base = kernel::MeshGenerator::generateStructuredQuadGrid(orig, kernel::Vec3(lx, 0.0, 0.0), kernel::Vec3(0.0, ly, 0.0), nx, ny, false);
+                }
+                mesh = kernel::MeshGenerator::extrudeSurfaceTo3D(base, kernel::Vec3(0.0, 0.0, lz), nz, false);
+                if (mesh.elements.empty()) {
+                    if (m_qualityLabel) {
+                        m_qualityLabel->setText(GerenciadorTraducao::trText("Erro: falha ao extrudar a malha 2D para 3D."));
+                    }
+                    return;
+                }
+                break;
+            }
+            default: break;
         }
-        default: break;
+    } catch (const std::exception& ex) {
+        if (m_qualityLabel) {
+            m_qualityLabel->setText(GerenciadorTraducao::trText("Erro ao gerar malha: %1").arg(QString::fromUtf8(ex.what())));
+        }
+        return;
+    } catch (...) {
+        if (m_qualityLabel) {
+            m_qualityLabel->setText(GerenciadorTraducao::trText("Erro desconhecido ao gerar malha."));
+        }
+        return;
     }
 
     const int matId = (m_matCombo && m_matCombo->currentData().isValid())
@@ -2381,14 +2590,24 @@ void MeshGeneratorDialog::onGenerateMesh() {
             minZ = std::min(minZ, mn.position.z());
         }
         for (auto& mn : mesh.nodes) {
-            if (bcPreset == 1 && mn.isBoundary) {
+            if (isSolid3D) {
+                // [AUD-014] Sólidos 3D possuem apenas 3 DOFs de translação (0..2) por nó e não
+                // devem ter todas as 6 faces externas bloqueadas nos presets de bordas.
+                if (bcPreset == 4) {
+                    if (std::abs(mn.position.x() - minX) <= 1e-6) {
+                        mn.fixed = {true, true, true, false, false, false};
+                    }
+                } else {
+                    if (std::abs(mn.position.z() - minZ) <= 1e-6) {
+                        mn.fixed = {true, true, true, false, false, false};
+                    }
+                }
+            } else if ((bcPreset == 1 && mn.isBoundary) ||
+                       (bcPreset == 3 && std::abs(mn.position.z() - minZ) <= 1e-6) ||
+                       (bcPreset == 4 && std::abs(mn.position.x() - minX) <= 1e-6)) {
                 mn.fixed = {true, true, true, true, true, true};
             } else if (bcPreset == 2 && mn.isBoundary) {
                 mn.fixed = {true, true, true, false, false, false};
-            } else if (bcPreset == 3 && std::abs(mn.position.z() - minZ) <= 1e-6) {
-                mn.fixed = {true, true, true, true, true, true};
-            } else if (bcPreset == 4 && std::abs(mn.position.x() - minX) <= 1e-6) {
-                mn.fixed = {true, true, true, true, true, true};
             }
         }
     }
@@ -2448,10 +2667,10 @@ void MeshGeneratorDialog::updateQualityReport() {
 PostProcessControlDialog::PostProcessControlDialog(
     QWidget* parent,
     Viewport3D* viewport,
-    std::function<bool()> onEnsureDcrMap)
+    std::function<void(std::function<void(bool)>)> onEnsureDcrMapAsync)
     : QDialog(parent),
       m_viewport(viewport),
-      m_onEnsureDcrMap(std::move(onEnsureDcrMap)) {
+      m_onEnsureDcrMapAsync(std::move(onEnsureDcrMapAsync)) {
     setModal(false);
     setWindowModality(Qt::NonModal);
     setMinimumWidth(420);
@@ -2609,14 +2828,31 @@ void PostProcessControlDialog::syncFromViewport() {
 
 void PostProcessControlDialog::onContourChanged(int idx) {
     if (!m_viewport) return;
+    ++m_dcrRequestSeq;
+    const std::uint64_t reqSeq = m_dcrRequestSeq;
     const auto mode = static_cast<Viewport3D::PostContourMode>(m_contourCombo->itemData(idx).toInt());
     if (mode == Viewport3D::PostContourMode::NbrComplianceDcr) {
-        const bool ok = m_onEnsureDcrMap ? m_onEnsureDcrMap() : true;
+        if (m_onEnsureDcrMapAsync) {
+            if (m_statusLabel) {
+                m_statusLabel->setText(GerenciadorTraducao::trText("Calculando modelo e Mapa DCR em segundo plano..."));
+            }
+            QPointer<PostProcessControlDialog> self(this);
+            m_onEnsureDcrMapAsync([self, reqSeq](bool ok) {
+                if (!self || self->m_dcrRequestSeq != reqSeq || !self->m_viewport) {
+                    return;
+                }
+                self->m_viewport->setPostContourMode(Viewport3D::PostContourMode::NbrComplianceDcr);
+                if (self->m_statusLabel) {
+                    self->m_statusLabel->setText(ok
+                        ? GerenciadorTraducao::trText("Mapa de Calor DCR (ABNT NBR) aplicado ao Viewport 3D.")
+                        : GerenciadorTraducao::trText("Aviso: execute a Análise Estática (F5) ou adicione barras antes de visualizar o Mapa DCR."));
+                }
+            });
+            return;
+        }
         m_viewport->setPostContourMode(mode);
         if (m_statusLabel) {
-            m_statusLabel->setText(ok
-                ? GerenciadorTraducao::trText("Mapa de Calor DCR (ABNT NBR) aplicado ao Viewport 3D.")
-                : GerenciadorTraducao::trText("Aviso: execute a Análise Estática (F5) ou adicione barras antes de visualizar o Mapa DCR."));
+            m_statusLabel->setText(GerenciadorTraducao::trText("Mapa de Calor DCR (ABNT NBR) aplicado ao Viewport 3D."));
         }
         return;
     }
@@ -2683,13 +2919,13 @@ NbrComplianceDialog::NbrComplianceDialog(
     Viewport3D* viewport,
     const SolverResult* lastSolverResult,
     std::function<void()> onRequestPdfExport,
-    std::function<bool()> onRequestStaticSolve)
+    std::function<void(std::function<void(bool)>)> onRequestStaticSolveAsync)
     : QDialog(parent),
       m_model(model),
       m_viewport(viewport),
       m_lastSolver(lastSolverResult),
       m_onPdfExport(std::move(onRequestPdfExport)),
-      m_onRequestStaticSolve(std::move(onRequestStaticSolve)) {
+      m_onRequestStaticSolveAsync(std::move(onRequestStaticSolveAsync)) {
     setModal(false);
     setWindowModality(Qt::NonModal);
     resize(920, 640);
@@ -2719,7 +2955,7 @@ NbrComplianceDialog::NbrComplianceDialog(
     m_sigmaAdmSpin = new QDoubleSpinBox(this); m_sigmaAdmSpin->setRange(20.0, 2000.0); m_sigmaAdmSpin->setValue(md.soilSigmaAdm_kPa); m_sigmaAdmSpin->setSuffix(" kPa");
     m_footBSpin = new QDoubleSpinBox(this); m_footBSpin->setRange(0.4, 20.0); m_footBSpin->setValue(md.footingB_m); m_footBSpin->setSuffix(" m");
     m_footLSpin = new QDoubleSpinBox(this); m_footLSpin->setRange(0.4, 20.0); m_footLSpin->setValue(md.footingL_m); m_footLSpin->setSuffix(" m");
-    m_v0Spin = new QDoubleSpinBox(this); m_v0Spin->setRange(15.0, 80.0); m_v0Spin->setValue(md.windV0_ms); m_v0Spin->setSuffix(" m/s");
+    m_v0Spin = new QDoubleSpinBox(this); m_v0Spin->setRange(10.0, 90.0); m_v0Spin->setValue(md.windV0_ms); m_v0Spin->setSuffix(" m/s");
     m_btnReevaluate = new QPushButton(this);
     connect(m_btnReevaluate, &QPushButton::clicked, this, &NbrComplianceDialog::runAudit);
     connect(m_caaCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NbrComplianceDialog::runAudit);
@@ -2775,19 +3011,25 @@ NbrComplianceDialog::NbrComplianceDialog(
     m_btnClose = new QPushButton(this);
     connect(m_btnApplyDcrViewport, &QPushButton::clicked, this, [this]() {
         if (!m_viewport) return;
-        if ((!m_lastSolver || !m_lastSolver->success) && m_onRequestStaticSolve) {
-            m_onRequestStaticSolve();
-            runAudit();
+        if ((!m_lastSolver || !m_lastSolver->success) && m_onRequestStaticSolveAsync) {
+            if (m_btnApplyDcrViewport) {
+                m_btnApplyDcrViewport->setEnabled(false);
+            }
+            if (m_summaryLabel) {
+                m_summaryLabel->setText(GerenciadorTraducao::trText("Calculando análise estática em segundo plano para gerar Mapa DCR..."));
+            }
+            QPointer<NbrComplianceDialog> self(this);
+            m_onRequestStaticSolveAsync([self](bool /*ok*/) {
+                if (!self) return;
+                if (self->m_btnApplyDcrViewport) {
+                    self->m_btnApplyDcrViewport->setEnabled(true);
+                }
+                self->runAudit();
+                self->applyAuditDcrMapToViewport();
+            });
+            return;
         }
-        const auto dcrMap = buildElementDcrMapFromAudit(m_lastAudit);
-        m_viewport->setElementDcrMap(dcrMap);
-        if (!dcrMap.empty()) {
-            m_viewport->setPostContourMode(Viewport3D::PostContourMode::NbrComplianceDcr);
-        } else {
-            m_summaryLabel->setText(
-                m_summaryLabel->text() + QStringLiteral("\n") +
-                GerenciadorTraducao::trText("Nenhum elemento elegível (barra de aço/concreto resolvida) para plotar Mapa DCR."));
-        }
+        applyAuditDcrMapToViewport();
     });
     connect(m_btnExportPdf, &QPushButton::clicked, this, [this]() {
         if (m_onPdfExport) m_onPdfExport();
@@ -2832,14 +3074,23 @@ void NbrComplianceDialog::retranslateUi() {
     m_btnClose->setText(GerenciadorTraducao::trText("Fechar"));
 }
 
+void NbrComplianceDialog::applyAuditDcrMapToViewport() {
+    if (!m_viewport) return;
+    const auto dcrMap = buildElementDcrMapFromAudit(m_lastAudit);
+    m_viewport->setElementDcrMap(dcrMap);
+    if (!dcrMap.empty()) {
+        m_viewport->setPostContourMode(Viewport3D::PostContourMode::NbrComplianceDcr);
+    } else if (m_summaryLabel) {
+        m_summaryLabel->setText(
+            m_summaryLabel->text() + QStringLiteral("\n") +
+            GerenciadorTraducao::trText("Nenhum elemento elegível (barra de aço/concreto resolvida) para plotar Mapa DCR."));
+    }
+}
+
 io::PdfReportOptions NbrComplianceDialog::buildOptions() const {
     io::PdfReportOptions opts;
     if (m_model) {
-        auto& md = m_model->metadata();
-        md.soilSigmaAdm_kPa = m_sigmaAdmSpin->value();
-        md.footingB_m = m_footBSpin->value();
-        md.footingL_m = m_footLSpin->value();
-        md.windV0_ms = m_v0Spin->value();
+        const auto& md = m_model->metadata();
         opts.projectTitle = QString::fromStdString(md.projectName);
         opts.engineerName = QString::fromStdString(md.engineerName);
         opts.clientName = QString::fromStdString(md.clientName);
@@ -2868,8 +3119,8 @@ void NbrComplianceDialog::runAudit() {
     QString summaryText = GerenciadorTraducao::trText("DCR Máximo Global: %1  |  Parecer: %2  |  %3")
         .arg(m_lastAudit.maxDcr, 0, 'f', 3)
         .arg(m_lastAudit.passedAll ? GerenciadorTraducao::trText("APROVADO (DCR <= 1,00)")
-                                   : GerenciadorTraducao::trText("ALERTA (Existem elementos com DCR > 1,00)"))
-        .arg(m_lastAudit.governingSummary);
+                                   : GerenciadorTraducao::trText("ALERTA (Existem elementos com DCR > 1,00)"),
+             m_lastAudit.governingSummary);
     if (!hasSolved) {
         summaryText += QStringLiteral("\n") +
             GerenciadorTraducao::trText("Aviso: Modelo ainda não resolvido estaticamente (F5). Valores refletem apenas esforços nulos / geometria.");
@@ -2943,7 +3194,7 @@ void NbrComplianceDialog::runAudit() {
         const int r = m_foundTable->rowCount();
         m_foundTable->insertRow(r);
         m_foundTable->setItem(r, 0, makeItem(QString::number(f.nodeId)));
-        m_foundTable->setItem(r, 1, makeItem(QString::number(f.reactionVert_kN, 'f', 1)));
+        m_foundTable->setItem(r, 1, makeItem(QString::number(f.reactionVert_kN / 1.4, 'f', 1)));
         m_foundTable->setItem(r, 2, makeItem(QString::number(f.result.sigmaMax_kPa, 'f', 1)));
         m_foundTable->setItem(r, 3, makeItem(QString::number(f.result.sigmaLimit_kPa, 'f', 1)));
         m_foundTable->setItem(r, 4, makeItem(QString::number(f.result.dcrBearing, 'f', 3)));
@@ -3007,7 +3258,7 @@ PdfReportOptionsDialog::PdfReportOptionsDialog(QWidget* parent, StructuralModel*
     m_sigmaAdmSpin = new QDoubleSpinBox(this); m_sigmaAdmSpin->setRange(20.0, 2000.0); m_sigmaAdmSpin->setValue(md.soilSigmaAdm_kPa); m_sigmaAdmSpin->setSuffix(" kPa");
     m_footBSpin = new QDoubleSpinBox(this); m_footBSpin->setRange(0.4, 20.0); m_footBSpin->setValue(md.footingB_m); m_footBSpin->setSuffix(" m");
     m_footLSpin = new QDoubleSpinBox(this); m_footLSpin->setRange(0.4, 20.0); m_footLSpin->setValue(md.footingL_m); m_footLSpin->setSuffix(" m");
-    m_v0Spin = new QDoubleSpinBox(this); m_v0Spin->setRange(15.0, 80.0); m_v0Spin->setValue(md.windV0_ms); m_v0Spin->setSuffix(" m/s");
+    m_v0Spin = new QDoubleSpinBox(this); m_v0Spin->setRange(10.0, 90.0); m_v0Spin->setValue(md.windV0_ms); m_v0Spin->setSuffix(" m/s");
     m_s1Spin = new QDoubleSpinBox(this); m_s1Spin->setRange(0.5, 2.5); m_s1Spin->setDecimals(3); m_s1Spin->setValue(md.windS1);
     m_s2Spin = new QDoubleSpinBox(this); m_s2Spin->setRange(0.3, 2.5); m_s2Spin->setDecimals(3); m_s2Spin->setValue(md.windS2);
     m_s3Spin = new QDoubleSpinBox(this); m_s3Spin->setRange(0.5, 2.0); m_s3Spin->setDecimals(3); m_s3Spin->setValue(md.windS3);

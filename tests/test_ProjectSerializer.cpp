@@ -12,6 +12,7 @@
 
 #include <QDate>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -321,6 +322,23 @@ void testProjectRecoveryStoreAndSolverUndo() {
     TEST_ASSERT(omniframe::io::ProjectRecoveryStore::saveSnapshot(edited, originPath),
                 "saveSnapshot deve gravar copia de recuperacao atomica");
 
+    // [AUD-028] Metadados e modelo devem residir em arquivo atomico unico sem autosave_recovery_meta*.json separado
+    {
+        const QString bundlePath = omniframe::io::ProjectRecoveryStore::recoveryFilePath();
+        TEST_ASSERT(omniframe::io::ProjectRecoveryStore::recoveryMetaPath() == bundlePath,
+                    "recoveryMetaPath deve apontar para o arquivo atomico unico");
+        TEST_ASSERT(QDir(recTmp.path()).entryList({QStringLiteral("autosave_recovery_meta*.json")}, QDir::Files).isEmpty(),
+                    "Nao deve ser gravado arquivo autosave_recovery_meta*.json separado");
+        QFile bf(bundlePath);
+        TEST_ASSERT(bf.open(QIODevice::ReadOnly), "Abrir bundle atomico de recuperacao");
+        const QJsonDocument bdoc = QJsonDocument::fromJson(bf.readAll());
+        TEST_ASSERT(bdoc.isObject() &&
+                        bdoc.object().value(QStringLiteral("format")).toString() == QStringLiteral("omniframe_recovery_bundle") &&
+                        bdoc.object().value(QStringLiteral("recoveryMeta")).isObject() &&
+                        bdoc.object().value(QStringLiteral("model")).isObject(),
+                    "Bundle de recuperacao deve conter format, recoveryMeta e model em gravacao unica");
+    }
+
     const omniframe::io::ProjectRecoveryInfo info = omniframe::io::ProjectRecoveryStore::inspectSnapshot();
     TEST_ASSERT(info.available && info.nodeCount == 2 && info.elementCount == 1 &&
                     info.projectFilePath == originPath,
@@ -351,6 +369,8 @@ void testProjectRecoveryStoreAndSolverUndo() {
     TEST_ASSERT(omniframe::io::ProjectRecoveryStore::saveCleanSessionState(
                     exModel, QString(), omniframe::io::SessionSourceKind::ExampleCantilever),
                 "saveCleanSessionState deve registrar exemplo pre-definido sem rascunho de alteracoes");
+    TEST_ASSERT(QDir(recTmp.path()).entryList({QStringLiteral("autosave_recovery_meta*.json")}, QDir::Files).isEmpty(),
+                "saveCleanSessionState tambem nao deve criar autosave_recovery_meta*.json separado");
     TEST_ASSERT(!omniframe::io::ProjectRecoveryStore::inspectSnapshot().available,
                 "Exemplo limpo nao deve criar snapshot de alteracoes nao salvas");
     const omniframe::io::ProjectRecoveryInfo exSession =
@@ -553,6 +573,150 @@ int main() {
     testUnifiedUserPreferencesStoreAndMigration();
     testProjectRecoveryStoreAndSolverUndo();
     testAppLoggerDailyRotationAndLevels();
+
+    // [AUD-021] Rejeitar IDs fora do intervalo int ("id": 1e20 e -1e20) sem UB de cast double -> int
+    {
+        QTemporaryDir tmpAub;
+        TEST_ASSERT(tmpAub.isValid(), "QTemporaryDir para [AUD-021] deve ser valido");
+        const QString okIdJsonPath = tmpAub.filePath("ok_id_1.omniframe");
+        {
+            QFile fOk(okIdJsonPath);
+            TEST_ASSERT(fOk.open(QIODevice::WriteOnly | QIODevice::Truncate), "Abrir ok_id_1.omniframe");
+            fOk.write(
+                "{\"schemaVersion\":\"2.1.0\",\"materials\":[{\"id\":1,\"name\":\"S\",\"E\":200000000,\"nu\":0.3,"
+                "\"alpha\":1.2e-5,\"gamma\":78.5,\"density\":7850}],\"sections\":[],"
+                "\"nodes\":[{\"id\":1,\"x\":0,\"y\":0,\"z\":0}],\"elements\":[]}");
+        }
+        StructuralModel mOk;
+        TEST_ASSERT(ProjectSerializer::loadFromFile(okIdJsonPath, mOk) && mOk.getNodes().size() == 1,
+                    "Controle positivo: ProjectSerializer deve aceitar node id=1 com schema valido");
+
+        for (const char* badIdStr : {"1e20", "-1e20", "2147483648.0", "-2147483649.0"}) {
+            const QString badNodeJsonPath = tmpAub.filePath(QString("bad_id_%1.omniframe").arg(badIdStr));
+            QFile f(badNodeJsonPath);
+            TEST_ASSERT(f.open(QIODevice::WriteOnly | QIODevice::Truncate), "Abrir arquivo JSON de teste [AUD-021]");
+            const QByteArray payload = QString(
+                "{\"schemaVersion\":\"2.1.0\",\"materials\":[{\"id\":1,\"name\":\"S\",\"E\":200000000,\"nu\":0.3,"
+                "\"alpha\":1.2e-5,\"gamma\":78.5,\"density\":7850}],\"sections\":[],"
+                "\"nodes\":[{\"id\":%1,\"x\":0,\"y\":0,\"z\":0}],\"elements\":[]}").arg(badIdStr).toUtf8();
+            f.write(payload);
+            f.close();
+
+            StructuralModel mBad;
+            TEST_ASSERT(!ProjectSerializer::loadFromFile(badNodeJsonPath, mBad),
+                        std::string("ProjectSerializer deve rejeitar id=") + badIdStr + " sem UB");
+        }
+
+        // Tambem validar rejeicao em arrays inteiros (surfaceMesh.elements[].nodeIds)
+        const QString badArrPath = tmpAub.filePath("bad_arr_1e20.omniframe");
+        QFile fa(badArrPath);
+        TEST_ASSERT(fa.open(QIODevice::WriteOnly | QIODevice::Truncate), "Abrir bad_arr_1e20.omniframe");
+        fa.write("{\"schemaVersion\":\"2.1.0\",\"materials\":[],\"sections\":[],\"nodes\":[],\"elements\":[],"
+                 "\"surfaceMesh\":{\"nodes\":[],\"elements\":[{\"id\":1,\"type\":1,\"nodeIds\":[1,2,1e20]}]}}");
+        fa.close();
+        StructuralModel mBadArr;
+        TEST_ASSERT(!ProjectSerializer::loadFromFile(badArrPath, mBadArr),
+                    "ProjectSerializer deve rejeitar nodeIds=[1,2,1e20] sem UB");
+
+        // [AUD-017] Limite de tamanho de arquivo (maxFileSizeBytes) e validacao estrita de plasticidade / surfaceMesh
+        StructuralModel mQuota;
+        TEST_ASSERT(!ProjectSerializer::loadFromFile(okIdJsonPath, mQuota, 16),
+                    "ProjectSerializer deve rejeitar arquivo maior que maxFileSizeBytes");
+
+        const char* badPayloads[] = {
+            // isPlastic=true com sigmaY <= 0
+            "{\"schemaVersion\":\"2.1.0\",\"materials\":[{\"id\":1,\"name\":\"P\",\"E\":2e8,\"nu\":0.3,"
+            "\"alpha\":1e-5,\"gamma\":78.5,\"isPlastic\":true,\"sigmaY\":0.0}],\"sections\":[],\"nodes\":[],\"elements\":[]}",
+            // H_iso negativo
+            "{\"schemaVersion\":\"2.1.0\",\"materials\":[{\"id\":1,\"name\":\"P\",\"E\":2e8,\"nu\":0.3,"
+            "\"alpha\":1e-5,\"gamma\":78.5,\"H_iso\":-5.0}],\"sections\":[],\"nodes\":[],\"elements\":[]}",
+            // surfaceMesh.nodes com springStiffness negativo
+            "{\"schemaVersion\":\"2.1.0\",\"materials\":[],\"sections\":[],\"nodes\":[],\"elements\":[],"
+            "\"surfaceMesh\":{\"nodes\":[{\"id\":1,\"x\":0,\"y\":0,\"z\":0,\"springStiffness\":[-1,0,0,0,0,0]}],\"elements\":[]}}",
+            // surfaceMesh.elements com thickness <= 0
+            "{\"schemaVersion\":\"2.1.0\",\"materials\":[],\"sections\":[],\"nodes\":[],\"elements\":[],"
+            "\"surfaceMesh\":{\"nodes\":[],\"elements\":[{\"id\":1,\"type\":1,\"thickness\":0.0,\"nodeIds\":[1,2,3]}]}}"
+        };
+        for (size_t bi = 0; bi < std::size(badPayloads); ++bi) {
+            const QString bpPath = tmpAub.filePath(QString("aud017_bad_%1.omniframe").arg(bi));
+            QFile bf(bpPath);
+            TEST_ASSERT(bf.open(QIODevice::WriteOnly | QIODevice::Truncate), "Abrir aud017_bad");
+            bf.write(badPayloads[bi]);
+            bf.close();
+            StructuralModel mRej;
+            TEST_ASSERT(!ProjectSerializer::loadFromFile(bpPath, mRej),
+                        "ProjectSerializer deve rejeitar payload invalido [AUD-017]");
+        }
+
+        // [AUD-025] Leitura reversa em blocos de 64 KiB em AppLogger::readRecentLines (10 MB em < 10 ms)
+        QTemporaryDir tailLogDir;
+        TEST_ASSERT(tailLogDir.isValid(), "QTemporaryDir para tail reader");
+        omniframe::io::AppLogger::ScopedDirectoryOverride dirOvr(tailLogDir.path());
+        omniframe::io::AppLogger::ScopedDateOverride dateOvr(QDate(2026, 11, 18));
+        omniframe::io::AppLogger::initialize(false, false);
+        const QString logPath10M = omniframe::io::AppLogger::currentLogFilePath();
+        omniframe::io::AppLogger::shutdown();
+        {
+            QFile bigFile(logPath10M);
+            TEST_ASSERT(bigFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "Abrir log de 10 MB para [AUD-025]");
+            const QByteArray bulkLine(200, 'A');
+            const QByteArray bulkChunk = (bulkLine + "\n").repeated(500); // ~100.5 KB por bloco
+            for (int c = 0; c < 106; ++c) { // ~10.65 MB (>= 10 MiB)
+                bigFile.write(bulkChunk);
+            }
+            for (int li = 1; li <= 300; ++li) {
+                bigFile.write(QStringLiteral("2026-11-18 12:00:00.000 [INFO] [Tail10MB] LINE_TAG_%1\n")
+                                  .arg(li, 4, 10, QLatin1Char('0'))
+                                  .toUtf8());
+            }
+            bigFile.flush();
+            TEST_ASSERT(bigFile.size() >= 10LL * 1024LL * 1024LL, "Arquivo de log de teste deve ter >= 10 MB");
+        }
+        omniframe::io::AppLogger::initialize(false, false);
+        QElapsedTimer tailTimer;
+        tailTimer.start();
+        const QString tail250 = omniframe::io::AppLogger::readRecentLines(250);
+        const double elapsedMs = static_cast<double>(tailTimer.nsecsElapsed()) / 1.0e6;
+        const QStringList tailLines = tail250.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        TEST_ASSERT(tailLines.size() == 250 &&
+                        tailLines.first().contains(QStringLiteral("LINE_TAG_0051")) &&
+                        tailLines.last().contains(QStringLiteral("LINE_TAG_0300")),
+                    "AppLogger::readRecentLines(250) deve retornar exatamente as ultimas 250 linhas do log de 10 MB");
+        TEST_ASSERT(elapsedMs < 10.0,
+                    "AppLogger::readRecentLines(250) em arquivo de 10 MB deve concluir em < 10 ms");
+        omniframe::io::AppLogger::shutdown();
+
+        // [AUD-028] Duas sessoes isoladas de ProjectRecoveryStore nao sobrescrevem mutuamente o snapshot
+        QTemporaryDir recIsoDir;
+        TEST_ASSERT(recIsoDir.isValid(), "QTemporaryDir para isolamento de sessao ProjectRecoveryStore");
+        omniframe::io::UserPreferencesStore::ScopedDirectoryOverride recDirGuard(recIsoDir.path());
+
+        StructuralModel modelSessA = originalModel;
+        modelSessA.metadata().projectName = "Sessao_Isolada_A";
+        StructuralModel modelSessB = originalModel;
+        modelSessB.metadata().projectName = "Sessao_Isolada_B";
+        modelSessB.addNode(10.0, 20.0, 30.0);
+
+        TEST_ASSERT(omniframe::io::ProjectRecoveryStore::saveSnapshot(
+                        modelSessA, QString(), omniframe::io::SessionSourceKind::UnsavedUntitled, QStringLiteral("sess_alpha")),
+                    "Salvar snapshot da sessao isolada A");
+        TEST_ASSERT(omniframe::io::ProjectRecoveryStore::saveSnapshot(
+                        modelSessB, QString(), omniframe::io::SessionSourceKind::ExampleCantilever, QStringLiteral("sess_beta")),
+                    "Salvar snapshot da sessao isolada B");
+
+        const auto infoA = omniframe::io::ProjectRecoveryStore::inspectPreviousSession(QStringLiteral("sess_alpha"));
+        const auto infoB = omniframe::io::ProjectRecoveryStore::inspectPreviousSession(QStringLiteral("sess_beta"));
+        TEST_ASSERT(infoA.available && infoA.projectName == QStringLiteral("Sessao_Isolada_A") && infoA.nodeCount == 3,
+                    "Snapshot da sessao A deve permanecer intacto apos gravacao da sessao B");
+        TEST_ASSERT(infoB.available && infoB.projectName == QStringLiteral("Sessao_Isolada_B") && infoB.nodeCount == 4,
+                    "Snapshot da sessao B deve permanecer independente da sessao A");
+
+        StructuralModel loadedSessA;
+        TEST_ASSERT(omniframe::io::ProjectRecoveryStore::loadSnapshot(loadedSessA, nullptr, QStringLiteral("sess_alpha")) &&
+                        loadedSessA.getNodes().size() == 3 &&
+                        loadedSessA.metadata().projectName == "Sessao_Isolada_A",
+                    "Carregar snapshot da sessao A deve recuperar o modelo A sem interferencia da sessao B");
+    }
 
     std::cout << "\n[SUCESSO] Teste de Serialização .omni (Schemas 1.0 / 2.0 / 2.1) concluido com 100% de integridade!\n";
     return 0;

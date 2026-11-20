@@ -14,11 +14,17 @@ set(_DEPLOY_SCRIPT "${_OMNIFRAME_ROOT_DIR}/cmake/deploy_optional_qt_binary.cmake
 if(WIN32 AND NOT DEFINED OMNIFRAME_GENERATED_ICON_RC)
     file(TO_CMAKE_PATH "${_OMNIFRAME_ICONS_SRC}/omniframe.ico" OMNIFRAME_APP_ICON_RC_PATH)
     set(OMNIFRAME_GENERATED_ICON_RC "${CMAKE_BINARY_DIR}/generated/windows_app_icon.rc")
-    configure_file(
-        "${_OMNIFRAME_ROOT_DIR}/cmake/windows_app_icon.rc.in"
-        "${OMNIFRAME_GENERATED_ICON_RC}"
-        @ONLY
-    )
+    if(EXISTS "${_OMNIFRAME_ROOT_DIR}/cmake/windows_app_icon.rc.in")
+        configure_file(
+            "${_OMNIFRAME_ROOT_DIR}/cmake/windows_app_icon.rc.in"
+            "${OMNIFRAME_GENERATED_ICON_RC}"
+            @ONLY
+        )
+    else()
+        file(WRITE "${OMNIFRAME_GENERATED_ICON_RC}"
+            "IDI_ICON1 ICON \"${OMNIFRAME_APP_ICON_RC_PATH}\"\n1 ICON \"${OMNIFRAME_APP_ICON_RC_PATH}\"\n"
+        )
+    endif()
 endif()
 
 function(_omniframe_copy_runtime_icons target_name)
@@ -34,11 +40,12 @@ function(_omniframe_copy_runtime_icons target_name)
 endfunction()
 
 function(_omniframe_deploy_tool target_name)
-    if(WIN32)
+    if(WIN32 AND EXISTS "${_DEPLOY_SCRIPT}")
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND "${CMAKE_COMMAND}"
                 -DBINARY_PATH=$<TARGET_FILE:${target_name}>
                 -DQT_BIN_DIR=${OMNIFRAME_QT_BIN_DIR}
+                -DBUILD_CONFIG=$<CONFIG>
                 -DCOPY_QT_TRANSLATIONS=OFF
                 -P "${_DEPLOY_SCRIPT}"
             COMMENT "Executando deploy Qt6 para ${target_name}"
@@ -65,9 +72,6 @@ if(BUILD_VERSION)
         OUTPUT_NAME "VersionEditor"
     )
     target_include_directories(VersionEditor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-    target_compile_definitions(VersionEditor PRIVATE
-        OMNIFRAME_DEFAULT_SOURCE_ROOT="${_OMNIFRAME_ROOT_DIR}"
-    )
     target_link_libraries(VersionEditor PRIVATE
         Qt6::Core
         Qt6::Gui
@@ -141,17 +145,19 @@ if(BUILD_COMPILE_LANGUAGE)
 
     _omniframe_copy_runtime_icons(CompileTranslationsGUI)
 
-    if(WIN32)
+    if(WIN32 AND EXISTS "${_DEPLOY_SCRIPT}")
         add_custom_target(DeployCompileLanguage ALL
             DEPENDS CompileTranslationsGUI CompileTranslationsTerminal
             COMMAND "${CMAKE_COMMAND}"
                 -DBINARY_PATH=$<TARGET_FILE:CompileTranslationsGUI>
                 -DQT_BIN_DIR=${OMNIFRAME_QT_BIN_DIR}
+                -DBUILD_CONFIG=$<CONFIG>
                 -DCOPY_QT_TRANSLATIONS=OFF
                 -P "${_DEPLOY_SCRIPT}"
             COMMAND "${CMAKE_COMMAND}"
                 -DBINARY_PATH=$<TARGET_FILE:CompileTranslationsTerminal>
                 -DQT_BIN_DIR=${OMNIFRAME_QT_BIN_DIR}
+                -DBUILD_CONFIG=$<CONFIG>
                 -DCOPY_QT_TRANSLATIONS=OFF
                 -P "${_DEPLOY_SCRIPT}"
             COMMENT "Executando deploy Qt6 sequencial para CompileTranslationsGUI e CompileTranslationsTerminal"

@@ -4,6 +4,9 @@
 #include <QMatrix4x4>
 #include <QVector3D>
 #include <QPoint>
+#include <QPointF>
+#include <algorithm>
+#include <cmath>
 
 namespace omniframe {
 
@@ -39,22 +42,49 @@ public:
     void screenPointToRay(int mouseX, int mouseY, int screenWidth, int screenHeight,
                           QVector3D& rayOrigin, QVector3D& rayDirection) const;
 
+    bool projectWorldToScreenF(const QVector3D& worldPoint, int screenWidth, int screenHeight,
+                               QPointF& outScreenPt, float* outNdcZ = nullptr) const;
     QPoint worldToScreen(const QVector3D& worldPoint, int screenWidth, int screenHeight) const;
 
     // Getters & Setters
+    float nearPlane() const { return m_nearPlane; }
+    float farPlane() const { return m_farPlane; }
+
     QVector3D target() const { return m_target; }
-    void setTarget(const QVector3D& tgt) { m_target = tgt; }
+    void setTarget(const QVector3D& tgt) {
+        if (std::isfinite(tgt.x()) && std::isfinite(tgt.y()) && std::isfinite(tgt.z())) {
+            m_target = tgt;
+        }
+    }
 
     float distance() const { return m_distance; }
-    void setDistance(float dist) { m_distance = std::clamp(dist, 0.5f, 5000.0f); }
+    void setDistance(float dist) {
+        if (std::isfinite(dist)) {
+            m_distance = std::clamp(dist, 0.5f, 5000.0f);
+            updateClipPlanes();
+        }
+    }
 
     float yaw() const { return m_yaw; }
-    void setYaw(float y) { m_yaw = y; }
+    void setYaw(float y) {
+        if (std::isfinite(y)) {
+            float wrapped = std::fmod(y, 360.0f);
+            if (wrapped < 0.0f) wrapped += 360.0f;
+            m_yaw = wrapped;
+        }
+    }
 
     float pitch() const { return m_pitch; }
-    void setPitch(float p) { m_pitch = std::clamp(p, -89.5f, 89.5f); }
+    void setPitch(float p) {
+        if (std::isfinite(p)) {
+            m_pitch = std::clamp(p, -89.5f, 89.5f);
+        }
+    }
 
 private:
+    void computeBasis(QVector3D& outRight, QVector3D& outUp, QVector3D& outForward) const;
+    void updateClipPlanes();
+
     QVector3D m_target{0.0f, 0.0f, 0.0f};
     float m_distance = 18.0f;
     float m_yaw = 45.0f;       // Rotação em torno do eixo Z (graus)

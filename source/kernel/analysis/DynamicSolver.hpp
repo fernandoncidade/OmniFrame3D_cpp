@@ -7,6 +7,7 @@
 #include <array>
 #include <complex>
 #include <functional>
+#include <stop_token>
 #include <string>
 #include <vector>
 
@@ -153,7 +154,8 @@ public:
                                   const SpMat& M_ff,
                                   const std::array<VecX, 3>& influence_f,
                                   const ReducedLinearSystem& redSys,
-                                  const ModalOptions& opts = {});
+                                  const ModalOptions& opts = {},
+                                  const std::stop_token& stopToken = {});
 
     static RayleighDampingParams computeRayleighCoefficients(double omega1, double zeta1,
                                                              double omega2, double zeta2);
@@ -161,21 +163,43 @@ public:
     static SpMat assembleRayleighDamping(const SpMat& M_ff, const SpMat& K_ff,
                                          const RayleighDampingParams& params);
 
+    /**
+     * Resposta em frequência harmônica (FRF).
+     * Contrato de amortecimento: `C_ff` deve conter EXCLUSIVAMENTE amortecedores discretos
+     * (nodais ou de elemento). O amortecimento de Rayleigh (`opts.rayleighAlphaM * M_ff +
+     * opts.rayleighBetaK * K_ff`) e a perda estrutural (`opts.structuralLossEta`) são
+     * aplicados internamente por `DynamicSolver`. Chamadores sem amortecedores discretos
+     * devem passar `C_ff` vazia (`SpMat(n, n)`) para evitar duplicação (2C).
+     */
     static HarmonicResult solveHarmonic(const SpMat& K_ff,
                                         const SpMat& M_ff,
                                         const SpMat& C_ff,
                                         const VecX& forceAmplitude_f,
                                         const ReducedLinearSystem& redSys,
-                                        const HarmonicOptions& opts);
+                                        const HarmonicOptions& opts,
+                                        const std::stop_token& stopToken = {});
 
+    /**
+     * Integração direta no tempo por histórico de forças.
+     * Contrato de amortecimento: `C_ff` deve conter EXCLUSIVAMENTE amortecedores discretos;
+     * o amortecimento de Rayleigh (`opts.rayleighAlphaM * M_ff + opts.rayleighBetaK * K_ff`)
+     * é adicionado internamente por `DynamicSolver`.
+     */
     static TransientResult solveTransientForceHistory(
         const SpMat& K_ff,
         const SpMat& M_ff,
         const SpMat& C_ff,
         const ReducedLinearSystem& redSys,
         const std::function<VecX(double timeSec, int stepIdx)>& reducedForceFn,
-        const TransientOptions& opts);
+        const TransientOptions& opts,
+        const std::stop_token& stopToken = {});
 
+    /**
+     * Integração direta sísmica por acelerograma na base.
+     * Contrato de amortecimento: `C_ff` deve conter EXCLUSIVAMENTE amortecedores discretos;
+     * o amortecimento de Rayleigh (`opts.rayleighAlphaM`, `opts.rayleighBetaK`) é adicionado
+     * internamente por `DynamicSolver::solveTransientForceHistory`.
+     */
     static TransientResult solveSeismicTimeHistory(
         const SpMat& K_ff,
         const SpMat& M_ff,
@@ -183,7 +207,8 @@ public:
         const std::array<VecX, 3>& influence_f,
         const ReducedLinearSystem& redSys,
         const std::function<Vec3(double timeSec, int stepIdx)>& groundAccelMS2Fn,
-        const TransientOptions& opts);
+        const TransientOptions& opts,
+        const std::stop_token& stopToken = {});
 
     static double interpolateSpectrum(const std::vector<SpectrumPoint>& curve, double periodSec);
 
@@ -192,13 +217,17 @@ public:
     /**
      * Espectro elástico horizontal da ABNT NBR 15421 (aceleração característica ag_s em m/s²,
      * fatores de amplificação sísmica de solo Ca para T=0.2s e Cv para T=1.0s).
+     * Para amortecimento `dampingZeta != 0.05`, aplica o fator de correção `eta = max(0.55, sqrt(10 / (5 + 100*zeta)))`
+     * sobre os trechos de amplificação dinâmica (mantendo `Sa(0) = Ca * ag_s`).
      */
     static std::vector<SpectrumPoint> buildNbr15421SpectrumCurve(double ag_s_ms2, double Ca, double Cv,
-                                                                 double Tmax = 4.0, int numPoints = 100);
+                                                                 double Tmax = 4.0, int numPoints = 100,
+                                                                 double dampingZeta = 0.05);
 
     static ResponseSpectrumResult solveResponseSpectrum(const SpMat& K_orig,
                                                         const ModalResult& modal,
-                                                        const ResponseSpectrumOptions& opts);
+                                                        const ResponseSpectrumOptions& opts,
+                                                        const std::stop_token& stopToken = {});
 };
 
 } // namespace omniframe::kernel

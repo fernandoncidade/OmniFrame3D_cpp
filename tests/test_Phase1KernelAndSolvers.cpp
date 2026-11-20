@@ -205,6 +205,56 @@ void testLoadCasesCombinationsCacheAndSchemaV2() {
     TEST_ASSERT(checkObj.contains("unknownFutureBlock"), "Campo desconhecido futuro deve permanecer preservado apos salvar novamente");
 }
 
+void testAud011MpcSupportConflictAndExternalReactions() {
+    // 1. Conflito entre apoio Dirichlet e DOF escravo de MPC deve ser rejeitado na validacao e no solver
+    {
+        StructuralModel m;
+        m.clear();
+        const NodeId n1 = m.addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = m.addNode(2.0, 0.0, 0.0);
+        m.findNode(n1)->support = SupportRestraint::makeFixed();
+        m.findNode(n2)->support.fixed[0] = true; // Conflito com RigidLink no DOF 0 escravo
+        m.addElement(n1, n2, 1, 1);
+        m.getRigidLinks().push_back({n1, n2, true});
+
+        const ModelValidation val = m.validate();
+        TEST_ASSERT(!val.valid, "Modelo com apoio Dirichlet em no escravo de RigidLink deve ser invalido");
+        bool foundConflictCode = false;
+        for (const auto& iss : val.issues) {
+            if (iss.code == "ERR_MPC_SUPPORT_CONFLICT") foundConflictCode = true;
+        }
+        TEST_ASSERT(foundConflictCode, "validate() deve emitir ERR_MPC_SUPPORT_CONFLICT");
+    }
+
+    // 2. Reacoes externas com MPC (T_mpc^T * R_full): escravos livres devem ter reacao externa zero e mestre fixo recebe total
+    {
+        StructuralModel m;
+        m.clear();
+        const NodeId nBase = m.addNode(0.0, 0.0, 0.0);
+        const NodeId nMaster = m.addNode(0.0, 0.0, 3.0);
+        const NodeId nSlave = m.addNode(2.0, 0.0, 3.0);
+        m.findNode(nBase)->support = SupportRestraint::makeFixed();
+        m.findNode(nMaster)->support = SupportRestraint::makeFixed();
+        m.findNode(nSlave)->load.force.x = 25.0;
+        m.findNode(nSlave)->load.force.y = -40.0;
+        m.addElement(nBase, nMaster, 1, 1);
+        m.addElement(nBase, nSlave, 1, 1);
+        m.getRigidDiaphragms().push_back({nMaster, {nSlave}, 2});
+
+        const SolverResult res = FemSolver3D::solve(m);
+        TEST_ASSERT(res.success && res.equilibrium.isBalanced,
+                    "Modelo com diafragma rigido e mestre engastado deve fechar equilibrio estatico global");
+        for (int d = 0; d < 6; ++d) {
+            TEST_ASSERT(std::abs(m.findNode(nSlave)->reaction[d]) < 1e-12,
+                        "No escravo livre de MPC nao deve reportar forca interna de vinculo como reacao de apoio");
+        }
+        const double totalRx = m.findNode(nBase)->reaction[0] + m.findNode(nMaster)->reaction[0];
+        const double totalRy = m.findNode(nBase)->reaction[1] + m.findNode(nMaster)->reaction[1];
+        TEST_ASSERT(std::abs(totalRx + 25.0) < 1e-5, "Somatorio de Rx nos apoios reais deve equilibrar Fx aplicado no escravo");
+        TEST_ASSERT(std::abs(totalRy - 40.0) < 1e-5, "Somatorio de Ry nos apoios reais deve equilibrar Fy aplicado no escravo");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -212,6 +262,7 @@ int main() {
     testAllLinearSolversConsistency();
     testMpcRigidLinkAndDiaphragm();
     testLoadCasesCombinationsCacheAndSchemaV2();
+    testAud011MpcSupportConflictAndExternalReactions();
 
     std::cout << "[OK] test_Phase1KernelAndSolvers passou com sucesso." << std::endl;
     return 0;

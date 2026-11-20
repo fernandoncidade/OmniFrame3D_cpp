@@ -26,8 +26,8 @@ public:
     void updateHardwareInfo(const GraphicsCapabilitiesInfo& hwInfo);
 
 signals:
-    void settingsPreviewChanged(const RenderQualitySettings& previewSettings);
-    void settingsApplied(const RenderQualitySettings& appliedSettings);
+    void settingsPreviewChanged(const omniframe::RenderQualitySettings& previewSettings);
+    void settingsApplied(const omniframe::RenderQualitySettings& appliedSettings);
 
 protected:
     void changeEvent(QEvent* event) override;

@@ -1,7 +1,11 @@
 #include "CompileTranslationsGUI.hpp"
 
+#ifndef OMNIFRAME_COMPILE_TRANSLATIONS_TERMINAL_LINKED
 #define OMNIFRAME_COMPILE_TRANSLATIONS_NO_MAIN
 #include "CompileTranslationsTerminal.cpp"
+#else
+#include "CompileTranslationsTerminal.hpp"
+#endif
 
 #include <QApplication>
 #include <QComboBox>
@@ -17,9 +21,11 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
+#include <QProcess>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace mocks::compile_translations_gui {
@@ -72,6 +78,77 @@ QIcon obter_icone_aplicacao() {
 CompileTranslationsGuiWindow::CompileTranslationsGuiWindow(QWidget* parent)
     : QMainWindow(parent)
 {
+    m_activeProcess = new QProcess(this);
+    m_processTimeoutTimer = new QTimer(this);
+    m_processTimeoutTimer->setSingleShot(true);
+
+    connect(m_processTimeoutTimer, &QTimer::timeout, this, [this]() {
+        if (!m_compilationRunning || !m_activeProcess || m_currentItemHandled) {
+            return;
+        }
+        m_timedOutCurrent = true;
+        if (m_activeProcess->state() != QProcess::NotRunning) {
+            m_activeProcess->kill();
+        }
+    });
+
+    connect(m_activeProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
+        if (!m_compilationRunning || m_currentItemHandled) {
+            return;
+        }
+        if (err == QProcess::FailedToStart) {
+            m_currentItemHandled = true;
+            if (m_processTimeoutTimer) {
+                m_processTimeoutTimer->stop();
+            }
+            ++m_batchErrors;
+            registrarLog(QString("[ERRO] %1 -> %2 | %3")
+                .arg(QFileInfo(m_activeTsPath).fileName(),
+                     QFileInfo(m_activeQmPath).fileName(),
+                     trLocal("Falha ao iniciar executavel lrelease", "Failed to start lrelease executable")));
+            QTimer::singleShot(0, this, [this]() { processarProximoDaFila(); });
+        }
+    });
+
+    connect(m_activeProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
+        if (!m_compilationRunning || m_currentItemHandled) {
+            return;
+        }
+        m_currentItemHandled = true;
+        if (m_processTimeoutTimer) {
+            m_processTimeoutTimer->stop();
+        }
+
+        QString stdoutStr = QString::fromLocal8Bit(m_activeProcess->readAllStandardOutput()).trimmed();
+        const QString stderrStr = QString::fromLocal8Bit(m_activeProcess->readAllStandardError()).trimmed();
+        const QFileInfo qmInfo(m_activeQmPath);
+
+        if (m_timedOutCurrent) {
+            ++m_batchErrors;
+            registrarLog(QString("[ERRO] %1 -> %2 | %3")
+                .arg(QFileInfo(m_activeTsPath).fileName(),
+                     qmInfo.fileName(),
+                     trLocal("Timeout ao executar lrelease", "Timed out executing lrelease")));
+        } else if (exitStatus == QProcess::NormalExit && exitCode == 0 && qmInfo.exists() && qmInfo.size() > 0) {
+            ++m_batchOk;
+            const QString msg = stdoutStr.isEmpty()
+                ? trLocal("Compilado com sucesso", "Compiled successfully")
+                : stdoutStr.replace('\n', ' ').replace('\r', ' ');
+            registrarLog(QString("[OK] %1 -> %2 | %3")
+                .arg(QFileInfo(m_activeTsPath).fileName(), qmInfo.fileName(), msg));
+        } else {
+            ++m_batchErrors;
+            const QString msg = !stderrStr.isEmpty()
+                ? stderrStr
+                : trLocal("Falha na compilacao com lrelease", "Compilation failed with lrelease");
+            registrarLog(QString("[ERRO] %1 -> %2 | %3")
+                .arg(QFileInfo(m_activeTsPath).fileName(), qmInfo.fileName(), msg));
+        }
+
+        processarProximoDaFila();
+    });
+
     configurarUi();
     aplicarEstilo();
     aplicarTraducoesUi();
@@ -82,6 +159,20 @@ CompileTranslationsGuiWindow::CompileTranslationsGuiWindow(QWidget* parent)
         setWindowIcon(icon);
     }
     resize(960, 680);
+}
+
+CompileTranslationsGuiWindow::~CompileTranslationsGuiWindow() {
+    m_compilationRunning = false;
+    if (m_processTimeoutTimer) {
+        m_processTimeoutTimer->stop();
+    }
+    if (m_activeProcess) {
+        disconnect(m_activeProcess, nullptr, this, nullptr);
+        if (m_activeProcess->state() != QProcess::NotRunning) {
+            m_activeProcess->kill();
+            m_activeProcess->waitForFinished(3000);
+        }
+    }
 }
 
 void CompileTranslationsGuiWindow::configurarUi() {
@@ -268,27 +359,132 @@ void CompileTranslationsGuiWindow::aoDetectarPadrao() {
     statusBar()->showMessage(trLocal("Caminhos detectados em: ", "Detected paths in: ") + dirTs);
 }
 
-void CompileTranslationsGuiWindow::aoCompilarTodas() {
-    const ct::RelatorioCompilacaoTerminal rel = ct::executar_compilacao(
-        m_dirEdit->text(),
-        m_lreleaseEdit->text(),
-        {},
-        ct::ModoExecucao::CompilarTodos,
-        m_idiomaIngles
-    );
-    for (const auto& item : rel.itens) {
-        registrarLog(QString("[%1] %2 -> %3 | %4")
-            .arg(item.sucesso ? "OK" : "ERRO")
-            .arg(QFileInfo(item.arquivoTs).fileName())
-            .arg(QFileInfo(item.arquivoQm).fileName())
-            .arg(item.mensagem));
+void CompileTranslationsGuiWindow::definirControlesHabilitados(bool enabled) {
+    if (m_btnCompilarTodas) m_btnCompilarTodas->setEnabled(enabled);
+    if (m_btnCompilarSelecionadas) m_btnCompilarSelecionadas->setEnabled(enabled);
+    if (m_btnVerificar) m_btnVerificar->setEnabled(enabled);
+    if (m_btnProcurarDir) m_btnProcurarDir->setEnabled(enabled);
+    if (m_btnDetectarPadrao) m_btnDetectarPadrao->setEnabled(enabled);
+    if (m_btnProcurarLrelease) m_btnProcurarLrelease->setEnabled(enabled);
+    if (m_dirEdit) m_dirEdit->setEnabled(enabled);
+    if (m_lreleaseEdit) m_lreleaseEdit->setEnabled(enabled);
+}
+
+void CompileTranslationsGuiWindow::iniciarCompilacaoAssincrona(const QStringList& arquivosEspecificos) {
+    if (m_compilationRunning) {
+        return;
     }
-    registrarLog("==> " + rel.mensagemGeral);
+
+    const QString lreleaseOverride = m_lreleaseEdit->text().trimmed();
+    m_activeLreleasePath = ct::localizar_lrelease(lreleaseOverride);
+    if (!lreleaseOverride.isEmpty() && m_activeLreleasePath.isEmpty()) {
+        const QString msg = trLocal(
+            QString("Caminho informado para lrelease invalido ou inexistente: %1").arg(lreleaseOverride),
+            QString("Specified lrelease path is invalid or does not exist: %1").arg(lreleaseOverride)
+        );
+        registrarLog("==> " + msg);
+        statusBar()->showMessage(msg);
+        return;
+    }
+    if (m_activeLreleasePath.isEmpty()) {
+        const QString msg = trLocal(
+            "Executavel lrelease.exe do Qt6 nao encontrado. Selecione o executavel ou configure QTDIR.",
+            "Qt6 lrelease.exe executable was not found. Select the executable or set QTDIR."
+        );
+        registrarLog("==> " + msg);
+        statusBar()->showMessage(msg);
+        return;
+    }
+
+    const QString raiz = ct::resolver_raiz_projeto(m_dirEdit->text());
+    m_activeDirTraducoes = ct::resolver_diretorio_traducoes(raiz, m_dirEdit->text());
+    QStringList alvos = arquivosEspecificos;
+    if (alvos.isEmpty()) {
+        alvos = ct::listar_arquivos_ts(m_activeDirTraducoes);
+    }
+    if (alvos.isEmpty()) {
+        const QString msg = trLocal(
+            QString("Nenhum arquivo .ts encontrado em: %1").arg(m_activeDirTraducoes),
+            QString("No .ts files found in: %1").arg(m_activeDirTraducoes)
+        );
+        registrarLog("==> " + msg);
+        statusBar()->showMessage(msg);
+        return;
+    }
+
+    m_pendingTsQueue = alvos;
+    m_batchTotal = static_cast<int>(alvos.size());
+    m_batchOk = 0;
+    m_batchErrors = 0;
+    m_compilationRunning = true;
+    definirControlesHabilitados(false);
+    statusBar()->showMessage(trLocal("Compilando traducoes (.ts -> .qm)...", "Compiling translations (.ts -> .qm)..."));
+    processarProximoDaFila();
+}
+
+void CompileTranslationsGuiWindow::processarProximoDaFila() {
+    if (!m_compilationRunning) {
+        return;
+    }
+    while (!m_pendingTsQueue.isEmpty()) {
+        const QString tsPathRaw = m_pendingTsQueue.takeFirst();
+        QFileInfo tsInfo(tsPathRaw);
+        if (!tsInfo.isAbsolute()) {
+            tsInfo.setFile(QDir(m_activeDirTraducoes).filePath(tsPathRaw));
+        }
+
+        m_activeTsPath = QDir::cleanPath(tsInfo.absoluteFilePath());
+        m_activeQmPath = QDir::cleanPath(tsInfo.dir().filePath(tsInfo.completeBaseName() + ".qm"));
+
+        if (!tsInfo.exists()) {
+            ++m_batchErrors;
+            registrarLog(QString("[ERRO] %1 -> %2 | %3")
+                .arg(QFileInfo(m_activeTsPath).fileName(),
+                     QFileInfo(m_activeQmPath).fileName(),
+                     trLocal("Arquivo .ts nao encontrado", ".ts file not found")));
+            continue;
+        }
+
+        m_currentItemHandled = false;
+        m_timedOutCurrent = false;
+        m_processTimeoutTimer->start(60000);
+        m_activeProcess->start(m_activeLreleasePath, QStringList() << m_activeTsPath << QStringLiteral("-qm") << m_activeQmPath);
+        return;
+    }
+
+    finalizarCompilacaoAssincrona();
+}
+
+void CompileTranslationsGuiWindow::finalizarCompilacaoAssincrona() {
+    if (m_processTimeoutTimer) {
+        m_processTimeoutTimer->stop();
+    }
+    m_compilationRunning = false;
+    definirControlesHabilitados(true);
+
+    const QString resumo = trLocal(
+        QString("Traducoes processadas: %1 OK, %2 erro(s) de %3 arquivo(s).")
+            .arg(m_batchOk)
+            .arg(m_batchErrors)
+            .arg(m_batchTotal),
+        QString("Translations processed: %1 OK, %2 error(s) out of %3 file(s).")
+            .arg(m_batchOk)
+            .arg(m_batchErrors)
+            .arg(m_batchTotal)
+    );
+    registrarLog("==> " + resumo);
     atualizarListaArquivos();
-    statusBar()->showMessage(rel.mensagemGeral);
+    statusBar()->showMessage(resumo);
+}
+
+void CompileTranslationsGuiWindow::aoCompilarTodas() {
+    iniciarCompilacaoAssincrona({});
 }
 
 void CompileTranslationsGuiWindow::aoCompilarSelecionadas() {
+    if (m_compilationRunning) {
+        return;
+    }
     QStringList selecionados;
     for (QListWidgetItem* item : m_listaTs->selectedItems()) {
         selecionados << item->data(Qt::UserRole).toString();
@@ -302,23 +498,7 @@ void CompileTranslationsGuiWindow::aoCompilarSelecionadas() {
         return;
     }
 
-    const ct::RelatorioCompilacaoTerminal rel = ct::executar_compilacao(
-        m_dirEdit->text(),
-        m_lreleaseEdit->text(),
-        selecionados,
-        ct::ModoExecucao::CompilarSelecionados,
-        m_idiomaIngles
-    );
-    for (const auto& item : rel.itens) {
-        registrarLog(QString("[%1] %2 -> %3 | %4")
-            .arg(item.sucesso ? "OK" : "ERRO")
-            .arg(QFileInfo(item.arquivoTs).fileName())
-            .arg(QFileInfo(item.arquivoQm).fileName())
-            .arg(item.mensagem));
-    }
-    registrarLog("==> " + rel.mensagemGeral);
-    atualizarListaArquivos();
-    statusBar()->showMessage(rel.mensagemGeral);
+    iniciarCompilacaoAssincrona(selecionados);
 }
 
 void CompileTranslationsGuiWindow::aoVerificarStatus() {
@@ -345,6 +525,27 @@ void CompileTranslationsGuiWindow::aoAlternarIdioma(int index) {
     aplicarTraducoesUi();
 }
 
+void CompileTranslationsGuiWindow::setTranslationDir(const QString& dirPath) {
+    if (m_dirEdit) {
+        m_dirEdit->setText(dirPath);
+    }
+    atualizarListaArquivos();
+}
+
+void CompileTranslationsGuiWindow::setLreleasePath(const QString& lreleasePath) {
+    if (m_lreleaseEdit) {
+        m_lreleaseEdit->setText(lreleasePath);
+    }
+}
+
+void CompileTranslationsGuiWindow::triggerCompileAllAsync() {
+    iniciarCompilacaoAssincrona({});
+}
+
+QString CompileTranslationsGuiWindow::logContent() const {
+    return m_logText ? m_logText->toPlainText() : QString();
+}
+
 int run_gui(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QCoreApplication::setApplicationName("CompileTranslationsGUI");
@@ -356,7 +557,9 @@ int run_gui(int argc, char* argv[]) {
 
 } // namespace mocks::compile_translations_gui
 
+#ifndef OMNIFRAME_COMPILE_TRANSLATIONS_GUI_NO_MAIN
 int main(int argc, char* argv[]) {
     return mocks::compile_translations_gui::run_gui(argc, argv);
 }
+#endif
 

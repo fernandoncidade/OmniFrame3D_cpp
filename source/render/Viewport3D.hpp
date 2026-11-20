@@ -12,6 +12,11 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
+#include <QColor>
+#include <QMetaObject>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -122,6 +127,42 @@ public:
     const RenderQualitySettings& renderQualitySettings() const { return m_renderSettings; }
     GraphicsCapabilitiesInfo graphicsCapabilities() const;
 
+    // Utilitários de cache, picking, ciclo GL e legenda DCR
+    struct LegendGradientStop {
+        double normalizedFromBottom = 0.0;
+        double topDownPos = 1.0;
+        QColor color;
+    };
+    static std::vector<LegendGradientStop> computeDcrLegendStops(double maxDcr);
+
+    void markGeometryDirty();
+    bool isOpenGLReady() const { return m_glInitialized && m_glFunctionsReady && !m_glFallbackMode; }
+    QString openGLErrorMessage() const { return m_glErrorMessage; }
+    double lastPaintGlMs() const { return m_lastPaintGlMs; }
+    std::uint64_t fboAllocationAttemptCount() const noexcept { return m_fboAllocationAttemptCount; }
+    bool isFboFallbackExhausted() const noexcept { return m_fboFallbackExhausted; }
+
+    static bool validateVboByteSize(std::size_t elemCount,
+                                    std::size_t elemBytes,
+                                    int* outBytes = nullptr) noexcept;
+    static bool safeAllocateVbo(QOpenGLBuffer& vbo,
+                                const void* srcData,
+                                std::size_t elemCount,
+                                std::size_t elemBytes);
+    static bool canReuseCachedFboRequest(int lastW,
+                                         int lastH,
+                                         qreal lastDpr,
+                                         float lastScale,
+                                         int lastSamples,
+                                         int reqW,
+                                         int reqH,
+                                         qreal reqDpr,
+                                         float reqScale,
+                                         int reqSamples) noexcept;
+
+    NodeId pickNode(const QPoint& mousePos, double maxDistPx = 14.0) const;
+    ElementId pickElement(const QPoint& mousePos, double maxDistPx = 8.0) const;
+
     // Vistas Rápidas
     void viewIsometric();
     void viewFrontalXZ();
@@ -141,6 +182,7 @@ protected:
     void initializeGL() override;
     void resizeGL(int w, int h) override;
     void paintGL() override;
+    void paintEvent(QPaintEvent* event) override;
 
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -149,9 +191,112 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
 
 private:
-    // Compilação e inicialização de shaders e buffers
+    // Compilação e inicialização/limpeza de shaders e buffers OpenGL
+    std::unique_ptr<QOpenGLShaderProgram> compileShaderProgram(const char* name,
+                                                               const char* vertexSrc,
+                                                               const char* fragmentSrc);
     void initShaders();
     void initBuffers();
+    void cleanupGL();
+
+    QVector4D modelClipPlaneVec() const;
+
+    // Estruturas de cache em GPU (eliminam rebuild/glBufferData em hover e orbit)
+    struct CachedMeshBuffer {
+        QOpenGLVertexArrayObject vao;
+        QOpenGLBuffer vbo{QOpenGLBuffer::VertexBuffer};
+        GLsizei vertexCount = 0;
+        void destroy() {
+            vao.destroy();
+            vbo.destroy();
+            vertexCount = 0;
+        }
+    };
+    struct CachedDiagFillBuffer {
+        QOpenGLVertexArrayObject vao;
+        QOpenGLBuffer vbo{QOpenGLBuffer::VertexBuffer};
+        GLsizei vertexCount = 0;
+        void destroy() {
+            vao.destroy();
+            vbo.destroy();
+            vertexCount = 0;
+        }
+    };
+    struct CachedLineBuffer {
+        QOpenGLVertexArrayObject lineVao;
+        QOpenGLBuffer lineVbo{QOpenGLBuffer::VertexBuffer};
+        GLsizei lineVertexCount = 0;
+        QOpenGLVertexArrayObject aaVao;
+        QOpenGLBuffer aaVbo{QOpenGLBuffer::VertexBuffer};
+        GLsizei aaVertexCount = 0;
+        bool builtWithShaderAA = false;
+        void destroy() {
+            lineVao.destroy();
+            lineVbo.destroy();
+            lineVertexCount = 0;
+            aaVao.destroy();
+            aaVbo.destroy();
+            aaVertexCount = 0;
+        }
+    };
+
+    struct GridCacheKey {
+        WorkPlane workPlane = WorkPlane::XY_Top;
+        double planeOffset = 0.0;
+        double gridStep = 0.5;
+        ActivePlaneTheme planeTheme = ActivePlaneTheme::ObsidianDark;
+        double planeGridContrast = 1.0;
+        bool showActivePlaneSurface = true;
+        bool shaderLineAA = true;
+        bool operator==(const GridCacheKey&) const = default;
+    };
+
+    struct SceneCacheKey {
+        const StructuralModel* model = nullptr;
+        std::uint64_t geometryRevision = 0;
+        DiagramType activeDiagram = DiagramType::None;
+        double diagramScale = 1.0;
+        double deformedScale = 50.0;
+        PostContourMode postContourMode = PostContourMode::None;
+        bool showSurfaceMesh = true;
+        bool showLocalAxes = false;
+        ActivePlaneTheme planeTheme = ActivePlaneTheme::ObsidianDark;
+        double planeGridContrast = 1.0;
+        bool shaderLineAA = true;
+        std::uint64_t dcrRevision = 0;
+        std::uint64_t animRevision = 0;
+        std::uint64_t selectionRevision = 0;
+        bool operator==(const SceneCacheKey&) const = default;
+    };
+
+    struct CachedBarDiagramData {
+        Vec3 baseStart;
+        Vec3 baseEnd;
+        Vec3 plotDir;
+        std::array<double, 33> values{};
+    };
+    struct DiagramEvalCache {
+        const StructuralModel* model = nullptr;
+        std::uint64_t geometryRevision = 0;
+        DiagramType diagramType = DiagramType::None;
+        double maxAbsVal = 1e-6;
+        std::vector<CachedBarDiagramData> bars;
+        bool valid = false;
+    };
+
+    void ensureGridCache();
+    void ensureSceneCache();
+    void rebuildDiagramEvalCache();
+    void uploadLineCache(CachedLineBuffer& cache, const std::vector<float>& segVerts7f);
+    void uploadMeshCache(CachedMeshBuffer& cache, const std::vector<float>& meshVerts10f);
+    void uploadDiagFillCache(CachedDiagFillBuffer& cache, const std::vector<float>& diagVerts7f);
+    void drawCachedLines(const QMatrix4x4& mvp,
+                         CachedLineBuffer& cache,
+                         float logicalWidthPx,
+                         bool depthWrite,
+                         bool splitOpaquePasses);
+    void drawCachedMesh(const QMatrix4x4& mvp, CachedMeshBuffer& cache);
+    void drawCachedDiagFill(const QMatrix4x4& mvp, CachedDiagFillBuffer& cache);
 
     // Rotinas de renderização gráfica 3D
     void renderGrid(const QMatrix4x4& mvp);
@@ -170,13 +315,12 @@ private:
     void buildCube(std::vector<float>& vertices, float size, const QVector3D& center, const QVector4D& color);
     void buildPyramid(std::vector<float>& vertices, float baseSize, float height, const QVector3D& apex, const QVector4D& color);
     void buildSphere(std::vector<float>& vertices, float radius, int rings, int sectors, const QVector3D& center, const QVector4D& color);
+    void buildUnitSphereMesh(std::vector<float>& vertices6f, int rings, int sectors);
     void buildCone(std::vector<float>& vertices, float radius, float height, const QVector3D& base, const QVector3D& dir, const QVector4D& color);
 
-    // Raycasting e Picking
+    // Raycasting e snapping
     bool intersectRayWorkingPlane(const QVector3D& rayOrigin, const QVector3D& rayDir, Vec3& outPt) const;
     Vec3 applySnap(const Vec3& pt) const;
-    NodeId pickNode(const QPoint& mousePos, double maxDistPx = 14.0) const;
-    ElementId pickElement(const QPoint& mousePos, double maxDistPx = 8.0) const;
 
     StructuralModel* m_model = nullptr;
     Camera3D m_camera;
@@ -239,10 +383,11 @@ private:
     std::unique_ptr<QOpenGLShaderProgram> m_lineShader;
     std::unique_ptr<QOpenGLShaderProgram> m_aaLineShader;
     std::unique_ptr<QOpenGLShaderProgram> m_meshShader;
+    std::unique_ptr<QOpenGLShaderProgram> m_instancedMeshShader;
     std::unique_ptr<QOpenGLShaderProgram> m_diagFillShader;
     std::unique_ptr<QOpenGLShaderProgram> m_resolveShader;
 
-    // VAOs e VBOs dinâmicos
+    // VAOs e VBOs dinâmicos (cursor preview e resolve quad)
     QOpenGLVertexArrayObject m_lineVAO;
     QOpenGLBuffer m_lineVBO;
 
@@ -257,6 +402,48 @@ private:
 
     QOpenGLVertexArrayObject m_quadVAO;
     QOpenGLBuffer m_quadVBO;
+
+    // Esfera unitária + instância GPU para nós (glDrawArraysInstanced)
+    QOpenGLVertexArrayObject m_nodeInstVAO;
+    QOpenGLBuffer m_unitSphereVBO{QOpenGLBuffer::VertexBuffer};
+    QOpenGLBuffer m_nodeInstanceVBO{QOpenGLBuffer::VertexBuffer};
+    GLsizei m_unitSphereVertexCount = 0;
+    GLsizei m_cachedNodeInstanceCount = 0;
+
+    // Caches persistentes em GPU (Grid + Cena)
+    CachedDiagFillBuffer m_gridSurfaceCache;
+    CachedLineBuffer m_gridMinorCache;
+    CachedLineBuffer m_gridMajorCache;
+    CachedLineBuffer m_gridBorderCache;
+    CachedLineBuffer m_gridAxisCache;
+    GridCacheKey m_gridCacheKey;
+    bool m_gridDirty = true;
+
+    CachedMeshBuffer m_surfaceMeshTriCache;
+    CachedLineBuffer m_surfaceMeshEdgeCache;
+    CachedLineBuffer m_elemNormalCache;
+    CachedLineBuffer m_elemSelectedCache;
+    CachedLineBuffer m_elemAxisCache;
+    CachedMeshBuffer m_supportMeshCache;
+    CachedLineBuffer m_loadLineCache;
+    CachedMeshBuffer m_loadConeCache;
+    CachedLineBuffer m_deformedLineCache;
+    CachedDiagFillBuffer m_diagramFillCache;
+    CachedLineBuffer m_diagramBorderCache;
+    DiagramEvalCache m_diagramCache;
+    SceneCacheKey m_sceneCacheKey;
+    bool m_sceneCacheBuilt = false;
+    bool m_geometryDirty = true;
+    std::uint64_t m_dcrRevision = 0;
+    std::uint64_t m_animRevision = 0;
+    std::uint64_t m_selectionRevision = 0;
+
+    bool m_cachedLegendVisible = false;
+    QString m_cachedLegendTitle;
+    QString m_cachedLegendUnit;
+    double m_cachedLegendMin = 0.0;
+    double m_cachedLegendMax = 1.0;
+    bool m_cachedLegendIsDcr = false;
 
     // Helpers de Renderização Alta Definição & FBO Offscreen (SSAA + MSAA)
     void drawLinesAA(const QMatrix4x4& mvp,
@@ -286,9 +473,21 @@ private:
     int m_fboHeight = 0;
     int m_activeMsaaSamples = 0;
     float m_activeSupersample = 1.0f;
+    int m_fboLastRequestedW = 0;
+    int m_fboLastRequestedH = 0;
+    qreal m_fboLastRequestedDpr = 0.0;
+    float m_fboLastRequestedScale = 0.0f;
+    int m_fboLastRequestedSamples = -1;
+    bool m_fboFallbackExhausted = false;
+    std::uint64_t m_fboAllocationAttemptCount = 0;
 
-    // Capacidades de Hardware da GPU
+    // Capacidades de Hardware da GPU e ciclo de vida GL
+    QMetaObject::Connection m_contextDestroyedConn;
+    bool m_glFunctionsReady = false;
+    bool m_glFallbackMode = false;
     bool m_glInitialized = false;
+    QString m_glErrorMessage;
+    double m_lastPaintGlMs = 0.0;
     QString m_glRenderer;
     QString m_glVendor;
     QString m_glVersion;

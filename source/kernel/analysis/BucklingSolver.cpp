@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <stop_token>
 
 namespace omniframe::kernel {
 
@@ -65,17 +66,31 @@ VecX normalizeModeFull(VecX fullVec) {
 BucklingResult BucklingSolver::solve(const SpMat& K_ff,
                                      const SpMat& Kg_ff,
                                      const ReducedLinearSystem& redSys,
-                                     const BucklingOptions& opts)
+                                     const BucklingOptions& opts,
+                                     const std::stop_token& stopToken)
 {
     BucklingResult res;
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise de flambagem cancelada.";
+        return res;
+    }
     const int n = static_cast<int>(K_ff.rows());
     if (n <= 0 || K_ff.cols() != n || Kg_ff.rows() != n || Kg_ff.cols() != n) {
         res.errorMessage = "Dimensões inválidas das matrizes K_ff / Kg_ff para análise de flambagem.";
         return res;
     }
 
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise de flambagem cancelada.";
+        return res;
+    }
+
     Eigen::SimplicialLDLT<SpMat> ldlt;
     ldlt.compute(K_ff);
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise de flambagem cancelada.";
+        return res;
+    }
     if (ldlt.info() != Eigen::Success) {
         res.errorMessage = "Falha na fatoração LDLT de K_ff (sistema possivelmente singular ou hipostático).";
         return res;
@@ -139,6 +154,10 @@ BucklingResult BucklingSolver::solve(const SpMat& K_ff,
     MatX Qbest;
 
     for (int iter = 1; iter <= std::max(1, opts.maxIterations); ++iter) {
+        if (stopToken.stop_requested()) {
+            res.errorMessage = "Analise de flambagem cancelada.";
+            return res;
+        }
         res.iterationsPerformed = iter;
 
         MatX Y = B * X;
@@ -167,8 +186,8 @@ BucklingResult BucklingSolver::solve(const SpMat& K_ff,
             return res;
         }
 
-        const VecX mu = eig.eigenvalues();
-        const MatX Z = eig.eigenvectors();
+        const auto& mu = eig.eigenvalues();
+        const auto& Z = eig.eigenvectors();
 
         // Ordena pares válidos: positivos primeiro em ordem crescente de lambda = 1/mu (ou por |mu|)
         struct ModePair {
@@ -230,11 +249,19 @@ BucklingResult BucklingSolver::solve(const SpMat& K_ff,
         return res;
     }
 
+    if (stopToken.stop_requested()) {
+        res.errorMessage = "Analise de flambagem cancelada.";
+        return res;
+    }
+
     res.loadFactors = std::move(bestLambdas);
     res.modeShapesFull.reserve(res.loadFactors.size());
+    ReducedLinearSystem zeroSys = redSys;
+    zeroSys.U_fixed_red = VecX::Zero(redSys.reducedDofs);
+    zeroSys.U_offset = VecX::Zero(redSys.fullDofs);
     for (int j = 0; j < static_cast<int>(res.loadFactors.size()); ++j) {
         VecX phi_f = Qbest.col(j);
-        VecX phi_full = GlobalAssembler::reconstructFullDisplacements(redSys, phi_f);
+        VecX phi_full = GlobalAssembler::reconstructFullDisplacements(zeroSys, phi_f);
         res.modeShapesFull.push_back(normalizeModeFull(std::move(phi_full)));
     }
     res.success = true;

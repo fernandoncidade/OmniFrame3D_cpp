@@ -11,16 +11,44 @@
 #include <QLibraryInfo>
 #include <QLocale>
 #include <QWidget>
+#include <memory>
+#include <utility>
 
 namespace omniframe::locale
 {
 
     namespace
     {
+        QCoreApplication *g_hookedTranslationApp = nullptr;
+
+        std::unique_ptr<GerenciadorTraducao> &translationInstanceStorage()
+        {
+            static std::unique_ptr<GerenciadorTraducao> instancePtr;
+            return instancePtr;
+        }
+
+        void cleanupTranslationManagerAtAppExit()
+        {
+            translationInstanceStorage().reset();
+            g_hookedTranslationApp = nullptr;
+        }
+
+        void ensureTranslationAppLifecycleHook()
+        {
+            if (auto *app = QCoreApplication::instance(); app != nullptr && app != g_hookedTranslationApp)
+            {
+                g_hookedTranslationApp = app;
+                qAddPostRoutine(&cleanupTranslationManagerAtAppExit);
+                QObject::connect(app, &QObject::destroyed, []() {
+                    cleanupTranslationManagerAtAppExit();
+                });
+            }
+        }
 
         void dispatchLanguageChangeToWidgets()
         {
-            for (QWidget *w : QApplication::topLevelWidgets())
+            const QWidgetList topLevels = QApplication::topLevelWidgets();
+            for (QWidget *w : topLevels)
             {
                 if (w)
                 {
@@ -50,8 +78,18 @@ namespace omniframe::locale
 
     GerenciadorTraducao &GerenciadorTraducao::instance()
     {
-        static GerenciadorTraducao inst;
-        return inst;
+        ensureTranslationAppLifecycleHook();
+        auto &storage = translationInstanceStorage();
+        if (!storage)
+        {
+            storage.reset(new GerenciadorTraducao(nullptr));
+        }
+        return *storage;
+    }
+
+    void GerenciadorTraducao::shutdown()
+    {
+        cleanupTranslationManagerAtAppExit();
     }
 
     GerenciadorTraducao::GerenciadorTraducao(QObject *parent)
@@ -146,7 +184,7 @@ namespace omniframe::locale
             }
         }
 
-        const QString embeddedAssets = QStringLiteral(":/omniframe/assets");
+        QString embeddedAssets = QStringLiteral(":/omniframe/assets");
         if (isValidAssetsDir(QDir(embeddedAssets)))
         {
             return embeddedAssets;
@@ -168,7 +206,7 @@ namespace omniframe::locale
             candidatePaths << QDir(QStringLiteral(":/omniframe/assets")).filePath(relativePath);
         }
 
-        for (const QString &fullPath : candidatePaths)
+        for (const QString &fullPath : std::as_const(candidatePaths))
         {
             QFile file(fullPath);
             if (file.open(QIODevice::ReadOnly | QIODevice::Text))

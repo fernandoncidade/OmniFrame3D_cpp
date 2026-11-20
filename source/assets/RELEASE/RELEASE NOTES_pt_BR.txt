@@ -1,4 +1,48 @@
 NOTAS DE LANÇAMENTO — OMNIFRAME 3D
+Versão: 2026.11.20.0
+Data: 20 de novembro de 2026
+
+Destaques da Versão 2026.11.20.0:
+
+1. Maior Precisão nos Esforços Internos, Análises Dinâmicas, Não Lineares e Auditoria ABNT NBR
+- Os resultados de esforços mínimos e máximos nas barras, flechas e verificações das normas ABNT NBR (incluindo aço, concreto armado e fundações) passaram a refletir integralmente os valores reais calculados na estrutura, eliminando leituras zeradas ou divergentes em vigas, pilares e sapatas e aplicando corretamente o teto de resistência plástica à flexão e o esforço normal característico no dimensionamento de fundações.
+- A análise de segunda ordem (P-Delta) passou a ser executada de modo iterativo real tanto nas análises não lineares quanto nas combinações normativas que habilitam esse efeito (como ELU-2 P-Delta), enquanto as combinações quase-permanentes de serviço passaram a adotar fator nulo para ações sísmicas.
+- Vínculos rígidos, diafragmas, barras com extremidades rotuladas, elementos lineares refinados, placas e cascas empenadas, perfis assimétricos, recalques prescritos e o peso próprio em casos de carga passaram a se comportar com maior fidelidade física, separando corretamente as reações nos apoios externos e evitando distorções em análises de vibração e sismo mesmo com massas excêntricas.
+- As análises dinâmicas harmônicas, transientes e sísmicas tiveram o cálculo do amortecimento corrigido para eliminar duplicidade, e o espectro de resposta sísmico passou a seguir fielmente o patamar da norma e a combinação direcional independente da inversão de sinal dos modos de vibração.
+- Na análise não linear, a busca automática do passo passou a restaurar exatamente o estado anterior sempre que uma tentativa falha e a exigir o equilíbrio real de forças antes de concluir cada etapa, exibindo também o resumo de equilíbrio ao final do cálculo.
+
+2. Execução em Segundo Plano Mais Segura, Interface Fluida e Tabelas Unificadas
+- O cálculo principal da estrutura e as análises da Suíte Avançada passaram a compartilhar uma fila única em segundo plano, impedindo dois cálculos simultâneos conflitantes e descartando automaticamente resultados antigos caso o modelo seja alterado ou a janela seja fechada durante o processamento.
+- A exportação de memoriais em PDF a partir das análises avançadas passou a manter os dados protegidos mesmo quando o usuário fecha a janela de análises antes de concluir o salvamento do arquivo.
+- A Sessão Guiada Interativa passou a avançar por etapas de forma contínua e natural sem interferir na resposta da janela principal e impedindo disparos duplicados enquanto uma demonstração já estiver em andamento.
+- Quando o painel inferior de resultados é dividido em múltiplos quadros lado a lado, todas as tabelas passaram a compartilhar os mesmos dados de forma unificada sem repetir informações em excesso, agilizando também a abertura de modelos extensos, edições em lote e a navegação visual em estruturas com milhares de elementos.
+
+3. Melhorias na Modelagem, Gerador de Malhas 1D/2D/3D, Materiais e Seções
+- Excluir um nó da estrutura agora remove automaticamente todas as barras, vínculos rígidos, diafragmas, cargas e seleções ligadas a ele, evitando sobras desconexas no projeto.
+- Materiais atribuídos a elementos de placas, cascas ou blocos sólidos passaram a ser protegidos contra exclusão acidental enquanto estiverem em uso.
+- O editor de seções transversais passou a preservar corretamente famílias de seção poligonal personalizada e composta e a bloquear espessuras de parede, mesa ou alma geometricamente incompatíveis com as dimensões externas da peça.
+- No Gerador de Malha 1D/2D/3D, o campo e a unidade da carga passaram a se adaptar ao tipo selecionado (carga linear em 1D, pressão superficial em 2D e carga volumétrica em 3D), os apoios de base em blocos sólidos 3D passaram a restringir apenas a face inferior sem travar todo o bloco, a extrusão de malha 2D para 3D passou a exigir uma base bidimensional válida e o diagnóstico de qualidade geométrica passou a checar todos os cantos dos elementos de casca e sólidos.
+
+4. Visualização 3D Mais Estável, Legenda Alinhada e Operação Segura Sem Aceleração Gráfica
+- A visualização 3D passou a reproduzir animações contínuas mesmo quando o modelo é formado exclusivamente por malhas de cascas ou blocos sólidos sem barras, com rotação de câmera e detecção ao clicar mais precisas inclusive em peças inclinadas ou muito extensas.
+- A escala de cores do mapa de utilização normativa (DCR) teve seus marcadores alinhados exatamente às faixas exibidas na estrutura, e os diagramas de esforços passaram a indicar corretamente o ponto onde o esforço cruza o zero e o valor máximo de flecha ao longo de cada barra.
+- Em computadores ou sessões remotas sem suporte ativo de placa gráfica 3D avançada, o aplicativo agora exibe um aviso claro de indisponibilidade e continua operando de forma estável sem falhas inesperadas ao alternar janelas ou fechar o programa.
+- Ajustar manualmente a suavização de bordas, a nitidez da imagem ou o contraste da grade nas configurações gráficas passa a atualizar o perfil ativo para "Personalizado".
+
+5. Proteção Contra Colisões Entre Janelas, Limites Seguros de Leitura e Exportação Confiável
+- A cópia automática de recuperação de sessão passou a gravar cada janela aberta do aplicativo em um pacote único isolado com proteção contra acesso simultâneo, evitando que duas janelas abertas ao mesmo tempo interfiram uma na recuperação da outra; o salvamento das preferências e a leitura dos registros diários mais recentes também ficaram mais ágeis.
+- A leitura de arquivos de projeto, desenhos CAD (DXF) e modelos BIM (IFC4) passou a aplicar limites preventivos de tamanho de arquivo, rejeição rigorosa de números inválidos e proteção contra referências ausentes sem provocar erros no carregamento.
+- A importação e exportação em BIM IFC4 e CAD DXF passaram a preservar integralmente apoios estruturais, espessuras reais das cascas e malhas superficiais e sólidas tanto pela janela gráfica quanto pela linha de comando, corrigindo também a identificação das tensões de cisalhamento nos relatórios HTML e Markdown.
+- Na exportação das tabelas de resultados, a opção de exportar apenas a seleção passou a respeitar rigorosamente células isoladas ou seleção vazia; além disso, arquivos em CSV, texto e planilhas Excel neutralizam fórmulas perigosas sem alterar números negativos válidos e filtram caracteres incompatíveis para abrir corretamente em editores externos.
+
+6. Endurecimento de Segurança, Linha de Comando e Utilitários de Apoio Mais Confiáveis
+- A interface de linha de comando passou a validar de forma rigorosa opções numéricas inválidas ou malformadas, retornando respostas estruturadas válidas em formato de dados mesmo quando ocorrem erros de uso.
+- O lançamento e a integração da linha de comando no Windows receberam proteções extras no carregamento de bibliotecas e utilitários do sistema, exibindo também aviso claro ao usuário caso a remoção dos registros de integração no Windows encontre alguma falha.
+- Os utilitários auxiliares de edição de versão e compilação de idiomas ficaram mais confiáveis com gravação segura de arquivos, compilação sem travamento na janela de traduções, escolha automática da versão mais recente do compilador e modo de conferência somente leitura, acompanhados da tradução completa em Português e Inglês de todas as novas mensagens adicionadas ao aplicativo.
+
+================================================================================
+
+NOTAS DE LANÇAMENTO — OMNIFRAME 3D
 Versão: 2026.11.18.0
 Data: 18 de novembro de 2026
 

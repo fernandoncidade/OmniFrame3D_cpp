@@ -7,28 +7,16 @@ build/
 .vscode/
 /cmake/
 /cmake
+/library
+/library/
 cmake-build-*/
 CMakeUserPresets.json
-/CMakePresets.json
 /mocks/CMakePresets.json
 /mocks/limpar_build_qt6_regeneravel.ps1
 /mocks/launch_detached_gui.cmake
 /mocks/INSTRUCOES_find_VersionEditor.txt
-/repo/OmniFrame.iss
-/repo/OmniFrame_MinGW.iss
-/repo/OmniFrame_MSVC.iss
-/repo/limpar_artefatos_regeneraveis_qt.ps1
-/repo/MANUAL_TECNICO_CONFIGURACAO_AMBIENTE_CPP_QT6.txt
-/repo/relatorio.txt
-/repo/prompt_mestre_omniframe_3d.md
-/repo/AppxManifest.xml
-/repo/emojis.md
-/repo/OmniFrame_cpp.txt
-/repo/Recursos_OmniFrame3D.txt
-/repo/prompt.txt
-/repo/auditoria.txt
-/repo/Normas_Tecnicas_NBRs
 /rascunho.cpp
+/CMakePresets.json
 
 # Saídas de instaladores e empacotamento
 InnoSetupOutput/

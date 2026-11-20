@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <stdexcept>
+#include <stop_token>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -126,6 +127,7 @@ public:
         p.A = sec->A;
         p.Iy = sec->Iy;
         p.Iz = sec->Iz;
+        p.Iyz = sec->Iyz;
         p.J = sec->J;
         p.Asy = sec->Asy;
         p.Asz = sec->Asz;
@@ -148,20 +150,33 @@ public:
         const CrossSection* sec = m_model.findCrossSection(m_elem.sectionId);
         if (!mat || !sec) return kernel::MatX::Zero(12, 12);
 
-        const double L = m_elem.computeLength(m_model);
+        const Element effElem = withEffectiveTorsionalRelease(m_model, m_elem);
+        const double L = effElem.computeLength(m_model);
         if (L <= 1e-12) return kernel::MatX::Zero(12, 12);
 
-        const auto T = m_elem.computeTransformationMatrix(m_model);
-        const Eigen::Matrix<double, 12, 1> uLoc = T * elementGlobalDisp;
-        const double axialStrain = (uLoc(6) - uLoc(0)) / L;
-        double N_axial = (mat->E * sec->A) * axialStrain;
-        if (m_elem.thermalLoad.active && std::abs(m_elem.thermalLoad.deltaT) > 0.0) {
-            N_axial -= mat->E * sec->A * mat->alpha * m_elem.thermalLoad.deltaT;
+        const auto T = effElem.computeTransformationMatrix(m_model);
+        const Eigen::Matrix<double, 12, 1> uLocNodal = T * elementGlobalDisp;
+        const Eigen::Matrix<double, 12, 1> uRec = effElem.recoverLocalElementDisplacements(m_model, uLocNodal);
+        const Eigen::Matrix<double, 12, 12> k0 = effElem.computeUncondensedLocalStiffnessMatrix(m_model);
+        const Eigen::Matrix<double, 12, 1> f0 = effElem.computeUncondensedLocalFixedEndForces(m_model);
+        Eigen::Matrix<double, 12, 1> fEndLoc = k0 * uRec + f0;
+        for (int k = 0; k < 6; ++k) {
+            if (effElem.releases.start[k]) fEndLoc(k) = 0.0;
+            if (effElem.releases.end[k]) fEndLoc(k + 6) = 0.0;
+        }
+        // Consistente com releases axiais, carregamento axial distribuído e variação térmica:
+        // em equilíbrio, N(0) = -fEndLoc(0) e N(L) = +fEndLoc(6); tiramos a média ao longo do vão.
+        double N_axial = 0.5 * (-fEndLoc(0) + fEndLoc(6));
+        if (effElem.releases.start[0] || effElem.releases.end[0]) {
+            N_axial = effElem.releases.start[0] ? fEndLoc(6) : -fEndLoc(0);
+            if (effElem.releases.start[0] && effElem.releases.end[0]) {
+                N_axial = 0.0;
+            }
         }
 
         kernel::Beam1DFormulation form = kernel::Beam1DFormulation::EulerBernoulli3D;
-        if (m_elem.formulation == ElementFormulation::Timoshenko3D) form = kernel::Beam1DFormulation::Timoshenko3D;
-        else if (m_elem.formulation == ElementFormulation::Truss3D) form = kernel::Beam1DFormulation::Truss3D;
+        if (effElem.formulation == ElementFormulation::Timoshenko3D) form = kernel::Beam1DFormulation::Timoshenko3D;
+        else if (effElem.formulation == ElementFormulation::Truss3D) form = kernel::Beam1DFormulation::Truss3D;
 
         const auto kgLoc = kernel::BeamTruss1D::computeLocalGeometricStiffness(N_axial, L, form);
         return T.transpose() * kgLoc * T;
@@ -180,7 +195,7 @@ public:
             const Material* mat = m_model.findMaterial(m_elem.materialId);
             const CrossSection* sec = m_model.findCrossSection(m_elem.sectionId);
             if (mat && sec) {
-                Element swCopy = m_elem;
+                Element swCopy = withEffectiveTorsionalRelease(m_model, m_elem);
                 swCopy.thermalLoad.active = false;
                 swCopy.distLoad.active = true;
                 swCopy.distLoad.coordSystem = CoordSystem::Global;
@@ -285,6 +300,13 @@ bool setupDofManagerFromModel(const StructuralModel& model,
         }
         bcMap[n.id] = st;
 
+        constexpr double kMaxPhysCoordM = 1e9;
+        if (!std::isfinite(n.position.x) || !std::isfinite(n.position.y) || !std::isfinite(n.position.z) ||
+            std::abs(n.position.x) > kMaxPhysCoordM || std::abs(n.position.y) > kMaxPhysCoordM ||
+            std::abs(n.position.z) > kMaxPhysCoordM) {
+            if (errMsg) *errMsg = "Coordenadas fora dos limites fisicos (<= 1e9 m) no no " + std::to_string(n.id) + ".";
+            return false;
+        }
         const long long bx = std::llround(n.position.x * 1e4);
         const long long by = std::llround(n.position.y * 1e4);
         const long long bz = std::llround(n.position.z * 1e4);
@@ -315,6 +337,13 @@ bool setupDofManagerFromModel(const StructuralModel& model,
         }
 
         // Busca nó 1D coincidente (tolerância 1e-5 m -> dist^2 <= 1e-10)
+        constexpr double kMaxPhysCoordM = 1e9;
+        if (!std::isfinite(mn.position.x()) || !std::isfinite(mn.position.y()) || !std::isfinite(mn.position.z()) ||
+            std::abs(mn.position.x()) > kMaxPhysCoordM || std::abs(mn.position.y()) > kMaxPhysCoordM ||
+            std::abs(mn.position.z()) > kMaxPhysCoordM) {
+            if (errMsg) *errMsg = "Coordenadas fora dos limites fisicos (<= 1e9 m) no no de malha M" + std::to_string(mn.id) + ".";
+            return false;
+        }
         kernel::NodeId matched1D = -1;
         if (!nodes1D.empty()) {
             const long long bx = std::llround(mn.position.x() * 1e4);
@@ -449,7 +478,7 @@ class Line2MeshKernelElement final : public kernel::IFiniteElement {
 public:
     Line2MeshKernelElement(kernel::ElementId eid,
                            std::vector<kernel::NodeId> nodeIds,
-                           std::array<kernel::Vec3, 2> coords,
+                           const std::array<kernel::Vec3, 2>& coords,
                            const Material& mat,
                            const CrossSection& sec)
         : m_id(eid), m_nodes(std::move(nodeIds)), m_coords(coords), m_mat(mat), m_sec(sec)
@@ -464,6 +493,7 @@ public:
         m_props.A = sec.A;
         m_props.Iy = sec.Iy;
         m_props.Iz = sec.Iz;
+        m_props.Iyz = sec.Iyz;
         m_props.J = sec.J;
         m_props.Asy = sec.Asy;
         m_props.Asz = sec.Asz;
@@ -500,24 +530,18 @@ public:
     }
     kernel::VecX computeGlobalLoadVector(const kernel::ElementLoadInput& load) const override {
         if (m_props.L <= 1e-12) return kernel::VecX::Zero(12);
-        kernel::Vec3 q = kernel::Vec3::Zero();
+        kernel::Vec3 qGlob = kernel::Vec3::Zero();
+        kernel::Vec3 qLoc = kernel::Vec3::Zero();
         if (load.hasDistributed) {
-            q += (load.coordSystem == 1) ? (m_R3.transpose() * load.distributedForce) : load.distributedForce;
+            if (load.coordSystem == 1) qLoc += load.distributedForce;
+            else qGlob += load.distributedForce;
         }
         if (load.hasBodyGravity) {
-            q += (m_props.gammaKNM3 * m_props.A) * load.gravityAccel;
+            qGlob += (m_props.gammaKNM3 * m_props.A) * load.gravityAccel;
         }
-        kernel::VecX f = kernel::VecX::Zero(12);
-        const kernel::Vec3 fNode = 0.5 * m_props.L * q;
-        f.segment<3>(0) += fNode;
-        f.segment<3>(6) += fNode;
-        if (load.hasThermal && std::abs(load.deltaT) > 0.0) {
-            const double Pth = m_props.E * m_props.A * m_props.alpha * load.deltaT;
-            const kernel::Vec3 dir = (m_coords[1] - m_coords[0]) / m_props.L;
-            f.segment<3>(0) -= Pth * dir;
-            f.segment<3>(6) += Pth * dir;
-        }
-        return f;
+        qLoc += m_R3 * qGlob;
+        const double dT = load.hasThermal ? load.deltaT : 0.0;
+        return m_R12.transpose() * kernel::BeamTruss1D::computeConsistentLocalLoadVector(m_props, qLoc, dT);
     }
 
 private:
@@ -531,15 +555,27 @@ private:
     kernel::MatX m_R12 = kernel::MatX::Zero(12, 12);
 
     kernel::MatX buildRot12() {
-        kernel::Vec3 x = m_coords[1] - m_coords[0];
-        if (x.norm() <= 1e-12) x = kernel::Vec3(1.0, 0.0, 0.0);
-        else x.normalize();
-        kernel::Vec3 ref = (std::abs(x.z()) < 0.99) ? kernel::Vec3(0.0, 0.0, 1.0) : kernel::Vec3(0.0, 1.0, 0.0);
-        kernel::Vec3 z = x.cross(ref).normalized();
-        kernel::Vec3 y = z.cross(x).normalized();
-        m_R3.row(0) = x.transpose();
-        m_R3.row(1) = y.transpose();
-        m_R3.row(2) = z.transpose();
+        kernel::Vec3 vx = m_coords[1] - m_coords[0];
+        const double len = vx.norm();
+        if (!std::isfinite(len) || len <= 1e-12) vx = kernel::Vec3(1.0, 0.0, 0.0);
+        else vx /= len;
+
+        // Idêntico a Element::computeRotationMatrix3x3 (inclui barras verticais)
+        m_R3.setZero();
+        const double horizNorm = std::hypot(vx.x(), vx.y());
+        if (horizNorm < 1e-6) {
+            const double sgn = (vx.z() > 0.0) ? 1.0 : -1.0;
+            m_R3(0, 2) = sgn;
+            m_R3(1, 1) = 1.0;
+            m_R3(2, 0) = -sgn;
+        } else {
+            const kernel::Vec3 k(0.0, 0.0, 1.0);
+            const kernel::Vec3 vy = k.cross(vx).normalized();
+            const kernel::Vec3 vz = vx.cross(vy).normalized();
+            m_R3.row(0) = vx.transpose();
+            m_R3.row(1) = vy.transpose();
+            m_R3.row(2) = vz.transpose();
+        }
         kernel::MatX T = kernel::MatX::Zero(12, 12);
         for (int b = 0; b < 4; ++b) T.block<3, 3>(3 * b, 3 * b) = m_R3;
         return T;
@@ -788,10 +824,103 @@ void extractCaseLoadMaps(
     }
 }
 
+bool buildFrame1DNonlinearSpecs(
+    const StructuralModel& model,
+    std::vector<kernel::Frame1DNonlinearElementSpec>& outSpecs,
+    std::string* errMsg)
+{
+    outSpecs.clear();
+    outSpecs.reserve(model.getElements().size());
+    for (const auto& elem : model.getElements()) {
+        const Node* n1 = model.findNode(elem.nodeStart);
+        const Node* n2 = model.findNode(elem.nodeEnd);
+        const Material* mat = model.findMaterial(elem.materialId);
+        const CrossSection* sec = model.findCrossSection(elem.sectionId);
+        if (!n1 || !n2 || !mat || !sec) {
+            if (errMsg) *errMsg = "Referência inválida em elemento na análise não linear.";
+            return false;
+        }
+
+        const Element effElem = withEffectiveTorsionalRelease(model, elem);
+        kernel::Frame1DNonlinearElementSpec s;
+        s.id = elem.id;
+        s.nodeStart = elem.nodeStart;
+        s.nodeEnd = elem.nodeEnd;
+        s.X1 = {n1->position.x, n1->position.y, n1->position.z};
+        s.X2 = {n2->position.x, n2->position.y, n2->position.z};
+        // Element::computeRotationMatrix3x3 leva global -> local; R0 tem eixos locais nas colunas
+        s.R0 = elem.computeRotationMatrix3x3(model).transpose();
+
+        s.props.L = elem.computeLength(model);
+        s.props.E = mat->E;
+        s.props.G = mat->G();
+        s.props.alpha = mat->alpha;
+        s.props.rhoConsistent = mat->consistentMassDensity();
+        s.props.gammaKNM3 = mat->gamma;
+        s.props.A = sec->A;
+        s.props.Iy = sec->Iy;
+        s.props.Iz = sec->Iz;
+        s.props.Iyz = sec->Iyz;
+        s.props.J = sec->J;
+        s.props.Asy = sec->Asy;
+        s.props.Asz = sec->Asz;
+        switch (elem.formulation) {
+            case ElementFormulation::Timoshenko3D: s.props.formulation = kernel::Beam1DFormulation::Timoshenko3D; break;
+            case ElementFormulation::Truss3D: s.props.formulation = kernel::Beam1DFormulation::Truss3D; break;
+            default: s.props.formulation = kernel::Beam1DFormulation::EulerBernoulli3D; break;
+        }
+        s.releaseStart = effElem.releases.start;
+        s.releaseEnd = effElem.releases.end;
+
+        if (mat->isPlastic) {
+            s.hasPlasticity = true;
+            s.plasticParams.E = mat->E;
+            s.plasticParams.nu = mat->nu;
+            s.plasticParams.sigmaY0 = mat->sigmaY;
+            s.plasticParams.H_iso = mat->H_iso;
+            s.plasticParams.H_kin = mat->H_kin;
+            s.plasticParams.alphaThermal = mat->alpha;
+            s.plasticParams.rhoKgM3 = mat->rho;
+            s.plasticParams.gammaKNM3 = mat->gamma;
+        }
+        outSpecs.push_back(std::move(s));
+    }
+    return true;
+}
+
+kernel::VecX computeReducedExternalReactions(
+    const kernel::ReducedLinearSystem& redSys,
+    const kernel::VecX& R_full)
+{
+    if (redSys.hasMpc && redSys.T_mpc.rows() == R_full.size()) {
+        return (redSys.T_mpc.transpose() * R_full).eval();
+    }
+    return R_full;
+}
+
+double externalRestrainedReactionAt(
+    int g,
+    const kernel::DofClassification& cls,
+    const kernel::ReducedLinearSystem& redSys,
+    const kernel::VecX& R_ext_rd)
+{
+    if (g < 0 || g >= static_cast<int>(cls.isRestrained.size()) || !cls.isRestrained[g]) {
+        return 0.0;
+    }
+    const int idx = (redSys.hasMpc && g < static_cast<int>(redSys.fullToReducedMap.size()))
+        ? redSys.fullToReducedMap[g]
+        : g;
+    if (idx >= 0 && idx < R_ext_rd.size()) {
+        return R_ext_rd(idx);
+    }
+    return 0.0;
+}
+
 void populatePostProcessingFromVectors(
     StructuralModel& model,
     const kernel::DofManager& dofMgr,
     const kernel::DofClassification& cls,
+    const kernel::ReducedLinearSystem& redSys,
     const UnifiedSolverMapping& mapping,
     const std::unordered_map<kernel::ElementId, kernel::ElementLoadInput>& elemLoads,
     const std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>>& nodalLoads,
@@ -805,6 +934,7 @@ void populatePostProcessingFromVectors(
     auto& elements = model.getElements();
     auto& surf = model.surfaceMesh();
     const int nNodes = static_cast<int>(nodes.size());
+    const kernel::VecX R_ext_rd = computeReducedExternalReactions(redSys, R_full);
 
     std::unordered_map<NodeId, int> nodeIndex;
     for (int i = 0; i < nNodes; ++i) nodeIndex[nodes[i].id] = i;
@@ -815,8 +945,8 @@ void populatePostProcessingFromVectors(
         for (int d = 0; d < 6; ++d) {
             const int g = dofMgr.getNodeGlobalDof(nodes[i].id, d);
             nodes[i].displacement[d] = (g >= 0 && g < U_full.size()) ? U_full(g) : 0.0;
-            if (g >= 0 && g < R_full.size() && (cls.isRestrained[g] || cls.isMpcSlave[g])) {
-                nodes[i].reaction[d] = R_full(g);
+            if (g >= 0 && cls.isRestrained[g]) {
+                nodes[i].reaction[d] = externalRestrainedReactionAt(g, cls, redSys, R_ext_rd);
             } else if (sup.springStiffness[d] > 1e-9) {
                 nodes[i].reaction[d] = -sup.springStiffness[d] * nodes[i].displacement[d];
             } else {
@@ -836,8 +966,8 @@ void populatePostProcessingFromVectors(
         for (int d = 0; d < 6; ++d) {
             const int g = dofMgr.getNodeGlobalDof(kid, d);
             mn.displacement[d] = (g >= 0 && g < U_full.size()) ? U_full(g) : 0.0;
-            if (g >= 0 && g < R_full.size() && (cls.isRestrained[g] || cls.isMpcSlave[g])) {
-                mn.reaction[d] = R_full(g);
+            if (g >= 0 && cls.isRestrained[g]) {
+                mn.reaction[d] = externalRestrainedReactionAt(g, cls, redSys, R_ext_rd);
             } else if (mn.springStiffness[d] > 1e-9) {
                 mn.reaction[d] = -mn.springStiffness[d] * mn.displacement[d];
             } else {
@@ -879,12 +1009,14 @@ void populatePostProcessingFromVectors(
         elem.globalDisplacements = uGlob;
 
         Element evalElem = withEffectiveTorsionalRelease(model, elem);
+        const kernel::ElementLoadInput* bodyLoadPtr = nullptr;
         if (activeLoadCase) {
             evalElem.distLoad.active = false;
             evalElem.distLoad.w = {0.0, 0.0, 0.0};
             evalElem.thermalLoad.active = false;
             evalElem.thermalLoad.deltaT = 0.0;
             if (auto it = lcElemMap.find(elem.id); it != lcElemMap.end()) {
+                bodyLoadPtr = &it->second;
                 if (it->second.hasDistributed) {
                     evalElem.distLoad.active = true;
                     evalElem.distLoad.coordSystem = (it->second.coordSystem == 1) ? CoordSystem::Local : CoordSystem::Global;
@@ -893,6 +1025,33 @@ void populatePostProcessingFromVectors(
                 if (it->second.hasThermal) {
                     evalElem.thermalLoad.active = true;
                     evalElem.thermalLoad.deltaT = it->second.deltaT;
+                }
+            }
+        } else {
+            if (auto it = elemLoads.find(elem.id); it != elemLoads.end()) {
+                bodyLoadPtr = &it->second;
+            }
+        }
+        if (bodyLoadPtr && bodyLoadPtr->hasBodyGravity) {
+            const Material* mat = model.findMaterial(elem.materialId);
+            const CrossSection* sec = model.findCrossSection(elem.sectionId);
+            if (mat && sec) {
+                const double wPerM = mat->gamma * sec->A;
+                const Vec3 wGravityGlobal{
+                    wPerM * bodyLoadPtr->gravityAccel.x(),
+                    wPerM * bodyLoadPtr->gravityAccel.y(),
+                    wPerM * bodyLoadPtr->gravityAccel.z()
+                };
+                if (!evalElem.distLoad.active) {
+                    evalElem.distLoad.active = true;
+                    evalElem.distLoad.coordSystem = CoordSystem::Global;
+                    evalElem.distLoad.w = wGravityGlobal;
+                } else if (evalElem.distLoad.coordSystem == CoordSystem::Global) {
+                    evalElem.distLoad.w += wGravityGlobal;
+                } else {
+                    const Eigen::Matrix3d R = evalElem.computeRotationMatrix3x3(model);
+                    const Eigen::Vector3d wLocal = R * Eigen::Vector3d(wGravityGlobal.x, wGravityGlobal.y, wGravityGlobal.z);
+                    evalElem.distLoad.w += Vec3{wLocal.x(), wLocal.y(), wLocal.z()};
                 }
             }
         }
@@ -910,6 +1069,10 @@ void populatePostProcessingFromVectors(
             if (evalElem.releases.end[k]) elem.localEndForces(k + 6) = 0.0;
         }
         elem.hasResults = true;
+        evalElem.globalDisplacements = elem.globalDisplacements;
+        evalElem.localDisplacements = elem.localDisplacements;
+        evalElem.localEndForces = elem.localEndForces;
+        evalElem.hasResults = true;
 
         ElementExtremes ext;
         ext.elementId = elem.id;
@@ -1042,8 +1205,8 @@ void populatePostProcessingFromVectors(
         std::array<double, 6> rVec{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
         for (int d = 0; d < 6; ++d) {
             const int g = ns.globalDof[d];
-            if (g >= 0 && g < R_full.size() && (cls.isRestrained[g] || cls.isMpcSlave[g])) {
-                rVec[d] = R_full(g);
+            if (g >= 0 && cls.isRestrained[g]) {
+                rVec[d] = externalRestrainedReactionAt(g, cls, redSys, R_ext_rd);
             } else if (g >= 0 && ns.springStiffness[d] > 1e-9 && g < U_full.size()) {
                 rVec[d] = -ns.springStiffness[d] * U_full(g);
             }
@@ -1158,16 +1321,21 @@ void populatePostProcessingFromVectors(
     result.equilibrium.isBalanced = (resFNorm <= tolF) && (resMNorm <= tolM);
 }
 
-} // namespace
-
-SolverResult FemSolver3D::solve(StructuralModel& model) {
-    return solveWithOptions(model, model.solverOptions());
-}
-
-SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel::LinearSolverOptions& opts) {
+SolverResult solveStaticInternal(
+    StructuralModel& model,
+    const kernel::LinearSolverOptions& opts,
+    const kernel::LoadCase* activeLoadCase,
+    const std::stop_token& stopToken)
+{
     const auto startTime = std::chrono::high_resolution_clock::now();
     SolverResult result;
     model.clearResults();
+
+    if (stopToken.stop_requested()) {
+        result.success = false;
+        result.errorMessage = "Análise cancelada pelo usuário.";
+        return result;
+    }
 
     const ModelValidation val = model.validate();
     if (!val.valid) {
@@ -1208,9 +1376,19 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
         return result;
     }
 
+    if (stopToken.stop_requested()) {
+        result.success = false;
+        result.errorMessage = "Análise cancelada pelo usuário.";
+        return result;
+    }
+
     std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
     std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
-    extractLegacyLoadMaps(model, mapping, elemLoads, nodalLoads);
+    if (activeLoadCase) {
+        extractCaseLoadMaps(model, mapping, *activeLoadCase, elemLoads, nodalLoads);
+    } else {
+        extractLegacyLoadMaps(model, mapping, elemLoads, nodalLoads);
+    }
 
     kernel::SpMat K_orig;
     kernel::VecX F_orig;
@@ -1239,7 +1417,7 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
     kernel::LinearSolverStats solverStats;
     kernel::VecX U_free;
     if (redSys.freeDofs > 0) {
-        U_free = kernel::LinearSolverSuite::solve(redSys.K_ff, redSys.rhs_f, opts, solverStats);
+        U_free = kernel::LinearSolverSuite::solve(redSys.K_ff, redSys.rhs_f, opts, solverStats, nullptr, stopToken);
         if (!solverStats.success) {
             result.success = false;
             if (solverStats.errorCode == "SINGULAR_MATRIX" || solverStats.errorCode == "NOT_SPD") {
@@ -1272,13 +1450,38 @@ SolverResult FemSolver3D::solveWithOptions(StructuralModel& model, const kernel:
         return result;
     }
 
-    populatePostProcessingFromVectors(model, dofMgr, cls, mapping, elemLoads, nodalLoads, U_full, R_full, K_orig, result);
+    populatePostProcessingFromVectors(
+        model, dofMgr, cls, redSys, mapping, elemLoads, nodalLoads, U_full, R_full, K_orig, result, activeLoadCase);
     result.solverStats = solverStats;
 
     const auto endTime = std::chrono::high_resolution_clock::now();
     result.executionTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
+    model.bumpRevision();
     result.success = true;
     return result;
+}
+
+} // namespace
+
+SolverResult FemSolver3D::solve(StructuralModel& model) {
+    return solveWithOptions(model, model.solverOptions());
+}
+
+SolverResult FemSolver3D::solveWithOptions(
+    StructuralModel& model,
+    const kernel::LinearSolverOptions& opts,
+    const std::stop_token& stopToken)
+{
+    return solveStaticInternal(model, opts, nullptr, stopToken);
+}
+
+SolverResult FemSolver3D::solveLoadCase(
+    StructuralModel& model,
+    const kernel::LoadCase& lc,
+    const kernel::LinearSolverOptions& opts,
+    const std::stop_token& stopToken)
+{
+    return solveStaticInternal(model, opts, &lc, stopToken);
 }
 
 bool FemSolver3D::solveLoadCasesAndCombinations(
@@ -1287,11 +1490,17 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
     std::vector<kernel::CaseDisplacementResult>& outCaseResults,
     std::vector<kernel::CaseDisplacementResult>& outComboResults,
     kernel::EnvelopeExtremes& outEnvelope,
-    std::string* errorMsg)
+    std::string* errorMsg,
+    const std::stop_token& stopToken)
 {
     outCaseResults.clear();
     outComboResults.clear();
     outEnvelope = kernel::EnvelopeExtremes{};
+
+    if (stopToken.stop_requested()) {
+        if (errorMsg) *errorMsg = "Análise cancelada pelo usuário.";
+        return false;
+    }
 
     const ModelValidation val = model.validate();
     if (!val.valid) {
@@ -1335,6 +1544,10 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
     std::unordered_map<kernel::LoadCaseId, kernel::VecX> caseForceVectors;
 
     for (const auto& lc : casesToSolve) {
+        if (stopToken.stop_requested()) {
+            if (errorMsg) *errorMsg = "Análise cancelada pelo usuário.";
+            return false;
+        }
         std::unordered_map<kernel::ElementId, kernel::ElementLoadInput> elemLoads;
         std::unordered_map<kernel::NodeId, Eigen::Matrix<double, kernel::NODAL_MAX_DOFS, 1>> nodalLoads;
         if (useImplicitLegacy) {
@@ -1359,8 +1572,7 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
             }
             systemBuilt = true;
         } else {
-            kernel::SpMat K_unused;
-            if (!kernel::GlobalAssembler::assembleStiffnessAndLoad(dofMgr, kElements, elemLoads, nodalLoads, K_unused, F_case, errorMsg)) {
+            if (!kernel::GlobalAssembler::assembleLoadOnly(dofMgr, kElements, elemLoads, nodalLoads, F_case, errorMsg)) {
                 return false;
             }
             if (!kernel::GlobalAssembler::buildReducedRightHandSide(dofMgr, K_orig, F_case, cachedSys, cachedSys.rhs_f, errorMsg)) {
@@ -1373,7 +1585,7 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
         kernel::LinearSolverStats stats;
         kernel::VecX U_free;
         if (cachedSys.freeDofs > 0) {
-            U_free = kernel::LinearSolverSuite::solve(cachedSys.K_ff, cachedSys.rhs_f, opts, stats, &cache);
+            U_free = kernel::LinearSolverSuite::solve(cachedSys.K_ff, cachedSys.rhs_f, opts, stats, &cache, stopToken);
             if (!stats.success) {
                 if (errorMsg) *errorMsg = stats.message;
                 return false;
@@ -1396,8 +1608,12 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
         outCaseResults.push_back(std::move(cr));
     }
 
-    // Combinações lineares reutilizando a mesma fatoração cacheada em K_ff
+    // Combinações (lineares com fatoração cacheada, ou 2ª ordem P-Delta quando comb.pDeltaEnabled == true)
     for (const auto& comb : model.getLoadCombinations()) {
+        if (stopToken.stop_requested()) {
+            if (errorMsg) *errorMsg = "Análise cancelada pelo usuário.";
+            return false;
+        }
         kernel::VecX F_comb = kernel::VecX::Zero(dofMgr.totalDofs());
         for (const auto& f : comb.factors) {
             auto it = caseForceVectors.find(f.loadCaseId);
@@ -1406,34 +1622,130 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
             }
         }
 
-        kernel::VecX rhs_comb;
-        if (!kernel::GlobalAssembler::buildReducedRightHandSide(dofMgr, K_orig, F_comb, cachedSys, rhs_comb, errorMsg)) {
-            return false;
-        }
+        kernel::CaseDisplacementResult cr;
+        cr.caseOrComboId = comb.id;
+        cr.name = comb.name;
+        cr.isCombination = true;
 
         kernel::LinearSolverStats stats;
-        kernel::VecX U_free;
-        if (cachedSys.freeDofs > 0) {
-            U_free = kernel::LinearSolverSuite::solve(cachedSys.K_ff, rhs_comb, opts, stats, &cache);
-            if (!stats.success) {
-                if (errorMsg) *errorMsg = stats.message;
-                return false;
-            }
-        } else {
-            stats.success = true;
-        }
         stats.totalDofs = dofMgr.totalDofs();
         stats.restrainedDofs = cls.restrainedCount;
         stats.inactiveDofs = cls.inactiveCount;
         stats.mpcEliminatedDofs = cls.mpcSlaveCount;
 
-        kernel::CaseDisplacementResult cr;
-        cr.caseOrComboId = comb.id;
-        cr.name = comb.name;
-        cr.isCombination = true;
-        cr.U_full = kernel::GlobalAssembler::reconstructFullDisplacements(cachedSys, U_free);
-        cr.R_full = K_orig * cr.U_full - F_comb;
-        cr.solverStats = stats;
+        if (!comb.pDeltaEnabled || cachedSys.freeDofs == 0) {
+            kernel::VecX rhs_comb;
+            if (!kernel::GlobalAssembler::buildReducedRightHandSide(dofMgr, K_orig, F_comb, cachedSys, rhs_comb, errorMsg)) {
+                return false;
+            }
+
+            kernel::VecX U_free;
+            if (cachedSys.freeDofs > 0) {
+                U_free = kernel::LinearSolverSuite::solve(cachedSys.K_ff, rhs_comb, opts, stats, &cache, stopToken);
+                if (!stats.success) {
+                    if (errorMsg) *errorMsg = stats.message;
+                    return false;
+                }
+            } else {
+                stats.success = true;
+            }
+            cr.U_full = kernel::GlobalAssembler::reconstructFullDisplacements(cachedSys, U_free);
+            cr.R_full = K_orig * cr.U_full - F_comb;
+            cr.solverStats = stats;
+        } else if (model.surfaceMesh().elements.empty()) {
+            std::vector<kernel::Frame1DNonlinearElementSpec> specs;
+            if (!buildFrame1DNonlinearSpecs(model, specs, errorMsg)) {
+                return false;
+            }
+            kernel::FrameNonlinearModel nlModel(
+                dofMgr, cachedSys, F_comb, std::move(specs), kernel::NonlinearKinematics::PDeltaSecondOrder);
+            kernel::NonlinearOptions pdOpts;
+            pdOpts.method = kernel::NonlinearMethod::PDelta;
+            pdOpts.kinematics = kernel::NonlinearKinematics::PDeltaSecondOrder;
+            pdOpts.numSteps = 1;
+            pdOpts.maxIterationsPerStep = 30;
+            pdOpts.targetLoadFactor = 1.0;
+            pdOpts.linearSolver = opts;
+
+            const kernel::NonlinearResult nlRes = kernel::NonlinearSolver::solve(nlModel, pdOpts, stopToken);
+            if (!nlRes.success) {
+                if (errorMsg) {
+                    *errorMsg = nlRes.errorMessage.empty()
+                        ? ("Falha na análise P-Delta da combinação " + comb.name + ".")
+                        : nlRes.errorMessage;
+                }
+                return false;
+            }
+            stats.success = true;
+            stats.iterations = nlRes.totalIterations;
+            cr.U_full = nlRes.finalU_full;
+            cr.R_full = nlRes.finalReactionsFull;
+            cr.solverStats = stats;
+        } else {
+            kernel::VecX rhs_comb;
+            if (!kernel::GlobalAssembler::buildReducedRightHandSide(dofMgr, K_orig, F_comb, cachedSys, rhs_comb, errorMsg)) {
+                return false;
+            }
+            kernel::VecX U_free_iter = kernel::LinearSolverSuite::solve(cachedSys.K_ff, rhs_comb, opts, stats, &cache, stopToken);
+            if (!stats.success) {
+                if (errorMsg) *errorMsg = stats.message;
+                return false;
+            }
+            kernel::VecX U_full_iter = kernel::GlobalAssembler::reconstructFullDisplacements(cachedSys, U_free_iter);
+            kernel::SpMat Kg_orig(dofMgr.totalDofs(), dofMgr.totalDofs());
+            bool converged = false;
+            int totalIter = 0;
+
+            for (int iter = 0; iter < 30; ++iter) {
+                if (stopToken.stop_requested()) {
+                    if (errorMsg) *errorMsg = "Análise cancelada pelo usuário.";
+                    return false;
+                }
+                ++totalIter;
+                if (!kernel::GlobalAssembler::assembleGeometricStiffness(dofMgr, kElements, U_full_iter, Kg_orig, errorMsg)) {
+                    return false;
+                }
+                const kernel::SpMat K_eff = (K_orig + Kg_orig).eval();
+                kernel::ReducedLinearSystem iterSys;
+                if (!kernel::GlobalAssembler::buildReducedSystem(dofMgr, K_eff, F_comb, cls, iterSys, errorMsg)) {
+                    return false;
+                }
+                kernel::LinearSolverStats iterStats;
+                const kernel::VecX U_free_next =
+                    kernel::LinearSolverSuite::solve(iterSys.K_ff, iterSys.rhs_f, opts, iterStats, nullptr, stopToken);
+                if (!iterStats.success || !U_free_next.allFinite()) {
+                    if (errorMsg) {
+                        *errorMsg = iterStats.message.empty()
+                            ? ("Instabilidade elástica na análise P-Delta da combinação " + comb.name + ".")
+                            : iterStats.message;
+                    }
+                    return false;
+                }
+                const double relDiff = (U_free_next - U_free_iter).norm() / std::max(1.0, U_free_next.norm());
+                U_free_iter = U_free_next;
+                U_full_iter = kernel::GlobalAssembler::reconstructFullDisplacements(iterSys, U_free_iter);
+                stats = iterStats;
+                if (relDiff <= 1e-6) {
+                    converged = true;
+                    break;
+                }
+            }
+            if (!converged) {
+                if (errorMsg) {
+                    *errorMsg = "Análise P-Delta da combinação " + comb.name + " não convergiu em 30 iterações.";
+                }
+                return false;
+            }
+            stats.success = true;
+            stats.iterations = totalIter;
+            stats.totalDofs = dofMgr.totalDofs();
+            stats.restrainedDofs = cls.restrainedCount;
+            stats.inactiveDofs = cls.inactiveCount;
+            stats.mpcEliminatedDofs = cls.mpcSlaveCount;
+            cr.U_full = U_full_iter;
+            cr.R_full = (K_orig + Kg_orig) * U_full_iter - F_comb;
+            cr.solverStats = stats;
+        }
         outComboResults.push_back(std::move(cr));
     }
 
@@ -1461,9 +1773,15 @@ bool FemSolver3D::solveLoadCasesAndCombinations(
 
 kernel::BucklingResult FemSolver3D::solveBuckling(
     StructuralModel& model,
-    const kernel::BucklingOptions& opts)
+    const kernel::BucklingOptions& opts,
+    const std::stop_token& stopToken)
 {
     kernel::BucklingResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise de flambagem cancelada pelo usuário.";
+        return out;
+    }
+
     const ModelValidation val = model.validate();
     if (!val.valid) {
         out.errorMessage = val.errors.empty() ? "Erro de validação." : val.errors[0];
@@ -1516,7 +1834,7 @@ kernel::BucklingResult FemSolver3D::solveBuckling(
     // 1. Passo estático linear de referência para obter esforços axiais U_ref
     kernel::LinearSolverStats linStats;
     const kernel::VecX U_free_ref = kernel::LinearSolverSuite::solve(
-        redSys.K_ff, redSys.rhs_f, model.solverOptions(), linStats, nullptr);
+        redSys.K_ff, redSys.rhs_f, model.solverOptions(), linStats, nullptr, stopToken);
     if (!linStats.success) {
         out.errorMessage = "Falha no estado linear de referência para flambagem: " + linStats.message;
         return out;
@@ -1552,15 +1870,21 @@ kernel::BucklingResult FemSolver3D::solveBuckling(
     P_free.makeCompressed();
 
     const kernel::SpMat Kg_ff = (P_free.transpose() * Kg_orig * P_free).eval();
-    return kernel::BucklingSolver::solve(redSys.K_ff, Kg_ff, redSys, opts);
+    return kernel::BucklingSolver::solve(redSys.K_ff, Kg_ff, redSys, opts, stopToken);
 }
 
 kernel::NonlinearResult FemSolver3D::solveNonlinear(
     StructuralModel& model,
-    const kernel::NonlinearOptions& opts)
+    const kernel::NonlinearOptions& opts,
+    const std::stop_token& stopToken)
 {
     kernel::NonlinearResult out;
     model.clearResults();
+
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise não linear cancelada pelo usuário.";
+        return out;
+    }
 
     if (!model.surfaceMesh().elements.empty()) {
         out.errorMessage = "Análise não-linear corrotacional/J2 atualmente opera apenas sobre pórticos e treliças 1D; utilize Análise Estática, Flambagem Linearizada ou Dinâmica para malhas 2D/3D.";
@@ -1617,75 +1941,30 @@ kernel::NonlinearResult FemSolver3D::solveNonlinear(
     }
 
     std::vector<kernel::Frame1DNonlinearElementSpec> specs;
-    specs.reserve(model.getElements().size());
-    for (const auto& elem : model.getElements()) {
-        const Node* n1 = model.findNode(elem.nodeStart);
-        const Node* n2 = model.findNode(elem.nodeEnd);
-        const Material* mat = model.findMaterial(elem.materialId);
-        const CrossSection* sec = model.findCrossSection(elem.sectionId);
-        if (!n1 || !n2 || !mat || !sec) {
-            out.errorMessage = "Referência inválida em elemento na análise não linear.";
-            return out;
-        }
-
-        kernel::Frame1DNonlinearElementSpec s;
-        s.id = elem.id;
-        s.nodeStart = elem.nodeStart;
-        s.nodeEnd = elem.nodeEnd;
-        s.X1 = {n1->position.x, n1->position.y, n1->position.z};
-        s.X2 = {n2->position.x, n2->position.y, n2->position.z};
-        // Element::computeRotationMatrix3x3 leva global -> local; R0 tem eixos locais nas colunas
-        s.R0 = elem.computeRotationMatrix3x3(model).transpose();
-
-        s.props.L = elem.computeLength(model);
-        s.props.E = mat->E;
-        s.props.G = mat->G();
-        s.props.alpha = mat->alpha;
-        s.props.rhoConsistent = mat->consistentMassDensity();
-        s.props.gammaKNM3 = mat->gamma;
-        s.props.A = sec->A;
-        s.props.Iy = sec->Iy;
-        s.props.Iz = sec->Iz;
-        s.props.J = sec->J;
-        s.props.Asy = sec->Asy;
-        s.props.Asz = sec->Asz;
-        switch (elem.formulation) {
-            case ElementFormulation::Timoshenko3D: s.props.formulation = kernel::Beam1DFormulation::Timoshenko3D; break;
-            case ElementFormulation::Truss3D: s.props.formulation = kernel::Beam1DFormulation::Truss3D; break;
-            default: s.props.formulation = kernel::Beam1DFormulation::EulerBernoulli3D; break;
-        }
-        s.releaseStart = elem.releases.start;
-        s.releaseEnd = elem.releases.end;
-
-        if (mat->isPlastic) {
-            s.hasPlasticity = true;
-            s.plasticParams.E = mat->E;
-            s.plasticParams.nu = mat->nu;
-            s.plasticParams.sigmaY0 = mat->sigmaY;
-            s.plasticParams.H_iso = mat->H_iso;
-            s.plasticParams.H_kin = mat->H_kin;
-            s.plasticParams.alphaThermal = mat->alpha;
-            s.plasticParams.rhoKgM3 = mat->rho;
-            s.plasticParams.gammaKNM3 = mat->gamma;
-        }
-        specs.push_back(std::move(s));
+    if (!buildFrame1DNonlinearSpecs(model, specs, &out.errorMessage)) {
+        return out;
     }
 
     kernel::FrameNonlinearModel nlModel(
         dofMgr, redSys, F_orig, std::move(specs), opts.kinematics);
-    out = kernel::NonlinearSolver::solve(nlModel, opts);
+    out = kernel::NonlinearSolver::solve(nlModel, opts, stopToken);
 
     if (out.success && out.finalU_full.size() == dofMgr.totalDofs()) {
+        const kernel::VecX R_ext_rd = computeReducedExternalReactions(redSys, out.finalReactionsFull);
         std::unordered_map<NodeId, int> nodeIndex;
         auto& nodes = model.getNodes();
         for (int ni = 0; ni < static_cast<int>(nodes.size()); ++ni) {
             nodeIndex[nodes[ni].id] = ni;
+            const auto& sup = nodes[ni].support;
             for (int d = 0; d < 6; ++d) {
                 const int g = dofMgr.getNodeGlobalDof(nodes[ni].id, d);
                 const double u = (g >= 0) ? out.finalU_full(g) : 0.0;
-                const double r = (g >= 0 && out.finalReactionsFull.size() == dofMgr.totalDofs() &&
-                                  (cls.isRestrained[g] || cls.isMpcSlave[g]))
-                    ? out.finalReactionsFull(g) : 0.0;
+                double r = 0.0;
+                if (g >= 0 && out.finalReactionsFull.size() == dofMgr.totalDofs() && cls.isRestrained[g]) {
+                    r = externalRestrainedReactionAt(g, cls, redSys, R_ext_rd);
+                } else if (sup.springStiffness[d] > 1e-9) {
+                    r = -sup.springStiffness[d] * u;
+                }
                 nodes[ni].displacement[d] = u;
                 nodes[ni].reaction[d] = r;
             }
@@ -1700,9 +1979,102 @@ kernel::NonlinearResult FemSolver3D::solveNonlinear(
                 elems[i].globalDisplacements(d) = nodes[i1].displacement[d];
                 elems[i].globalDisplacements(d + 6) = nodes[i2].displacement[d];
             }
+            const Element effElem = withEffectiveTorsionalRelease(model, elems[i]);
+            const Eigen::Matrix<double, 12, 12> T = effElem.computeTransformationMatrix(model);
+            const Eigen::Matrix<double, 12, 1> uLocNodal = T * elems[i].globalDisplacements;
+            elems[i].localDisplacements = effElem.recoverLocalElementDisplacements(model, uLocNodal);
             elems[i].localEndForces = lastEv[i].fIntLocal;
             elems[i].hasResults = true;
         }
+
+        // [AUD-010] Verificação real de equilíbrio estático global no estado final convergido
+        const double lambda = out.achievedLoadFactor;
+        const bool useDeformedPos = (opts.kinematics != kernel::NonlinearKinematics::SmallStrain);
+        std::unordered_map<kernel::NodeId, Vec3> effNodePos;
+        effNodePos.reserve(nodes.size());
+        for (const auto& n : nodes) {
+            Vec3 p = n.position;
+            if (useDeformedPos) {
+                p += Vec3{n.displacement[0], n.displacement[1], n.displacement[2]};
+            }
+            effNodePos[n.id] = p;
+        }
+
+        Vec3 sumAppliedF{0.0, 0.0, 0.0};
+        Vec3 sumAppliedM{0.0, 0.0, 0.0};
+        Vec3 sumReacF{0.0, 0.0, 0.0};
+        Vec3 sumReacM{0.0, 0.0, 0.0};
+        double refForceMag = 0.0;
+        double refMomentMag = 0.0;
+
+        for (const auto& ns : dofMgr.nodeStates()) {
+            Vec3 pos{0.0, 0.0, 0.0};
+            if (auto pit = effNodePos.find(ns.nodeId); pit != effNodePos.end()) {
+                pos = pit->second;
+            }
+            if (auto lit = nodalLoads.find(ns.nodeId); lit != nodalLoads.end()) {
+                const Vec3 nF{lambda * lit->second(0), lambda * lit->second(1), lambda * lit->second(2)};
+                const Vec3 nM{lambda * lit->second(3), lambda * lit->second(4), lambda * lit->second(5)};
+                sumAppliedF += nF;
+                const Vec3 rCrossF = pos.cross(nF);
+                sumAppliedM += nM + rCrossF;
+                refForceMag += nF.norm();
+                refMomentMag += nM.norm() + rCrossF.norm();
+            }
+            std::array<double, 6> rVec{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+            for (int d = 0; d < 6; ++d) {
+                const int g = ns.globalDof[d];
+                if (g >= 0 && out.finalReactionsFull.size() == dofMgr.totalDofs() && cls.isRestrained[g]) {
+                    rVec[d] = externalRestrainedReactionAt(g, cls, redSys, R_ext_rd);
+                } else if (g >= 0 && ns.springStiffness[d] > 1e-9 && g < out.finalU_full.size()) {
+                    rVec[d] = -ns.springStiffness[d] * out.finalU_full(g);
+                }
+            }
+            const Vec3 rF{rVec[0], rVec[1], rVec[2]};
+            const Vec3 rM{rVec[3], rVec[4], rVec[5]};
+            const Vec3 rCrossReac = pos.cross(rF);
+            sumReacF += rF;
+            sumReacM += rM + rCrossReac;
+            refForceMag += rF.norm();
+            refMomentMag += rM.norm() + rCrossReac.norm();
+        }
+
+        for (const auto& elem : elems) {
+            if (!elem.distLoad.active) continue;
+            const double L = elem.computeLength(model);
+            Vec3 p1{0.0, 0.0, 0.0};
+            Vec3 p2{0.0, 0.0, 0.0};
+            if (auto it1 = effNodePos.find(elem.nodeStart); it1 != effNodePos.end()) p1 = it1->second;
+            if (auto it2 = effNodePos.find(elem.nodeEnd); it2 != effNodePos.end()) p2 = it2->second;
+            const Vec3 midPos = (p1 + p2) * 0.5;
+
+            Vec3 qGlob{0.0, 0.0, 0.0};
+            if (elem.distLoad.coordSystem == CoordSystem::Global) {
+                qGlob = elem.distLoad.w;
+            } else {
+                const Eigen::Matrix3d R = elem.computeRotationMatrix3x3(model);
+                const Eigen::Vector3d qg = R.transpose() * Eigen::Vector3d(elem.distLoad.w.x, elem.distLoad.w.y, elem.distLoad.w.z);
+                qGlob = {qg.x(), qg.y(), qg.z()};
+            }
+            const Vec3 totalF = qGlob * (L * lambda);
+            sumAppliedF += totalF;
+            refForceMag += totalF.norm();
+            const Vec3 mDist = midPos.cross(totalF);
+            sumAppliedM += mDist;
+            refMomentMag += mDist.norm();
+        }
+
+        out.sumAppliedForces = kernel::Vec3(sumAppliedF.x, sumAppliedF.y, sumAppliedF.z);
+        out.sumReactions = kernel::Vec3(sumReacF.x, sumReacF.y, sumReacF.z);
+        out.sumAppliedMoments = kernel::Vec3(sumAppliedM.x, sumAppliedM.y, sumAppliedM.z);
+        out.sumReactionMoments = kernel::Vec3(sumReacM.x, sumReacM.y, sumReacM.z);
+        out.residualForces = out.sumReactions + out.sumAppliedForces;
+        out.residualMoments = out.sumReactionMoments + out.sumAppliedMoments;
+
+        const double tolF = std::max(1e-2, 1e-5 * refForceMag);
+        const double momRelTol = (opts.kinematics == kernel::NonlinearKinematics::PDeltaSecondOrder) ? 1e-3 : 1e-5;
+        const double tolM = std::max(1e-2, momRelTol * refMomentMag);
+        out.equilibriumBalanced = (out.residualForces.norm() <= tolF) && (out.residualMoments.norm() <= tolM);
     }
 
     return out;
@@ -1778,73 +2150,91 @@ bool assembleDynamicBaseSystem(const StructuralModel& model,
 
 kernel::ModalResult FemSolver3D::solveModal(
     const StructuralModel& model,
-    const kernel::ModalOptions& opts)
+    const kernel::ModalOptions& opts,
+    const std::stop_token& stopToken)
 {
     kernel::ModalResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise modal cancelada pelo usuário.";
+        return out;
+    }
     AssembledDynamicSystem sys;
     if (!assembleDynamicBaseSystem(model, sys, out.errorMessage)) {
         return out;
     }
-    return kernel::DynamicSolver::solveModal(sys.redSys.K_ff, sys.M_ff, sys.infl, sys.redSys, opts);
+    return kernel::DynamicSolver::solveModal(sys.redSys.K_ff, sys.M_ff, sys.infl, sys.redSys, opts, stopToken);
 }
 
 kernel::HarmonicResult FemSolver3D::solveHarmonic(
     const StructuralModel& model,
-    const kernel::HarmonicOptions& opts)
+    const kernel::HarmonicOptions& opts,
+    const std::stop_token& stopToken)
 {
     kernel::HarmonicResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise harmônica cancelada pelo usuário.";
+        return out;
+    }
     AssembledDynamicSystem sys;
     if (!assembleDynamicBaseSystem(model, sys, out.errorMessage)) {
         return out;
     }
-    kernel::RayleighDampingParams damp;
-    damp.alphaM = opts.rayleighAlphaM;
-    damp.betaK = opts.rayleighBetaK;
-    const kernel::SpMat C_ff = kernel::DynamicSolver::assembleRayleighDamping(sys.M_ff, sys.redSys.K_ff, damp);
-    return kernel::DynamicSolver::solveHarmonic(sys.redSys.K_ff, sys.M_ff, C_ff, sys.redSys.rhs_f, sys.redSys, opts);
+    // Contrato [AUD-002]: passar matriz vazia de amortecedores discretos; DynamicSolver aplica Rayleigh uma única vez.
+    const kernel::SpMat C_discrete(sys.redSys.K_ff.rows(), sys.redSys.K_ff.cols());
+    return kernel::DynamicSolver::solveHarmonic(
+        sys.redSys.K_ff, sys.M_ff, C_discrete, sys.redSys.rhs_f, sys.redSys, opts, stopToken);
 }
 
 kernel::ResponseSpectrumResult FemSolver3D::solveResponseSpectrum(
     const StructuralModel& model,
     const kernel::ResponseSpectrumOptions& specOpts,
-    const kernel::ModalOptions& modalOpts)
+    const kernel::ModalOptions& modalOpts,
+    const std::stop_token& stopToken)
 {
     kernel::ResponseSpectrumResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise por espectro de resposta cancelada pelo usuário.";
+        return out;
+    }
     AssembledDynamicSystem sys;
     if (!assembleDynamicBaseSystem(model, sys, out.errorMessage)) {
         return out;
     }
     const kernel::ModalResult modal =
-        kernel::DynamicSolver::solveModal(sys.redSys.K_ff, sys.M_ff, sys.infl, sys.redSys, modalOpts);
+        kernel::DynamicSolver::solveModal(sys.redSys.K_ff, sys.M_ff, sys.infl, sys.redSys, modalOpts, stopToken);
     if (!modal.success) {
         out.errorMessage = modal.errorMessage;
         return out;
     }
-    return kernel::DynamicSolver::solveResponseSpectrum(sys.K_orig, modal, specOpts);
+    return kernel::DynamicSolver::solveResponseSpectrum(sys.K_orig, modal, specOpts, stopToken);
 }
 
 kernel::TransientResult FemSolver3D::solveSeismic(
     const StructuralModel& model,
     const std::function<kernel::Vec3(double timeSec, int stepIdx)>& groundAccelMS2Fn,
-    const kernel::TransientOptions& opts)
+    const kernel::TransientOptions& opts,
+    const std::stop_token& stopToken)
 {
     kernel::TransientResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise sísmica cancelada pelo usuário.";
+        return out;
+    }
     AssembledDynamicSystem sys;
     if (!assembleDynamicBaseSystem(model, sys, out.errorMessage)) {
         return out;
     }
-    kernel::RayleighDampingParams damp;
-    damp.alphaM = opts.rayleighAlphaM;
-    damp.betaK = opts.rayleighBetaK;
-    const kernel::SpMat C_ff = kernel::DynamicSolver::assembleRayleighDamping(sys.M_ff, sys.redSys.K_ff, damp);
+    // Contrato [AUD-002]: passar matriz vazia de amortecedores discretos; DynamicSolver aplica Rayleigh uma única vez.
+    const kernel::SpMat C_discrete(sys.redSys.K_ff.rows(), sys.redSys.K_ff.cols());
     return kernel::DynamicSolver::solveSeismicTimeHistory(
-        sys.redSys.K_ff, sys.M_ff, C_ff, sys.infl, sys.redSys, groundAccelMS2Fn, opts);
+        sys.redSys.K_ff, sys.M_ff, C_discrete, sys.infl, sys.redSys, groundAccelMS2Fn, opts, stopToken);
 }
 
 kernel::TransientResult FemSolver3D::solveTransient(
     const StructuralModel& model,
     const kernel::LoadHistory& history,
-    const kernel::TransientOptions& opts)
+    const kernel::TransientOptions& opts,
+    const std::stop_token& stopToken)
 {
     return solveTransient(
         model,
@@ -1852,16 +2242,22 @@ kernel::TransientResult FemSolver3D::solveTransient(
             return history.evaluateAt(timeSec);
         },
         history.loadCaseId,
-        opts);
+        opts,
+        stopToken);
 }
 
 kernel::TransientResult FemSolver3D::solveTransient(
     const StructuralModel& model,
     const std::function<double(double timeSec, int stepIdx)>& loadScaleFn,
     kernel::LoadCaseId baseLoadCaseId,
-    const kernel::TransientOptions& opts)
+    const kernel::TransientOptions& opts,
+    const std::stop_token& stopToken)
 {
     kernel::TransientResult out;
+    if (stopToken.stop_requested()) {
+        out.errorMessage = "Análise transiente cancelada pelo usuário.";
+        return out;
+    }
     if (!loadScaleFn) {
         out.errorMessage = "Função temporal de carregamento nula.";
         return out;
@@ -1902,20 +2298,19 @@ kernel::TransientResult FemSolver3D::solveTransient(
         }
     }
 
-    kernel::RayleighDampingParams damp;
-    damp.alphaM = opts.rayleighAlphaM;
-    damp.betaK = opts.rayleighBetaK;
-    const kernel::SpMat C_ff = kernel::DynamicSolver::assembleRayleighDamping(sys.M_ff, sys.redSys.K_ff, damp);
+    // Contrato [AUD-002]: passar matriz vazia de amortecedores discretos; DynamicSolver aplica Rayleigh uma única vez.
+    const kernel::SpMat C_discrete(sys.redSys.K_ff.rows(), sys.redSys.K_ff.cols());
 
     return kernel::DynamicSolver::solveTransientForceHistory(
         sys.redSys.K_ff,
         sys.M_ff,
-        C_ff,
+        C_discrete,
         sys.redSys,
         [&baseRhs_f, &loadScaleFn](double timeSec, int stepIdx) -> kernel::VecX {
             return loadScaleFn(timeSec, stepIdx) * baseRhs_f;
         },
-        opts);
+        opts,
+        stopToken);
 }
 
 bool FemSolver3D::applyBucklingImperfection(
@@ -1996,7 +2391,91 @@ bool FemSolver3D::applyBucklingImperfection(
     return true;
 }
 
+FemSolver3D::NodalDisplacementLayout FemSolver3D::buildNodalDisplacementLayout(
+    const StructuralModel& model)
+{
+    NodalDisplacementLayout layout;
+    kernel::DofManager dofMgr;
+    UnifiedSolverMapping mapping;
+    int restrainedCount = 0;
+    int springCount = 0;
+    if (!setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, nullptr)) {
+        return layout;
+    }
+
+    layout.expectedDofs = dofMgr.totalDofs();
+    const auto& nodes = model.getNodes();
+    layout.frameEntries.reserve(nodes.size());
+    for (const auto& n : nodes) {
+        layout.frameEntries.push_back(NodalDisplacementEntry{
+            n.id,
+            dofMgr.getNodeGlobalDof(n.id, 0),
+            dofMgr.getNodeGlobalDof(n.id, 1),
+            dofMgr.getNodeGlobalDof(n.id, 2),
+        });
+    }
+
+    const auto& mNodes = model.surfaceMesh().nodes;
+    layout.meshEntries.reserve(mNodes.size());
+    for (size_t i = 0; i < mNodes.size(); ++i) {
+        const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
+        layout.meshEntries.push_back(NodalDisplacementEntry{
+            mNodes[i].id,
+            dofMgr.getNodeGlobalDof(kid, 0),
+            dofMgr.getNodeGlobalDof(kid, 1),
+            dofMgr.getNodeGlobalDof(kid, 2),
+        });
+    }
+
+    layout.valid = true;
+    return layout;
+}
+
+double FemSolver3D::computeMaxTranslationalNorm(
+    const NodalDisplacementLayout& layout,
+    const StructuralModel& model,
+    const kernel::VecX& uFull)
+{
+    if (uFull.size() == 0) {
+        return 0.0;
+    }
+
+    const Eigen::Index nDofs = uFull.size();
+    auto evalEntryNormSq = [&](const NodalDisplacementEntry& e) -> double {
+        const double ux = (e.dx >= 0 && e.dx < nDofs) ? uFull(e.dx) : 0.0;
+        const double uy = (e.dy >= 0 && e.dy < nDofs) ? uFull(e.dy) : 0.0;
+        const double uz = (e.dz >= 0 && e.dz < nDofs) ? uFull(e.dz) : 0.0;
+        return ux * ux + uy * uy + uz * uz;
+    };
+
+    if (layout.valid && nDofs == static_cast<Eigen::Index>(layout.expectedDofs)) {
+        double maxSq = 0.0;
+        for (const auto& e : layout.frameEntries) {
+            maxSq = std::max(maxSq, evalEntryNormSq(e));
+        }
+        for (const auto& e : layout.meshEntries) {
+            maxSq = std::max(maxSq, evalEntryNormSq(e));
+        }
+        return std::sqrt(maxSq);
+    }
+
+    const auto& nodes = model.getNodes();
+    if (nDofs >= static_cast<Eigen::Index>(nodes.size() * 6)) {
+        double maxSq = 0.0;
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const Eigen::Index base = static_cast<Eigen::Index>(i * 6);
+            const double ux = uFull(base);
+            const double uy = uFull(base + 1);
+            const double uz = uFull(base + 2);
+            maxSq = std::max(maxSq, ux * ux + uy * uy + uz * uz);
+        }
+        return std::sqrt(maxSq);
+    }
+    return 0.0;
+}
+
 FemSolver3D::NodalVectorField FemSolver3D::extractNodalDisplacements(
+    const NodalDisplacementLayout& layout,
     const StructuralModel& model,
     const kernel::VecX& uFull)
 {
@@ -2005,38 +2484,26 @@ FemSolver3D::NodalVectorField FemSolver3D::extractNodalDisplacements(
         return out;
     }
 
-    kernel::DofManager dofMgr;
-    UnifiedSolverMapping mapping;
-    int restrainedCount = 0;
-    int springCount = 0;
-    if (setupDofManagerFromModel(model, dofMgr, mapping, restrainedCount, springCount, nullptr)
-        && uFull.size() == dofMgr.totalDofs()) {
-        const auto& nodes = model.getNodes();
-        out.frameNodes.reserve(nodes.size());
-        for (const auto& n : nodes) {
-            const int dx = dofMgr.getNodeGlobalDof(n.id, 0);
-            const int dy = dofMgr.getNodeGlobalDof(n.id, 1);
-            const int dz = dofMgr.getNodeGlobalDof(n.id, 2);
-            const double ux = (dx >= 0 && dx < uFull.size()) ? uFull(dx) : 0.0;
-            const double uy = (dy >= 0 && dy < uFull.size()) ? uFull(dy) : 0.0;
-            const double uz = (dz >= 0 && dz < uFull.size()) ? uFull(dz) : 0.0;
-            const Vec3 v(ux, uy, uz);
-            out.frameNodes[n.id] = v;
+    const Eigen::Index nDofs = uFull.size();
+    if (layout.valid && nDofs == static_cast<Eigen::Index>(layout.expectedDofs)) {
+        auto readVec = [&](const NodalDisplacementEntry& e) -> Vec3 {
+            const double ux = (e.dx >= 0 && e.dx < nDofs) ? uFull(e.dx) : 0.0;
+            const double uy = (e.dy >= 0 && e.dy < nDofs) ? uFull(e.dy) : 0.0;
+            const double uz = (e.dz >= 0 && e.dz < nDofs) ? uFull(e.dz) : 0.0;
+            return Vec3(ux, uy, uz);
+        };
+
+        out.frameNodes.reserve(layout.frameEntries.size());
+        for (const auto& e : layout.frameEntries) {
+            const Vec3 v = readVec(e);
+            out.frameNodes[e.id] = v;
             out.maxTranslationalNorm = std::max(out.maxTranslationalNorm, v.norm());
         }
 
-        const auto& mNodes = model.surfaceMesh().nodes;
-        out.meshNodes.reserve(mNodes.size());
-        for (size_t i = 0; i < mNodes.size(); ++i) {
-            const kernel::NodeId kid = mapping.kernelNodeForMeshIdx[i];
-            const int dx = dofMgr.getNodeGlobalDof(kid, 0);
-            const int dy = dofMgr.getNodeGlobalDof(kid, 1);
-            const int dz = dofMgr.getNodeGlobalDof(kid, 2);
-            const double ux = (dx >= 0 && dx < uFull.size()) ? uFull(dx) : 0.0;
-            const double uy = (dy >= 0 && dy < uFull.size()) ? uFull(dy) : 0.0;
-            const double uz = (dz >= 0 && dz < uFull.size()) ? uFull(dz) : 0.0;
-            const Vec3 v(ux, uy, uz);
-            out.meshNodes[mNodes[i].id] = v;
+        out.meshNodes.reserve(layout.meshEntries.size());
+        for (const auto& e : layout.meshEntries) {
+            const Vec3 v = readVec(e);
+            out.meshNodes[e.id] = v;
             out.maxTranslationalNorm = std::max(out.maxTranslationalNorm, v.norm());
         }
         return out;
@@ -2044,7 +2511,7 @@ FemSolver3D::NodalVectorField FemSolver3D::extractNodalDisplacements(
 
     // Fallback seguro para vetores puramente nodais (6 DOFs por nó)
     const auto& nodes = model.getNodes();
-    if (uFull.size() >= static_cast<Eigen::Index>(nodes.size() * 6)) {
+    if (nDofs >= static_cast<Eigen::Index>(nodes.size() * 6)) {
         out.frameNodes.reserve(nodes.size());
         for (size_t i = 0; i < nodes.size(); ++i) {
             const Eigen::Index base = static_cast<Eigen::Index>(i * 6);
@@ -2054,6 +2521,13 @@ FemSolver3D::NodalVectorField FemSolver3D::extractNodalDisplacements(
         }
     }
     return out;
+}
+
+FemSolver3D::NodalVectorField FemSolver3D::extractNodalDisplacements(
+    const StructuralModel& model,
+    const kernel::VecX& uFull)
+{
+    return extractNodalDisplacements(buildNodalDisplacementLayout(model), model, uFull);
 }
 
 } // namespace omniframe

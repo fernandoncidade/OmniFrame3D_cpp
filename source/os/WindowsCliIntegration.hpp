@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,27 @@ bool installWindowsCliIntegration(const QString& referenceExePath = QString(), Q
  * preservando intactas demais entradas de PATH e associações do sistema.
  */
 bool uninstallWindowsCliIntegration(const QString& referenceExePath = QString(), QString* detailsOut = nullptr);
+
+enum class TerminalShell {
+    Cmd = 0,
+    PowerShell = 1
+};
+
+struct TerminalLaunchSpec {
+    std::wstring applicationPath;   ///< Caminho absoluto em System32 (cmd.exe ou WindowsPowerShell\v1.0\powershell.exe)
+    std::wstring commandLine;       ///< Linha de comando segura com quoting estrito
+    std::wstring workingDirectory;  ///< Diretorio de trabalho normalizado
+};
+
+/**
+ * Constroi a especificacao segura (lpApplicationName + lpCommandLine) para abrir um terminal
+ * interativo em System32 executando o `omniframe-cli.exe` qualificado por caminho completo.
+ */
+TerminalLaunchSpec buildInteractiveCliTerminalSpec(
+    TerminalShell shell,
+    const std::filesystem::path& cliExePath,
+    const std::filesystem::path& workingDir,
+    const std::filesystem::path& systemDirOverride = {});
 
 /**
  * Abre um terminal interativo do Windows 10/11 (CMD ou PowerShell) com o diretório do

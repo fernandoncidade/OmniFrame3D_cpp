@@ -5,17 +5,18 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   update-version:
     if: github.event.deleted == false && !contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: true
@@ -73,6 +74,26 @@ jobs:
             fi
           fi
 
+          # 4) Protecao contra downgrade acidental em relacao a versao ja publicada no README.md
+          if [ -n "$VERSION" ] && [ -f README.md ]; then
+            README_V=$(grep -oE "$V_REGEX" README.md | head -1 || true)
+            if [ -n "$README_V" ]; then
+              if ! CANDIDATE_V="$VERSION" EXISTING_V="$README_V" python3 - <<'PY'
+          import os, re, sys
+          def parse_v(s):
+              m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)\.(\d+)", s.strip())
+              return tuple(int(x) for x in m.groups()) if m else ()
+          c = parse_v(os.environ.get("CANDIDATE_V", ""))
+          e = parse_v(os.environ.get("EXISTING_V", ""))
+          sys.exit(0 if (not e or (c and c >= e)) else 1)
+          PY
+              then
+                echo "Skipping version downgrade: $VERSION < $README_V"
+                VERSION=""
+              fi
+            fi
+          fi
+
           if [ -n "$VERSION" ]; then
             echo "Version found: $VERSION"
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -92,14 +113,15 @@ jobs:
       - name: Update README.md target lines
         if: steps.extract_version.outputs.has_version == 'true'
         shell: bash
+        env:
+          VERSION: ${{ steps.extract_version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.extract_version.outputs.version }}"
           echo "Updating README.md target lines with version $VERSION"
 
           cp README.md README.md.bak
 
-          VERSION="$VERSION" python3 <<'PY'
+          python3 <<'PY'
           import os
           import re
           from datetime import date
@@ -242,8 +264,9 @@ jobs:
       
       - name: Commit and push changes
         if: steps.extract_version.outputs.has_version == 'true' && steps.check_changes.outputs.has_changes == 'true'
+        env:
+          VERSION: ${{ steps.extract_version.outputs.version }}
         run: |
-          VERSION="${{ steps.extract_version.outputs.version }}"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add README.md

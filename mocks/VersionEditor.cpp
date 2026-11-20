@@ -21,6 +21,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSet>
 #include <QSizePolicy>
 #include <QStatusBar>
@@ -101,8 +102,8 @@ bool pareceRaizOmniFrame(const QDir& dir) {
     }
     const bool hasCmake = dir.exists("CMakeLists.txt");
     const bool hasSource = dir.exists("source");
-    const bool hasRepoOrAssets = dir.exists("repo") || dir.exists("source/assets");
-    if (!hasCmake || !hasSource || !hasRepoOrAssets) {
+    const bool hasLibraryOrAssets = dir.exists(QString::fromLatin1(kLibraryDirName)) || dir.exists("source/assets");
+    if (!hasCmake || !hasSource || !hasLibraryOrAssets) {
         return false;
     }
     QFile cmakeFile(dir.filePath("CMakeLists.txt"));
@@ -121,6 +122,21 @@ QString lerTextoUtf8(const QString& caminho, bool* ok = nullptr) {
     return info.texto;
 }
 
+bool caminhosIguaisSistema(const QString& a, const QString& b) {
+    const QString normA = QDir::cleanPath(QFileInfo(a).absoluteFilePath());
+    const QString normB = QDir::cleanPath(QFileInfo(b).absoluteFilePath());
+#ifdef Q_OS_WIN
+    return normA.compare(normB, Qt::CaseInsensitive) == 0;
+#else
+    return normA.compare(normB, Qt::CaseSensitive) == 0;
+#endif
+}
+
+bool ehArquivoReleaseMarkdownNome(const QString& fileName) {
+    return fileName.startsWith(QStringLiteral("release-v"), Qt::CaseInsensitive) &&
+           fileName.endsWith(QStringLiteral(".md"), Qt::CaseInsensitive);
+}
+
 bool escreverTextoArquivoUtf8(const QString& caminho, const QString& conteudo, const TextoArquivoInfo& meta) {
     QString textoFinal = conteudo;
     textoFinal.replace("\r\n", "\n");
@@ -129,8 +145,8 @@ bool escreverTextoArquivoUtf8(const QString& caminho, const QString& conteudo, c
     }
     QFileInfo info(caminho);
     QDir().mkpath(info.absolutePath());
-    QFile file(caminho);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile file(caminho);
+    if (!file.open(QIODevice::WriteOnly)) {
         return false;
     }
     QByteArray encoded = textoFinal.toUtf8();
@@ -138,8 +154,11 @@ bool escreverTextoArquivoUtf8(const QString& caminho, const QString& conteudo, c
         encoded.prepend(QByteArray("\xEF\xBB\xBF", 3));
     }
     const qint64 written = file.write(encoded);
-    file.close();
-    return written == encoded.size();
+    if (written != encoded.size()) {
+        file.cancelWriting();
+        return false;
+    }
+    return file.commit();
 }
 
 struct ContagemSubstituicao {
@@ -238,9 +257,19 @@ ContagemSubstituicao substituirVersoesCalVer(QString& texto, const QString& vers
 QString detectarReleaseMarkdownRelativo(const QDir& rootDir) {
     QDir docsDir(rootDir.filePath("docs"));
     if (docsDir.exists()) {
-        const QStringList candidates = docsDir.entryList(QStringList() << "release-v*.md", QDir::Files, QDir::Name);
+        const QStringList allMd = docsDir.entryList(QStringList() << "*.md", QDir::Files, QDir::Name);
+        QStringList candidates;
+        candidates.reserve(allMd.size());
+        for (const QString& name : allMd) {
+            if (ehArquivoReleaseMarkdownNome(name)) {
+                candidates << name;
+            }
+        }
         if (!candidates.isEmpty()) {
-            static const QRegularExpression rxVer(R"(^release-v(20\d{2})\.(\d{1,2})\.(\d{1,2})\.(\d+)\.md$)");
+            static const QRegularExpression rxVer(
+                R"(^release-v(20\d{2})\.(\d{1,2})\.(\d{1,2})\.(\d+)\.md$)",
+                QRegularExpression::CaseInsensitiveOption
+            );
             QString bestFile = candidates.first();
             bool bestHasTuple = false;
             QVector<int> bestTuple = {0, 0, 0, 0};
@@ -559,7 +588,7 @@ ResultadoTransformacao aplicarTransformacaoArquivo(
     ContagemSubstituicao contVersao;
     ContagemSubstituicao contData;
 
-    if (relPath == "repo/AppxManifest.xml") {
+    if (relPath == QString::fromLatin1(kAppxManifestRelPath)) {
         contVersao.adicionar(substituirComRegex(
             texto,
             R"((<Identity\b[^>]*\bVersion=")([vV]?)(20\d{2}\.\d{1,2}\.\d{1,2}\.\d+)("))",
@@ -592,11 +621,11 @@ ResultadoTransformacao aplicarTransformacaoArquivo(
         relPath == "source/ui/ManualDialog.hpp" ||
         relPath == "source/ui/ManualDialog.cpp" ||
         relPath == "mocks/CompileTranslationsTerminal.hpp" ||
-        (relPath.startsWith("repo/") && relPath.endsWith(".iss"))
+        (relPath.startsWith(QString::fromLatin1(kLibraryDirName) + QLatin1Char('/')) && relPath.endsWith(QStringLiteral(".iss")))
     ) {
         contVersao.adicionar(substituirVersoesCalVer(texto, versao));
     } else {
-        // mocks/INSTRUCOES_find_VersionEditor.txt, repo/OmniFrame_cpp.txt e source/assets/**
+        // mocks/INSTRUCOES_find_VersionEditor.txt, library/OmniFrame_cpp.txt e source/assets/**
         contVersao.adicionar(substituirVersoesCalVer(texto, versao));
         contData.adicionar(substituirDatasTextoAssets(texto, dataPtBr, dataEnUs, dataIso));
     }
@@ -684,9 +713,6 @@ QString resolver_pasta_raiz_projeto(const QString& caminhoInicial) {
         if (!QCoreApplication::applicationDirPath().isEmpty()) {
             origens << QCoreApplication::applicationDirPath();
         }
-#ifdef OMNIFRAME_DEFAULT_SOURCE_ROOT
-        origens << QString::fromUtf8(OMNIFRAME_DEFAULT_SOURCE_ROOT);
-#endif
     }
 
     for (const QString& origem : origens) {
@@ -958,13 +984,18 @@ QVector<ArquivoAlvoInfo> listar_arquivos_alvo(const QString& raizProjeto) {
     QSet<QString> vistos;
 
     auto adicionarUnico = [&lista, &vistos](const ArquivoAlvoInfo& info) {
-        const QString chave = QDir::cleanPath(info.caminhoRelativo);
+        const QString caminhoLimpo = QDir::cleanPath(info.caminhoRelativo);
+#ifdef Q_OS_WIN
+        const QString chave = caminhoLimpo.toLower();
+#else
+        const QString chave = caminhoLimpo;
+#endif
         if (vistos.contains(chave)) {
             return;
         }
         vistos.insert(chave);
         ArquivoAlvoInfo copia = info;
-        copia.caminhoRelativo = chave;
+        copia.caminhoRelativo = caminhoLimpo;
         lista.push_back(copia);
     };
 
@@ -975,12 +1006,16 @@ QVector<ArquivoAlvoInfo> listar_arquivos_alvo(const QString& raizProjeto) {
         const QString& catEn,
         const QString& descPt,
         const QString& descEn,
-        const QStringList& padroesFallback = {}
+        const QStringList& padroesFallback = {},
+        bool ignorarReleasesHistoricos = false
     ) {
         const QDir subDir(rootDir.filePath(dirRelativo));
         if (subDir.exists()) {
             const QStringList arquivos = subDir.entryList(extensoes, QDir::Files, QDir::Name);
             for (const QString& nome : arquivos) {
+                if (ignorarReleasesHistoricos && ehArquivoReleaseMarkdownNome(nome)) {
+                    continue;
+                }
                 adicionarUnico({
                     QString("%1/%2").arg(dirRelativo, nome),
                     catPt,
@@ -1035,22 +1070,24 @@ QVector<ArquivoAlvoInfo> listar_arquivos_alvo(const QString& raizProjeto) {
         "Docs / Técnicos",
         "Docs / Technical",
         "Documentação técnica em docs/ (versão e data)",
-        "Technical documentation under docs/ (version and date)"
+        "Technical documentation under docs/ (version and date)",
+        {},
+        true
     );
 
     // Templates GitHub
     adicionarUnico({".github/ISSUE_TEMPLATE/bug_report.md", "GitHub / Templates", "GitHub / Templates", "Exemplo de versão no template de bug (PT-BR / EN-US)", "Version example in bug report template (PT-BR / EN-US)"});
 
-    // Empacotamento e metadados repo/
-    adicionarUnico({"repo/OmniFrame.iss", "Empacotamento / Inno", "Packaging / Inno", "Versão do script e OutputBaseFilename no Inno Setup", "Inno Setup version define and OutputBaseFilename"});
-    if (rootDir.exists("repo/OmniFrame_MSVC.iss")) {
-        adicionarUnico({"repo/OmniFrame_MSVC.iss", "Empacotamento / Inno", "Packaging / Inno", "Versão do instalador Inno Setup MSVC", "MSVC Inno Setup installer version"});
+    // Empacotamento e metadados library/
+    adicionarUnico({QString::fromLatin1(kOmniFrameIssRelPath), "Empacotamento / Inno", "Packaging / Inno", "Versão do script e OutputBaseFilename no Inno Setup", "Inno Setup version define and OutputBaseFilename"});
+    if (rootDir.exists(QString::fromLatin1(kOmniFrameMsvcIssRelPath))) {
+        adicionarUnico({QString::fromLatin1(kOmniFrameMsvcIssRelPath), "Empacotamento / Inno", "Packaging / Inno", "Versão do instalador Inno Setup MSVC", "MSVC Inno Setup installer version"});
     }
-    if (rootDir.exists("repo/OmniFrame_MinGW.iss")) {
-        adicionarUnico({"repo/OmniFrame_MinGW.iss", "Empacotamento / Inno", "Packaging / Inno", "Versão do instalador Inno Setup MinGW", "MinGW Inno Setup installer version"});
+    if (rootDir.exists(QString::fromLatin1(kOmniFrameMingwIssRelPath))) {
+        adicionarUnico({QString::fromLatin1(kOmniFrameMingwIssRelPath), "Empacotamento / Inno", "Packaging / Inno", "Versão do instalador Inno Setup MinGW", "MinGW Inno Setup installer version"});
     }
-    adicionarUnico({"repo/OmniFrame_cpp.txt", "Empacotamento / Repo", "Packaging / Repo", "Referência de release, versão e data do repositório", "Repository release link, version, and date reference"});
-    adicionarUnico({"repo/AppxManifest.xml", "Empacotamento / MSIX", "Packaging / MSIX", "Atributo Version da identidade Microsoft Store MSIX", "Microsoft Store MSIX Identity Version attribute"});
+    adicionarUnico({QString::fromLatin1(kOmniFrameNotesRelPath), "Empacotamento / Library", "Packaging / Library", "Referência de release, versão e data em library/", "Library release link, version, and date reference"});
+    adicionarUnico({QString::fromLatin1(kAppxManifestRelPath), "Empacotamento / MSIX", "Packaging / MSIX", "Atributo Version da identidade Microsoft Store MSIX", "Microsoft Store MSIX Identity Version attribute"});
 
     // Assets de conformidade, documentação e manual (source/assets/RELEASE é preservado intocado)
     adicionarDiretorio(
@@ -1167,6 +1204,8 @@ RelatorioExecucao executar_edicao_versao(
 
     const QVector<ArquivoAlvoInfo> alvos = listar_arquivos_alvo(rel.raizProjeto);
     rel.totalArquivos = alvos.size();
+    const QString activeReleaseRel = detectarReleaseMarkdownRelativo(rootDir);
+    const QString activeReleaseAbs = rootDir.filePath(activeReleaseRel);
 
     for (const ArquivoAlvoInfo& alvo : alvos) {
         RegistroAlteracao reg;
@@ -1206,10 +1245,10 @@ RelatorioExecucao executar_edicao_versao(
         );
 
         const QString targetReleaseRel = QString("docs/release-v%1.md").arg(versaoNormalizada);
-        const bool ehReleaseDoc = alvo.caminhoRelativo.startsWith("docs/release-v") && alvo.caminhoRelativo.endsWith(".md");
+        const bool ehReleaseAtivo = caminhosIguaisSistema(absPath, activeReleaseAbs);
         const QString targetReleaseAbs = rootDir.filePath(targetReleaseRel);
-        const bool precisaRenomearRelease = ehReleaseDoc
-            && (QFileInfo(absPath).absoluteFilePath() != QFileInfo(targetReleaseAbs).absoluteFilePath());
+        const bool precisaRenomearRelease = ehReleaseAtivo
+            && !caminhosIguaisSistema(absPath, targetReleaseAbs);
 
         reg.alteracoesVersao = transf.alteracoesVersao;
         reg.alteracoesData = transf.alteracoesData;
@@ -1243,7 +1282,17 @@ RelatorioExecucao executar_edicao_versao(
                 continue;
             }
             if (precisaRenomearRelease) {
-                QFile::remove(targetReleaseAbs);
+                if (QFileInfo::exists(targetReleaseAbs)) {
+                    reg.status = StatusArquivo::Erro;
+                    reg.statusTexto = trLocal("ERRO", "ERROR");
+                    reg.resumo = trLocal(
+                        "Falha ao renomear: o arquivo de lançamento de destino já existe",
+                        "Failed to rename: target release document already exists"
+                    );
+                    ++rel.totalErros;
+                    rel.registros.push_back(reg);
+                    continue;
+                }
                 if (!QFile::rename(absPath, targetReleaseAbs)) {
                     reg.status = StatusArquivo::Erro;
                     reg.statusTexto = trLocal("ERRO", "ERROR");
@@ -1521,8 +1570,8 @@ void VersionEditorWidget::aplicarTraducoesUi() {
     setWindowTitle(trLocal("OmniFrame 3D - Editor de Versão e Metadados", "OmniFrame 3D - Version and Metadata Editor"));
     m_tituloBannerLabel->setText("OmniFrame 3D - VersionEditor");
     m_subtituloBannerLabel->setText(trLocal(
-        "Sincronização centralizada de versão ([v]2026.11.12.0) e data entre CMake, C++, docs/, políticas, repo/ e source/assets/",
-        "Centralized synchronization of version ([v]2026.11.12.0) and date across CMake, C++, docs/, policy files, repo/, and source/assets/"
+        "Sincronização centralizada de versão ([v]2026.11.12.0) e data entre CMake, C++, docs/, políticas, library/ e source/assets/",
+        "Centralized synchronization of version ([v]2026.11.12.0) and date across CMake, C++, docs/, policy files, library/, and source/assets/"
     ));
     m_idiomaLabel->setText(trLocal("Idioma:", "Language:"));
 
@@ -1541,8 +1590,8 @@ void VersionEditorWidget::aplicarTraducoesUi() {
     m_novaDataLabel->setText(trLocal("Data de Lançamento:", "Release Date:"));
     m_btnDataHoje->setText(trLocal("Hoje", "Today"));
     m_checkIncluirReleaseDoc->setText(trLocal(
-        "Sincronizar automaticamente docs/, source/assets/ (exceto RELEASE), UI C++, README, políticas, repo/ e CMakeLists.txt",
-        "Automatically synchronize docs/, source/assets/ (except RELEASE), C++ UI, README, policy files, repo/, and CMakeLists.txt"
+        "Sincronizar automaticamente docs/, source/assets/ (exceto RELEASE), UI C++, README, políticas, library/ e CMakeLists.txt",
+        "Automatically synchronize docs/, source/assets/ (except RELEASE), C++ UI, README, policy files, library/, and CMakeLists.txt"
     ));
 
     if (m_novaDataEdit) {
@@ -1806,7 +1855,7 @@ void VersionEditorWidget::aoMostrarSobre() {
                     "• source/assets/{ABOUT,CLC,COPYRIGHT,EULA,MANUAL,NOTICES,PRIVACY_POLICY}/\n"
                     "• source/ui/{AboutDialog,ManualDialog}.{hpp,cpp}\n"
                     "• README.md, MANUAL.md, OBSERVACAO.md, SECURITY.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md\n"
-                    "• repo/{OmniFrame*.iss,OmniFrame_cpp.txt,AppxManifest.xml}, CMakeLists.txt e mocks/\n\n"
+                    "• library/{OmniFrame*.iss,OmniFrame_cpp.txt,AppxManifest.xml}, CMakeLists.txt e mocks/\n\n"
                     "Preserva intactos source/assets/RELEASE/ e versões de bibliotecas/SDKs (Qt 6.11.1, Eigen 3.4.0, Windows SDK).")
                 .arg(verExibida),
             QString("OmniFrame 3D — Version & Metadata Editor (%1)\n\n"
@@ -1816,7 +1865,7 @@ void VersionEditorWidget::aoMostrarSobre() {
                     "• source/assets/{ABOUT,CLC,COPYRIGHT,EULA,MANUAL,NOTICES,PRIVACY_POLICY}/\n"
                     "• source/ui/{AboutDialog,ManualDialog}.{hpp,cpp}\n"
                     "• README.md, MANUAL.md, OBSERVACAO.md, SECURITY.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md\n"
-                    "• repo/{OmniFrame*.iss,OmniFrame_cpp.txt,AppxManifest.xml}, CMakeLists.txt, and mocks/\n\n"
+                    "• library/{OmniFrame*.iss,OmniFrame_cpp.txt,AppxManifest.xml}, CMakeLists.txt, and mocks/\n\n"
                     "Preserves source/assets/RELEASE/ and third-party/SDK versions (Qt 6.11.1, Eigen 3.4.0, Windows SDK) untouched.")
                 .arg(verExibida)
         )
@@ -1959,6 +2008,8 @@ int run_cli_or_gui(int argc, char* argv[]) {
 
 } // namespace mocks::version_editor
 
+#ifndef OMNIFRAME_VERSION_EDITOR_NO_MAIN
 int main(int argc, char* argv[]) {
     return mocks::version_editor::run_cli_or_gui(argc, argv);
 }
+#endif

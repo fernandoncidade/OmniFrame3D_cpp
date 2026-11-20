@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(OmniFrame
-    VERSION 2026.11.18.0
+    VERSION 2026.11.20.0
     DESCRIPTION "OmniFrame 3D - Porticos e Trelicas Espaciais 3D via FEM (C++23 / Qt6 / OpenGL / Eigen3)"
     LANGUAGES CXX
 )
@@ -27,8 +27,20 @@ option(BUILD_APP "Compila o aplicativo GUI principal OmniFrame 3D" ON)
 option(BUILD_TESTS "Compila a suite de testes automatizados (CTest)" OFF)
 option(BUILD_VERSION "Compila o editor/auditor de versao VersionEditor" OFF)
 option(BUILD_COMPILE_LANGUAGE "Compila as ferramentas CompileTranslationsGUI e CompileTranslationsTerminal" OFF)
+option(BUILD_FUZZERS "Compila alvos opcionais de fuzzing libFuzzer (Clang)" OFF)
+option(OMNIFRAME_ENABLE_ASAN "Habilita AddressSanitizer (compativel com MSVC/GCC/Clang)" OFF)
+option(OMNIFRAME_ENABLE_UBSAN "Habilita UndefinedBehaviorSanitizer (GCC/Clang)" OFF)
+option(OMNIFRAME_ENABLE_TSAN "Habilita ThreadSanitizer (GCC/Clang)" OFF)
 
 function(omniframe_apply_compiler_options target_name)
+    get_target_property(_OMNIFRAME_TGT_TYPE ${target_name} TYPE)
+    set(_OMNIFRAME_IS_LINKABLE FALSE)
+    if(_OMNIFRAME_TGT_TYPE STREQUAL "EXECUTABLE" OR
+       _OMNIFRAME_TGT_TYPE STREQUAL "SHARED_LIBRARY" OR
+       _OMNIFRAME_TGT_TYPE STREQUAL "MODULE_LIBRARY")
+        set(_OMNIFRAME_IS_LINKABLE TRUE)
+    endif()
+
     if(WIN32)
         target_compile_definitions(${target_name} PRIVATE
             WIN32_LEAN_AND_MEAN
@@ -42,21 +54,69 @@ function(omniframe_apply_compiler_options target_name)
             /W4
             /utf-8
             /permissive-
+            /EHsc
+            /GS
+            /sdl
             $<$<CONFIG:Release>:/O2 /Oi /Ot>
         )
+        if(OMNIFRAME_ENABLE_ASAN)
+            target_compile_options(${target_name} PRIVATE /fsanitize=address /Zi)
+            if(_OMNIFRAME_IS_LINKABLE)
+                target_link_options(${target_name} PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /INCREMENTAL:NO /PDBALTPATH:%_PDB%)
+            endif()
+        else()
+            target_compile_options(${target_name} PRIVATE /guard:cf)
+            if(_OMNIFRAME_IS_LINKABLE)
+                target_link_options(${target_name} PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /GUARD:CF /CETCOMPAT /PDBALTPATH:%_PDB%)
+            endif()
+        endif()
     else()
         target_compile_options(${target_name} PRIVATE
             -Wall
             -Wextra
             -Wno-unused-parameter
-            $<$<CONFIG:Release>:-O3>
+            -fstack-protector-strong
+            $<$<CONFIG:Release>:-O3 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3>
         )
+        set_target_properties(${target_name} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+        if(_OMNIFRAME_TGT_TYPE STREQUAL "EXECUTABLE")
+            target_compile_options(${target_name} PRIVATE -fPIE)
+        endif()
+        if(OMNIFRAME_ENABLE_TSAN AND (OMNIFRAME_ENABLE_ASAN OR OMNIFRAME_ENABLE_UBSAN))
+            message(FATAL_ERROR "OMNIFRAME_ENABLE_TSAN nao pode ser combinado com OMNIFRAME_ENABLE_ASAN ou OMNIFRAME_ENABLE_UBSAN.")
+        endif()
+        set(_OMNIFRAME_SANITIZERS)
+        if(OMNIFRAME_ENABLE_ASAN)
+            list(APPEND _OMNIFRAME_SANITIZERS address)
+        endif()
+        if(OMNIFRAME_ENABLE_UBSAN)
+            list(APPEND _OMNIFRAME_SANITIZERS undefined)
+        endif()
+        if(OMNIFRAME_ENABLE_TSAN)
+            list(APPEND _OMNIFRAME_SANITIZERS thread)
+        endif()
+        if(_OMNIFRAME_SANITIZERS)
+            string(JOIN "," _OMNIFRAME_SAN_FLAGS ${_OMNIFRAME_SANITIZERS})
+            target_compile_options(${target_name} PRIVATE
+                -fsanitize=${_OMNIFRAME_SAN_FLAGS}
+                -fno-omit-frame-pointer
+            )
+            if(OMNIFRAME_ENABLE_UBSAN)
+                target_compile_options(${target_name} PRIVATE -fno-sanitize-recover=undefined)
+            endif()
+            if(_OMNIFRAME_IS_LINKABLE)
+                target_link_options(${target_name} PRIVATE -fsanitize=${_OMNIFRAME_SAN_FLAGS})
+            endif()
+        endif()
+        if(UNIX AND NOT APPLE AND _OMNIFRAME_IS_LINKABLE)
+            target_link_options(${target_name} PRIVATE -Wl,-z,relro,-z,now,-z,noexecstack)
+        endif()
     endif()
 endfunction()
 
 # Determina componentes Qt6 necessarios conforme os alvos ativos
 set(_OMNIFRAME_QT_COMPONENTS Core)
-if(BUILD_APP OR BUILD_TESTS OR BUILD_VERSION OR BUILD_COMPILE_LANGUAGE)
+if(BUILD_APP OR BUILD_TESTS OR BUILD_VERSION OR BUILD_COMPILE_LANGUAGE OR BUILD_FUZZERS)
     list(APPEND _OMNIFRAME_QT_COMPONENTS Gui)
 endif()
 if(BUILD_APP OR BUILD_TESTS OR BUILD_VERSION OR BUILD_COMPILE_LANGUAGE)
@@ -84,17 +144,23 @@ endif()
 if(WIN32)
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/source/assets/icons/omniframe.ico" OMNIFRAME_APP_ICON_RC_PATH)
     set(OMNIFRAME_GENERATED_ICON_RC "${CMAKE_CURRENT_BINARY_DIR}/generated/windows_app_icon.rc")
-    configure_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_app_icon.rc.in"
-        "${OMNIFRAME_GENERATED_ICON_RC}"
-        @ONLY
-    )
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_app_icon.rc.in")
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_app_icon.rc.in"
+            "${OMNIFRAME_GENERATED_ICON_RC}"
+            @ONLY
+        )
+    else()
+        file(WRITE "${OMNIFRAME_GENERATED_ICON_RC}"
+            "IDI_ICON1 ICON \"${OMNIFRAME_APP_ICON_RC_PATH}\"\n1 ICON \"${OMNIFRAME_APP_ICON_RC_PATH}\"\n"
+        )
+    endif()
 endif()
 
 # ==============================================================================
-# Nucleo Computacional (Eigen3 + OmniFrameCore) - somente App e Testes
+# Nucleo Computacional (Eigen3 + OmniFrameKernel + OmniFrameCore)
 # ==============================================================================
-if(BUILD_APP OR BUILD_TESTS)
+if(BUILD_APP OR BUILD_TESTS OR BUILD_FUZZERS)
     find_package(Eigen3 3.4 QUIET NO_MODULE)
     if(NOT Eigen3_FOUND)
         message(STATUS "Eigen3 nao encontrado no sistema. Obtendo Eigen 3.4.0 via FetchContent (header-only)...")
@@ -104,9 +170,9 @@ if(BUILD_APP OR BUILD_TESTS)
         set(EIGEN_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
         FetchContent_Declare(
             Eigen3
-            GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-            GIT_TAG 3.4.0
-            GIT_SHALLOW TRUE
+            URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+            URL_HASH SHA256=8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
             SOURCE_SUBDIR __cmake_skip_subdirectory
         )
         FetchContent_MakeAvailable(Eigen3)
@@ -220,7 +286,9 @@ if(BUILD_APP OR BUILD_TESTS)
         $<$<PLATFORM_ID:Windows>:Advapi32>
     )
     omniframe_apply_compiler_options(OmniFrameCore)
+endif()
 
+if(BUILD_APP OR BUILD_TESTS)
     set(OMNIFRAME_CLI_SOURCES
         source/cli/main_cli.cpp
     )
@@ -245,11 +313,12 @@ if(BUILD_APP OR BUILD_TESTS)
         Qt6::Gui
     )
     omniframe_apply_compiler_options(omniframe-cli)
-    if(WIN32 AND BUILD_APP)
+    if(WIN32 AND BUILD_APP AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_optional_qt_binary.cmake")
         add_custom_command(TARGET omniframe-cli POST_BUILD
             COMMAND "${CMAKE_COMMAND}"
                 -DBINARY_PATH=$<TARGET_FILE:omniframe-cli>
                 -DQT_BIN_DIR=${OMNIFRAME_QT_BIN_DIR}
+                -DBUILD_CONFIG=$<CONFIG>
                 -DCOPY_QT_TRANSLATIONS=OFF
                 -DCLEANUP_ARTIFACTS=OFF
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_optional_qt_binary.cmake"
@@ -271,6 +340,8 @@ if(BUILD_APP OR BUILD_TESTS)
         source/render/Viewport3D.cpp
         source/ui/AboutDialog.hpp
         source/ui/AboutDialog.cpp
+        source/ui/AsyncAnalysisExecutor.hpp
+        source/ui/AsyncAnalysisExecutor.cpp
         source/ui/Dialogs.hpp
         source/ui/Dialogs.cpp
         source/ui/EngineeringDialogs.hpp
@@ -281,6 +352,8 @@ if(BUILD_APP OR BUILD_TESTS)
         source/ui/ManualDialog.cpp
         source/ui/RenderSettingsDialog.hpp
         source/ui/RenderSettingsDialog.cpp
+        source/ui/ResultTableModel.hpp
+        source/ui/ResultTableModel.cpp
         source/ui/ResultTableConfigurator.hpp
         source/ui/ResultTableConfigurator.cpp
         source/ui/StartupSessionDialog.hpp
@@ -428,11 +501,12 @@ if(BUILD_APP)
         )
     endforeach()
 
-    if(WIN32)
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_optional_qt_binary.cmake")
         add_custom_command(TARGET OmniFrame POST_BUILD
             COMMAND "${CMAKE_COMMAND}"
                 -DBINARY_PATH=$<TARGET_FILE:OmniFrame>
                 -DQT_BIN_DIR=${OMNIFRAME_QT_BIN_DIR}
+                -DBUILD_CONFIG=$<CONFIG>
                 -DCOPY_QT_TRANSLATIONS=ON
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy_optional_qt_binary.cmake"
             COMMENT "Executando deploy Qt6 e limpeza de artefatos para OmniFrame.exe"
@@ -453,4 +527,11 @@ endif()
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+endif()
+
+# ==============================================================================
+# Alvos opcionais de Fuzzing (libFuzzer / Clang)
+# ==============================================================================
+if(BUILD_FUZZERS)
+    add_subdirectory(tests/fuzz)
 endif()

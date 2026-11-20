@@ -350,8 +350,8 @@ void RenderSettingsDialog::updateHardwareInfo(const GraphicsCapabilitiesInfo& hw
 
     m_telemetryGpuValue->setText(
         GerenciadorTraducao::trText("%1 | OpenGL %2 | MSAA Máx. GPU: %3×")
-            .arg(m_hwInfo.rendererName.isEmpty() ? QStringLiteral("OpenGL") : m_hwInfo.rendererName)
-            .arg(m_hwInfo.glVersion.isEmpty() ? QStringLiteral("3.3 Core") : m_hwInfo.glVersion)
+            .arg(m_hwInfo.rendererName.isEmpty() ? QStringLiteral("OpenGL") : m_hwInfo.rendererName,
+                 m_hwInfo.glVersion.isEmpty() ? QStringLiteral("3.3 Core") : m_hwInfo.glVersion)
             .arg(m_hwInfo.maxSamples));
 
     m_telemetryNativeValue->setText(

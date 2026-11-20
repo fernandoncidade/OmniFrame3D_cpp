@@ -9,6 +9,7 @@
 #include <Eigen/Sparse>
 #include <array>
 #include <functional>
+#include <stop_token>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -75,57 +76,98 @@ struct SolverResult {
 class FemSolver3D {
 public:
     static SolverResult solve(StructuralModel& model);
-    static SolverResult solveWithOptions(StructuralModel& model, const kernel::LinearSolverOptions& opts);
+    static SolverResult solveWithOptions(StructuralModel& model,
+                                         const kernel::LinearSolverOptions& opts,
+                                         const std::stop_token& stopToken = {});
+    static SolverResult solveLoadCase(StructuralModel& model,
+                                      const kernel::LoadCase& lc,
+                                      const kernel::LinearSolverOptions& opts = {},
+                                      const std::stop_token& stopToken = {});
     static bool solveLoadCasesAndCombinations(
         StructuralModel& model,
         const kernel::LinearSolverOptions& opts,
         std::vector<kernel::CaseDisplacementResult>& outCaseResults,
         std::vector<kernel::CaseDisplacementResult>& outComboResults,
         kernel::EnvelopeExtremes& outEnvelope,
-        std::string* errorMsg = nullptr);
+        std::string* errorMsg = nullptr,
+        const std::stop_token& stopToken = {});
 
     static kernel::BucklingResult solveBuckling(
         StructuralModel& model,
-        const kernel::BucklingOptions& opts = {});
+        const kernel::BucklingOptions& opts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::NonlinearResult solveNonlinear(
         StructuralModel& model,
-        const kernel::NonlinearOptions& opts = {});
+        const kernel::NonlinearOptions& opts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::ModalResult solveModal(
         const StructuralModel& model,
-        const kernel::ModalOptions& opts = {});
+        const kernel::ModalOptions& opts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::HarmonicResult solveHarmonic(
         const StructuralModel& model,
-        const kernel::HarmonicOptions& opts = {});
+        const kernel::HarmonicOptions& opts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::ResponseSpectrumResult solveResponseSpectrum(
         const StructuralModel& model,
         const kernel::ResponseSpectrumOptions& specOpts,
-        const kernel::ModalOptions& modalOpts = {});
+        const kernel::ModalOptions& modalOpts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::TransientResult solveSeismic(
         const StructuralModel& model,
         const std::function<kernel::Vec3(double timeSec, int stepIdx)>& groundAccelMS2Fn,
-        const kernel::TransientOptions& opts = {});
+        const kernel::TransientOptions& opts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::TransientResult solveTransient(
         const StructuralModel& model,
         const kernel::LoadHistory& history,
-        const kernel::TransientOptions& opts = {});
+        const kernel::TransientOptions& opts = {},
+        const std::stop_token& stopToken = {});
 
     static kernel::TransientResult solveTransient(
         const StructuralModel& model,
         const std::function<double(double timeSec, int stepIdx)>& loadScaleFn,
         kernel::LoadCaseId baseLoadCaseId = 0,
-        const kernel::TransientOptions& opts = {});
+        const kernel::TransientOptions& opts = {},
+        const std::stop_token& stopToken = {});
+
+    struct NodalDisplacementEntry {
+        NodeId id = 0;
+        int dx = -1;
+        int dy = -1;
+        int dz = -1;
+    };
+
+    struct NodalDisplacementLayout {
+        int expectedDofs = 0;
+        std::vector<NodalDisplacementEntry> frameEntries;
+        std::vector<NodalDisplacementEntry> meshEntries;
+        bool valid = false;
+    };
 
     struct NodalVectorField {
         std::unordered_map<NodeId, Vec3> frameNodes;
         std::unordered_map<NodeId, Vec3> meshNodes;
         double maxTranslationalNorm = 0.0;
     };
+
+    static NodalDisplacementLayout buildNodalDisplacementLayout(const StructuralModel& model);
+
+    static double computeMaxTranslationalNorm(
+        const NodalDisplacementLayout& layout,
+        const StructuralModel& model,
+        const kernel::VecX& uFull);
+
+    static NodalVectorField extractNodalDisplacements(
+        const NodalDisplacementLayout& layout,
+        const StructuralModel& model,
+        const kernel::VecX& uFull);
 
     static NodalVectorField extractNodalDisplacements(
         const StructuralModel& model,

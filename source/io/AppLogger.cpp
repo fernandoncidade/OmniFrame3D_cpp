@@ -16,14 +16,34 @@
 #include <QThread>
 #include <QTimeZone>
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <vector>
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace omniframe::io {
 
 namespace {
+
+std::atomic<int> g_emergencyLogFd{-1};
+std::atomic<std::terminate_handler> g_previousTerminateHandler{nullptr};
+
+void writeEmergencyBytes(int fd, const char* data, std::size_t len) noexcept {
+    if (fd < 0 || data == nullptr || len == 0) return;
+#ifdef _WIN32
+    (void)_write(fd, data, static_cast<unsigned int>(len));
+#else
+    (void)::write(fd, data, len);
+#endif
+}
 
 struct LoggerState {
     bool initialized = false;
@@ -159,15 +179,16 @@ int enforceRetentionLimitLocked(const QString& dirPath, int maxFiles, const QStr
     return removed;
 }
 
-void writeRawLineLocked(QFile* file, const QString& line) {
+bool writeRawLineLocked(QFile* file, const QString& line) {
     if (file == nullptr || !file->isOpen()) {
-        return;
+        return false;
     }
-    QTextStream stream(file);
-    stream.setEncoding(QStringConverter::Utf8);
-    stream << line << '\n';
-    stream.flush();
+    file->seek(file->size());
+    QByteArray utf8 = line.toUtf8();
+    utf8.append('\n');
+    file->write(utf8);
     file->flush();
+    return file->error() == QFileDevice::NoError;
 }
 
 bool ensureActiveFileOpenLocked() {
@@ -177,10 +198,9 @@ bool ensureActiveFileOpenLocked() {
     const QString targetPath = QDir::cleanPath(
         QDir(targetDir).filePath(AppLogger::logFileNameForDate(targetDate)));
 
-    const bool fileMissingOnDisk = !QFileInfo::exists(targetPath);
     const bool needsReopen = !st.activeFile ||
                              !st.activeFile->isOpen() ||
-                             fileMissingOnDisk ||
+                             st.activeFile->error() != QFileDevice::NoError ||
                              st.activeDate != targetDate ||
                              QString::compare(QDir::cleanPath(st.activeDir), targetDir, Qt::CaseInsensitive) != 0 ||
                              QString::compare(QDir::cleanPath(st.activeFilePath), targetPath, Qt::CaseInsensitive) != 0;
@@ -189,6 +209,7 @@ bool ensureActiveFileOpenLocked() {
         return true;
     }
 
+    g_emergencyLogFd.store(-1, std::memory_order_release);
     if (st.activeFile) {
         if (st.activeFile->isOpen()) {
             st.activeFile->flush();
@@ -203,11 +224,14 @@ bool ensureActiveFileOpenLocked() {
 
     const bool isBrandNewFile = !QFileInfo::exists(targetPath);
     auto file = std::make_unique<QFile>(targetPath);
-    if (!file->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
-        return false;
+    if (!file->open(QIODevice::ReadWrite | QIODevice::Append)) {
+        if (!file->open(QIODevice::WriteOnly | QIODevice::Append)) {
+            return false;
+        }
     }
 
     st.activeFile = std::move(file);
+    g_emergencyLogFd.store(st.activeFile->handle(), std::memory_order_release);
     st.activeDir = targetDir;
     st.activeDate = targetDate;
     st.activeFilePath = targetPath;
@@ -336,25 +360,40 @@ void qtMessageHandlerBridge(QtMsgType type, const QMessageLogContext& context, c
 }
 
 [[noreturn]] void terminateHandlerBridge() {
-    QString detail = QStringLiteral("Terminacao anormal da aplicacao (std::terminate acionado)");
+    static constexpr char kPrefix[] = "[FATAL   ] [Runtime] Terminacao anormal (std::terminate): ";
+    static constexpr char kUnknown[] = "Excecao C++ desconhecida ou terminate direto\n";
+    char buf[512];
+    std::size_t pos = 0;
+    auto appendStr = [&](const char* s) noexcept {
+        if (!s) return;
+        while (*s != '\0' && pos + 2 < sizeof(buf)) {
+            buf[pos++] = *s++;
+        }
+    };
+
+    appendStr(kPrefix);
     try {
         if (const std::exception_ptr eptr = std::current_exception()) {
             std::rethrow_exception(eptr);
         }
+        appendStr(kUnknown);
     } catch (const std::exception& ex) {
-        detail = QStringLiteral("Excecao C++ nao tratada: %1").arg(QString::fromUtf8(ex.what()));
+        appendStr(ex.what());
+        buf[pos++] = '\n';
     } catch (...) {
-        detail = QStringLiteral("Excecao C++ desconhecida nao tratada");
+        appendStr(kUnknown);
+    }
+    if (pos == 0 || buf[pos - 1] != '\n') {
+        buf[pos++] = '\n';
     }
 
-    AppLogger::fatal(QStringLiteral("Runtime"), detail);
-    AppLogger::flush();
-
-    std::terminate_handler prev = nullptr;
-    {
-        QMutexLocker locker(&logMutex());
-        prev = loggerState().previousTerminateHandler;
+    writeEmergencyBytes(2, buf, pos);
+    const int logFd = g_emergencyLogFd.load(std::memory_order_acquire);
+    if (logFd >= 0) {
+        writeEmergencyBytes(logFd, buf, pos);
     }
+
+    const std::terminate_handler prev = g_previousTerminateHandler.load(std::memory_order_acquire);
     if (prev != nullptr && prev != &terminateHandlerBridge) {
         prev();
     }
@@ -369,6 +408,7 @@ AppLogger::ScopedDirectoryOverride::ScopedDirectoryOverride(const QString& direc
     loggerState().dirOverride = directoryPath.trimmed().isEmpty()
         ? QString()
         : QDir::cleanPath(directoryPath);
+    g_emergencyLogFd.store(-1, std::memory_order_release);
     if (loggerState().activeFile) {
         loggerState().activeFile->flush();
         loggerState().activeFile->close();
@@ -380,6 +420,7 @@ AppLogger::ScopedDirectoryOverride::ScopedDirectoryOverride(const QString& direc
 
 AppLogger::ScopedDirectoryOverride::~ScopedDirectoryOverride() {
     QMutexLocker locker(&logMutex());
+    g_emergencyLogFd.store(-1, std::memory_order_release);
     if (loggerState().activeFile) {
         loggerState().activeFile->flush();
         loggerState().activeFile->close();
@@ -398,6 +439,7 @@ AppLogger::ScopedDateOverride::ScopedDateOverride(const QDate& date) {
 
 AppLogger::ScopedDateOverride::~ScopedDateOverride() {
     QMutexLocker locker(&logMutex());
+    g_emergencyLogFd.store(-1, std::memory_order_release);
     if (loggerState().activeFile) {
         loggerState().activeFile->flush();
         loggerState().activeFile->close();
@@ -433,7 +475,9 @@ void AppLogger::shutdown() {
         std::set_terminate(st.previousTerminateHandler);
         st.previousTerminateHandler = nullptr;
         st.terminateHandlerInstalled = false;
+        g_previousTerminateHandler.store(nullptr, std::memory_order_release);
     }
+    g_emergencyLogFd.store(-1, std::memory_order_release);
     if (st.activeFile) {
         if (st.activeFile->isOpen()) {
             st.activeFile->flush();
@@ -457,6 +501,7 @@ void AppLogger::installTerminateHandler() {
     LoggerState& st = loggerState();
     if (!st.terminateHandlerInstalled) {
         st.previousTerminateHandler = std::set_terminate(&terminateHandlerBridge);
+        g_previousTerminateHandler.store(st.previousTerminateHandler, std::memory_order_release);
         st.terminateHandlerInstalled = true;
     }
 }
@@ -511,8 +556,14 @@ void AppLogger::log(LogLevel level,
     if (!ensureActiveFileOpenLocked()) {
         return;
     }
-    writeRawLineLocked(loggerState().activeFile.get(),
-                       formatLogEntry(level, category, message, file, line, function));
+    const QString entry = formatLogEntry(level, category, message, file, line, function);
+    if (!writeRawLineLocked(loggerState().activeFile.get(), entry)) {
+        g_emergencyLogFd.store(-1, std::memory_order_release);
+        loggerState().activeFile.reset();
+        if (ensureActiveFileOpenLocked()) {
+            (void)writeRawLineLocked(loggerState().activeFile.get(), entry);
+        }
+    }
 }
 
 void AppLogger::trace(const QString& category, const QString& message) {
@@ -563,31 +614,86 @@ QString AppLogger::readRecentLines(int maxLines) {
         return {};
     }
 
-    QString targetPath;
-    {
-        QMutexLocker locker(&logMutex());
+    QMutexLocker locker(&logMutex());
+    ensureActiveFileOpenLocked();
+
+    QFile localFile;
+    QFile* fPtr = nullptr;
+    if (loggerState().activeFile && loggerState().activeFile->isOpen() &&
+        (loggerState().activeFile->openMode() & QIODevice::ReadOnly)) {
+        loggerState().activeFile->flush();
+        fPtr = loggerState().activeFile.get();
+    } else {
         if (loggerState().activeFile && loggerState().activeFile->isOpen()) {
             loggerState().activeFile->flush();
         }
-        targetPath = QDir::cleanPath(
+        const QString targetPath = QDir::cleanPath(
             QDir(resolveLogDirectoryLocked()).filePath(logFileNameForDate(effectiveDateLocked())));
+        localFile.setFileName(targetPath);
+        if (!localFile.exists() || !localFile.open(QIODevice::ReadOnly)) {
+            return {};
+        }
+        fPtr = &localFile;
     }
 
-    QFile f(targetPath);
-    if (!f.exists() || !f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    const qint64 fileSize = fPtr->size();
+    if (fileSize <= 0) {
         return {};
     }
 
-    QTextStream in(&f);
-    in.setEncoding(QStringConverter::Utf8);
-    QStringList ring;
-    while (!in.atEnd()) {
-        ring.append(in.readLine());
-        if (ring.size() > maxLines) {
-            ring.removeFirst();
+    constexpr qint64 kChunkSize = 64LL * 1024LL;
+    qint64 cursor = fileSize;
+    qint64 startOffset = 0;
+    int newlineCount = 0;
+    bool foundStart = false;
+
+    while (cursor > 0 && !foundStart) {
+        const qint64 readStart = std::max<qint64>(0, cursor - kChunkSize);
+        const qint64 toRead = cursor - readStart;
+        if (!fPtr->seek(readStart)) {
+            break;
         }
+        const QByteArray chunk = fPtr->read(toRead);
+        if (chunk.isEmpty()) {
+            break;
+        }
+        for (qsizetype i = chunk.size() - 1; i >= 0; --i) {
+            const qint64 absPos = readStart + static_cast<qint64>(i);
+            if (chunk[i] == '\n') {
+                if (absPos + 1 == fileSize) {
+                    continue; // Ignora '\n' final do arquivo
+                }
+                ++newlineCount;
+                if (newlineCount >= maxLines) {
+                    startOffset = absPos + 1;
+                    foundStart = true;
+                    break;
+                }
+            }
+        }
+        cursor = readStart;
     }
-    return ring.join(QLatin1Char('\n'));
+
+    if (!fPtr->seek(startOffset)) {
+        fPtr->seek(fileSize);
+        return {};
+    }
+    QByteArray tailBytes = fPtr->read(fileSize - startOffset);
+    fPtr->seek(fileSize);
+    tailBytes.replace("\r\n", "\n");
+    tailBytes.replace('\r', '\n');
+    while (!tailBytes.isEmpty() && tailBytes.endsWith('\n')) {
+        tailBytes.chop(1);
+    }
+    if (tailBytes.isEmpty()) {
+        return {};
+    }
+
+    QStringList lines = QString::fromUtf8(tailBytes).split(QLatin1Char('\n'));
+    if (lines.size() > maxLines) {
+        lines = lines.mid(lines.size() - maxLines);
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 void AppLogger::flush() {

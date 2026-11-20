@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <set>
@@ -51,10 +52,27 @@ private:
     template <typename AddNodeFn>
     NodeId findOrCreateGeneric(const Vec3& p, AddNodeFn&& addFn) {
         const double inv = 1.0 / m_tol;
+        const double sx = p.x * inv;
+        const double sy = p.y * inv;
+        const double sz = p.z * inv;
+        constexpr double kMaxSafeBucketCoord = 1e18; // Bem abaixo de LLONG_MAX (~9.22e18) para evitar UB ([AUD-021])
+        if (!std::isfinite(sx) || !std::isfinite(sy) || !std::isfinite(sz) ||
+            std::abs(sx) > kMaxSafeBucketCoord || std::abs(sy) > kMaxSafeBucketCoord ||
+            std::abs(sz) > kMaxSafeBucketCoord) {
+            for (const auto& [candId, pos] : m_positions) {
+                if ((pos - p).norm() <= m_tol) {
+                    m_duplicates++;
+                    return candId;
+                }
+            }
+            const NodeId nid = addFn(p);
+            m_positions.emplace(nid, p);
+            return nid;
+        }
         const auto key = std::make_tuple(
-            static_cast<long long>(std::llround(p.x * inv)),
-            static_cast<long long>(std::llround(p.y * inv)),
-            static_cast<long long>(std::llround(p.z * inv)));
+            static_cast<long long>(std::llround(sx)),
+            static_cast<long long>(std::llround(sy)),
+            static_cast<long long>(std::llround(sz)));
         auto it = m_grid.find(key);
         if (it != m_grid.end()) {
             for (NodeId candId : it->second) {
@@ -203,6 +221,17 @@ bool DxfInterop::importFromString(const std::string& dxfText,
     outModel.clear();
     if (outSurfaceMesh) *outSurfaceMesh = kernel::MeshContainer{};
 
+    if (opts.maxFileSizeBytes == 0 || dxfText.size() > opts.maxFileSizeBytes) {
+        rep.success = false;
+        rep.errorMessage = "Conteúdo DXF excede o limite máximo permitido de tamanho (" +
+                           std::to_string(opts.maxFileSizeBytes) + " bytes).";
+        if (report) *report = rep;
+        return false;
+    }
+
+    {
+        StructuralModel::ScopedUndoSuppression batchGuard(outModel, false);
+
     std::istringstream iss(dxfText);
     std::string codeLine, valLine;
     std::vector<std::pair<int, std::string>> pairs;
@@ -220,9 +249,34 @@ bool DxfInterop::importFromString(const std::string& dxfText,
     SpatialNodeWelder welder(opts.nodeMergeTolerance);
     SpatialNodeWelder meshWelder(opts.nodeMergeTolerance);
 
-    auto parseDouble = [](const std::string& s, double def = 0.0) -> double {
-        try { return std::stod(s); } catch (...) { return def; }
+    auto tryParseFiniteDouble = [](const std::string& s, double& outVal) -> bool {
+        const std::string trimmed = trimCopy(s);
+        if (trimmed.empty()) return false;
+        try {
+            std::size_t idx = 0;
+            const double v = std::stod(trimmed, &idx);
+            if (idx != trimmed.size() || !std::isfinite(v)) return false;
+            outVal = v;
+            return true;
+        } catch (...) {
+            return false;
+        }
     };
+    auto failInvalidNumeric = [&]() -> bool {
+        outModel.clear();
+        if (outSurfaceMesh) *outSurfaceMesh = kernel::MeshContainer{};
+        rep.success = false;
+        rep.errorMessage = "Valor numérico inválido ou não finito (NaN/Inf) encontrado em entidade DXF.";
+        if (report) *report = rep;
+        return false;
+    };
+    auto isPhysicalPoint = [](const Vec3& p) -> bool {
+        constexpr double kMaxPhysCoordM = 1e9;
+        return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) &&
+               std::abs(p.x) <= kMaxPhysCoordM && std::abs(p.y) <= kMaxPhysCoordM &&
+               std::abs(p.z) <= kMaxPhysCoordM;
+    };
+    bool hadOutOfRangeCoords = false;
 
     size_t i = 0;
     while (i < pairs.size()) {
@@ -261,12 +315,23 @@ bool DxfInterop::importFromString(const std::string& dxfText,
         if (entType == "LINE") {
             Vec3 p0{0, 0, 0}, p1{0, 0, 0};
             for (const auto& [c, v] : props) {
-                if (c == 10) p0.x = parseDouble(v);
-                else if (c == 20) p0.y = parseDouble(v);
-                else if (c == 30) p0.z = parseDouble(v);
-                else if (c == 11) p1.x = parseDouble(v);
-                else if (c == 21) p1.y = parseDouble(v);
-                else if (c == 31) p1.z = parseDouble(v);
+                double* coordTarget = nullptr;
+                switch (c) {
+                case 10: coordTarget = &p0.x; break;
+                case 20: coordTarget = &p0.y; break;
+                case 30: coordTarget = &p0.z; break;
+                case 11: coordTarget = &p1.x; break;
+                case 21: coordTarget = &p1.y; break;
+                case 31: coordTarget = &p1.z; break;
+                default: break;
+                }
+                if (coordTarget != nullptr && !tryParseFiniteDouble(v, *coordTarget)) {
+                    return failInvalidNumeric();
+                }
+            }
+            if (!isPhysicalPoint(p0) || !isPhysicalPoint(p1)) {
+                hadOutOfRangeCoords = true;
+                continue;
             }
             if ((p1 - p0).norm() > opts.nodeMergeTolerance) {
                 const NodeId n0 = welder.findOrCreateNode(p0, outModel);
@@ -280,18 +345,21 @@ bool DxfInterop::importFromString(const std::string& dxfText,
         } else if (entType == "3DFACE") {
             Vec3 vtx[4]{{0,0,0},{0,0,0},{0,0,0},{0,0,0}};
             for (const auto& [c, v] : props) {
-                if (c == 10) vtx[0].x = parseDouble(v);
-                else if (c == 20) vtx[0].y = parseDouble(v);
-                else if (c == 30) vtx[0].z = parseDouble(v);
-                else if (c == 11) vtx[1].x = parseDouble(v);
-                else if (c == 21) vtx[1].y = parseDouble(v);
-                else if (c == 31) vtx[1].z = parseDouble(v);
-                else if (c == 12) vtx[2].x = parseDouble(v);
-                else if (c == 22) vtx[2].y = parseDouble(v);
-                else if (c == 32) vtx[2].z = parseDouble(v);
-                else if (c == 13) vtx[3].x = parseDouble(v);
-                else if (c == 23) vtx[3].y = parseDouble(v);
-                else if (c == 33) vtx[3].z = parseDouble(v);
+                const int vertIdx = c % 10;
+                const int axisGroup = c - vertIdx;
+                if (vertIdx >= 0 && vertIdx < 4 && (axisGroup == 10 || axisGroup == 20 || axisGroup == 30)) {
+                    double* axisPtr = (axisGroup == 10) ? &vtx[vertIdx].x
+                                    : (axisGroup == 20) ? &vtx[vertIdx].y
+                                                        : &vtx[vertIdx].z;
+                    if (!tryParseFiniteDouble(v, *axisPtr)) {
+                        return failInvalidNumeric();
+                    }
+                }
+            }
+            if (!isPhysicalPoint(vtx[0]) || !isPhysicalPoint(vtx[1]) ||
+                !isPhysicalPoint(vtx[2]) || !isPhysicalPoint(vtx[3])) {
+                hadOutOfRangeCoords = true;
+                continue;
             }
             const bool isTri = ((vtx[3] - vtx[2]).norm() <= opts.nodeMergeTolerance);
             if (outSurfaceMesh) {
@@ -321,18 +389,33 @@ bool DxfInterop::importFromString(const std::string& dxfText,
             bool haveX = false;
             Vec3 cur{0, 0, 0};
             for (const auto& [c, v] : props) {
-                if (c == 38) elev = parseDouble(v);
-                else if (c == 70) closed = ((static_cast<int>(parseDouble(v)) & 1) != 0);
-                else if (c == 10) {
+                if (c == 38) {
+                    if (!tryParseFiniteDouble(v, elev)) return failInvalidNumeric();
+                } else if (c == 70) {
+                    double flagVal = 0.0;
+                    if (!tryParseFiniteDouble(v, flagVal)) return failInvalidNumeric();
+                    closed = ((static_cast<int>(flagVal) & 1) != 0);
+                } else if (c == 10) {
                     if (haveX) pts.push_back(cur);
-                    cur = {parseDouble(v), 0.0, elev};
+                    double vx = 0.0;
+                    if (!tryParseFiniteDouble(v, vx)) return failInvalidNumeric();
+                    cur = {vx, 0.0, elev};
                     haveX = true;
                 } else if (c == 20) {
-                    cur.y = parseDouble(v);
+                    if (!tryParseFiniteDouble(v, cur.y)) return failInvalidNumeric();
                 }
             }
             if (haveX) pts.push_back(cur);
             for (auto& pt : pts) pt.z = elev;
+            bool polyValid = true;
+            for (const auto& pt : pts) {
+                if (!isPhysicalPoint(pt)) {
+                    polyValid = false;
+                    hadOutOfRangeCoords = true;
+                    break;
+                }
+            }
+            if (!polyValid) continue;
             for (size_t k = 0; k + 1 < pts.size(); ++k) {
                 const NodeId na = welder.findOrCreateNode(pts[k], outModel);
                 const NodeId nb = welder.findOrCreateNode(pts[k + 1], outModel);
@@ -353,7 +436,11 @@ bool DxfInterop::importFromString(const std::string& dxfText,
         } else if (entType == "POLYLINE" && opts.importPolylinesAsFrames) {
             bool closed = false;
             for (const auto& [c, v] : props) {
-                if (c == 70) closed = ((static_cast<int>(parseDouble(v)) & 1) != 0);
+                if (c == 70) {
+                    double flagVal = 0.0;
+                    if (!tryParseFiniteDouble(v, flagVal)) return failInvalidNumeric();
+                    closed = ((static_cast<int>(flagVal) & 1) != 0);
+                }
             }
             std::vector<Vec3> pts;
             while (i < pairs.size()) {
@@ -364,9 +451,14 @@ bool DxfInterop::importFromString(const std::string& dxfText,
                     if (sub == "VERTEX") {
                         Vec3 vp{0, 0, 0};
                         while (i < pairs.size() && pairs[i].first != 0) {
-                            if (pairs[i].first == 10) vp.x = parseDouble(pairs[i].second);
-                            else if (pairs[i].first == 20) vp.y = parseDouble(pairs[i].second);
-                            else if (pairs[i].first == 30) vp.z = parseDouble(pairs[i].second);
+                            const int code = pairs[i].first;
+                            double* vpTarget = (code == 10) ? &vp.x
+                                             : (code == 20) ? &vp.y
+                                             : (code == 30) ? &vp.z
+                                                            : nullptr;
+                            if (vpTarget != nullptr && !tryParseFiniteDouble(pairs[i].second, *vpTarget)) {
+                                return failInvalidNumeric();
+                            }
                             ++i;
                         }
                         pts.push_back(vp);
@@ -375,6 +467,15 @@ bool DxfInterop::importFromString(const std::string& dxfText,
                 }
                 ++i;
             }
+            bool polyValid = true;
+            for (const auto& pt : pts) {
+                if (!isPhysicalPoint(pt)) {
+                    polyValid = false;
+                    hadOutOfRangeCoords = true;
+                    break;
+                }
+            }
+            if (!polyValid) continue;
             for (size_t k = 0; k + 1 < pts.size(); ++k) {
                 const NodeId na = welder.findOrCreateNode(pts[k], outModel);
                 const NodeId nb = welder.findOrCreateNode(pts[k + 1], outModel);
@@ -399,7 +500,14 @@ bool DxfInterop::importFromString(const std::string& dxfText,
     rep.layersFound.assign(layers.begin(), layers.end());
     rep.success = (rep.entitiesRead > 0);
     if (!rep.success) {
-        rep.errorMessage = "Nenhuma entidade geométrica suportada encontrada no arquivo DXF.";
+        rep.errorMessage = hadOutOfRangeCoords
+            ? "Coordenadas DXF fora dos limites fisicos suportados (|coord| <= 1e9 m)."
+            : "Nenhuma entidade geométrica suportada encontrada no arquivo DXF.";
+    }
+    } // end ScopedUndoSuppression
+    if (rep.success) {
+        outModel.clearUndoHistory();
+        outModel.pushUndo();
     }
     if (report) *report = rep;
     return rep.success;
@@ -411,7 +519,26 @@ bool DxfInterop::importFromFile(const std::string& filePath,
                                 const DxfImportOptions& opts,
                                 DxfInteropReport* report)
 {
-    std::ifstream ifs(pathFromUtf8(filePath), std::ios::binary);
+    std::error_code ec;
+    const auto fsPath = pathFromUtf8(filePath);
+    if (!std::filesystem::exists(fsPath, ec) || !std::filesystem::is_regular_file(fsPath, ec)) {
+        if (report) {
+            report->success = false;
+            report->errorMessage = "Arquivo DXF inexistente ou não é um arquivo regular: " + filePath;
+        }
+        return false;
+    }
+    const auto fileSize = std::filesystem::file_size(fsPath, ec);
+    if (ec || opts.maxFileSizeBytes == 0 || fileSize > opts.maxFileSizeBytes) {
+        if (report) {
+            report->success = false;
+            report->errorMessage = "Arquivo DXF excede o limite máximo permitido de tamanho (" +
+                                   std::to_string(opts.maxFileSizeBytes) + " bytes).";
+        }
+        return false;
+    }
+
+    std::ifstream ifs(fsPath, std::ios::binary);
     if (!ifs.is_open()) {
         if (report) {
             report->success = false;
@@ -419,9 +546,21 @@ bool DxfInterop::importFromFile(const std::string& filePath,
         }
         return false;
     }
-    std::ostringstream ss;
-    ss << ifs.rdbuf();
-    return importFromString(ss.str(), outModel, outSurfaceMesh, opts, report);
+    std::string buf;
+    buf.resize(static_cast<std::size_t>(fileSize));
+    if (fileSize > 0) {
+        ifs.read(buf.data(), static_cast<std::streamsize>(fileSize));
+        buf.resize(static_cast<std::size_t>(ifs.gcount()));
+    }
+    char extra = 0;
+    if (ifs.read(&extra, 1) && ifs.gcount() > 0 && buf.size() >= opts.maxFileSizeBytes) {
+        if (report) {
+            report->success = false;
+            report->errorMessage = "Arquivo DXF excede o limite máximo permitido de tamanho.";
+        }
+        return false;
+    }
+    return importFromString(buf, outModel, outSurfaceMesh, opts, report);
 }
 
 } // namespace omniframe::io

@@ -11,6 +11,16 @@
 #include <QStringList>
 #include <QSurfaceFormat>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 struct AppLoggerScope {
     ~AppLoggerScope() {
@@ -21,8 +31,12 @@ struct AppLoggerScope {
 } // namespace
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    // Mitiga DLL hijacking (CWE-427): restringe busca padrao ao diretorio do executavel e System32 ([AUD-008])
+    ::SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+#endif
     QCoreApplication::setApplicationName("OmniFrame");
-    QCoreApplication::setApplicationVersion("2026.11.18.0");
+    QCoreApplication::setApplicationVersion("2026.11.20.0");
     QCoreApplication::setOrganizationName("OmniFrame");
 
     QStringList startupFiles;

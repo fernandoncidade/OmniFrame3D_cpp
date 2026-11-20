@@ -3,9 +3,11 @@
 #include <Eigen/SparseLU>
 #include <Eigen/IterativeLinearSolvers>
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <stop_token>
 
 namespace omniframe::kernel {
 
@@ -25,8 +27,8 @@ std::uint64_t computeMatrixFingerprint(const SpMat& A, bool valuesToo) {
         for (SpMat::InnerIterator it(A, k); it; ++it) {
             mix(static_cast<std::uint64_t>(it.row()));
             if (valuesToo) {
-                union { double d; std::uint64_t u; } conv{it.value()};
-                mix(conv.u);
+                const double val = (it.value() == 0.0) ? 0.0 : it.value();
+                mix(std::bit_cast<std::uint64_t>(val));
             }
         }
     }
@@ -34,8 +36,14 @@ std::uint64_t computeMatrixFingerprint(const SpMat& A, bool valuesToo) {
 }
 
 template <typename DirectSolver>
-void runIterativeRefinement(const SpMat& A, const VecX& b, DirectSolver& solver, VecX& x, int steps) {
+void runIterativeRefinement(const SpMat& A,
+                            const VecX& b,
+                            DirectSolver& solver,
+                            VecX& x,
+                            int steps,
+                            const std::stop_token& stopToken) {
     for (int s = 0; s < steps; ++s) {
+        if (stopToken.stop_requested()) return;
         VecX r = b - A * x;
         const double bNorm = std::max(b.norm(), 1.0);
         if (r.norm() / bNorm < 1e-13) break;
@@ -127,12 +135,24 @@ VecX LinearSolverSuite::solve(const SpMat& A,
                               const VecX& b,
                               const LinearSolverOptions& opts,
                               LinearSolverStats& stats,
-                              FactorizationCache* cache)
+                              FactorizationCache* cache,
+                              std::stop_token stopToken)
 {
     stats = LinearSolverStats{};
     stats.totalDofs = static_cast<int>(A.rows());
     stats.activeDofs = static_cast<int>(A.rows());
     stats.nnz = static_cast<int>(A.nonZeros());
+
+    auto cancelledResult = [&]() -> VecX {
+        stats.success = false;
+        stats.errorCode = "CANCELLED";
+        stats.message = "Operacao linear cancelada.";
+        return {};
+    };
+
+    if (stopToken.stop_requested()) {
+        return cancelledResult();
+    }
 
     if (A.rows() != A.cols() || A.rows() != b.size()) {
         stats.success = false;
@@ -153,8 +173,16 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         return {};
     }
 
+    if (stopToken.stop_requested()) {
+        return cancelledResult();
+    }
+
     const bool sym = opts.checkSymmetry ? isMatrixApproximatelySymmetric(A) : false;
     stats.matrixSymmetric = sym;
+
+    if (stopToken.stop_requested()) {
+        return cancelledResult();
+    }
 
     LinearSolverType chosen = opts.type;
     if (chosen == LinearSolverType::Auto) {
@@ -170,6 +198,7 @@ VecX LinearSolverSuite::solve(const SpMat& A,
     VecX x;
 
     auto solveWithCachedOrNewFactor = [&](auto& solverObj, LinearSolverType actualType, SparseOrderingType actualOrder) -> bool {
+        if (stopToken.stop_requested()) return false;
         const std::uint64_t valHash = cache ? computeMatrixFingerprint(A, true) : 0;
         const std::uint64_t patHash = cache ? computeMatrixFingerprint(A, false) : 0;
         const bool sameVals = cache && cache->m_impl->hasFactors &&
@@ -185,9 +214,10 @@ VecX LinearSolverSuite::solve(const SpMat& A,
                                      cache->m_impl->patternHash == patHash;
             if (!samePattern) {
                 solverObj.analyzePattern(A);
+                if (stopToken.stop_requested()) return false;
             }
             solverObj.factorize(A);
-            if (solverObj.info() != Eigen::Success) {
+            if (solverObj.info() != Eigen::Success || stopToken.stop_requested()) {
                 return false;
             }
             if (cache) {
@@ -202,12 +232,14 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         const auto tFact = std::chrono::high_resolution_clock::now();
         stats.factorTimeMs = std::chrono::duration<double, std::milli>(tFact - t0).count();
 
+        if (stopToken.stop_requested()) return false;
         x = solverObj.solve(b);
-        if (solverObj.info() != Eigen::Success || !x.allFinite()) {
+        if (solverObj.info() != Eigen::Success || !x.allFinite() || stopToken.stop_requested()) {
             return false;
         }
         if (opts.iterativeRefinement && opts.refinementSteps > 0) {
-            runIterativeRefinement(A, b, solverObj, x, opts.refinementSteps);
+            runIterativeRefinement(A, b, solverObj, x, opts.refinementSteps, stopToken);
+            if (stopToken.stop_requested()) return false;
         }
         return true;
     };
@@ -216,6 +248,7 @@ VecX LinearSolverSuite::solve(const SpMat& A,
     FactorizationCache* activeCache = cache ? cache : &localCache;
 
     if (chosen == LinearSolverType::SimplicialLDLT) {
+        if (stopToken.stop_requested()) return cancelledResult();
         const SpMat A_sym = sym ? A : SpMat(0.5 * (A + SpMat(A.transpose())));
         auto checkLdltPivots = [&](const auto& ldltSolver) -> bool {
             const VecX D = ldltSolver.vectorD();
@@ -247,8 +280,10 @@ VecX LinearSolverSuite::solve(const SpMat& A,
             } else {
                 if (!(cache && cache->m_impl->hasPattern && cache->m_impl->solverType == chosen && cache->m_impl->ordering == opts.ordering && cache->m_impl->patternHash == ph)) {
                     s.analyzePattern(A_sym);
+                    if (stopToken.stop_requested()) return cancelledResult();
                 }
                 s.factorize(A_sym);
+                if (stopToken.stop_requested()) return cancelledResult();
                 ok = (s.info() == Eigen::Success);
                 if (ok && cache) {
                     cache->m_impl->hasPattern = cache->m_impl->hasFactors = true;
@@ -257,9 +292,13 @@ VecX LinearSolverSuite::solve(const SpMat& A,
                 }
             }
             if (ok && checkLdltPivots(s)) {
+                if (stopToken.stop_requested()) return cancelledResult();
                 x = s.solve(b);
                 ok = (s.info() == Eigen::Success && x.allFinite());
-                if (ok && opts.iterativeRefinement) runIterativeRefinement(A_sym, b, s, x, opts.refinementSteps);
+                if (ok && opts.iterativeRefinement) {
+                    runIterativeRefinement(A_sym, b, s, x, opts.refinementSteps, stopToken);
+                    if (stopToken.stop_requested()) return cancelledResult();
+                }
             } else {
                 ok = false;
             }
@@ -273,8 +312,10 @@ VecX LinearSolverSuite::solve(const SpMat& A,
             } else {
                 if (!(cache && cache->m_impl->hasPattern && cache->m_impl->solverType == chosen && cache->m_impl->ordering == SparseOrderingType::AMD && cache->m_impl->patternHash == ph)) {
                     s.analyzePattern(A_sym);
+                    if (stopToken.stop_requested()) return cancelledResult();
                 }
                 s.factorize(A_sym);
+                if (stopToken.stop_requested()) return cancelledResult();
                 ok = (s.info() == Eigen::Success);
                 if (ok && cache) {
                     cache->m_impl->hasPattern = cache->m_impl->hasFactors = true;
@@ -283,15 +324,20 @@ VecX LinearSolverSuite::solve(const SpMat& A,
                 }
             }
             if (ok && checkLdltPivots(s)) {
+                if (stopToken.stop_requested()) return cancelledResult();
                 x = s.solve(b);
                 ok = (s.info() == Eigen::Success && x.allFinite());
-                if (ok && opts.iterativeRefinement) runIterativeRefinement(A_sym, b, s, x, opts.refinementSteps);
+                if (ok && opts.iterativeRefinement) {
+                    runIterativeRefinement(A_sym, b, s, x, opts.refinementSteps, stopToken);
+                    if (stopToken.stop_requested()) return cancelledResult();
+                }
             } else {
                 ok = false;
             }
         }
 
         if (!ok) {
+            if (stopToken.stop_requested()) return cancelledResult();
             if (opts.allowFallback) {
                 bool luOk = false;
                 if (opts.ordering == SparseOrderingType::AMD) {
@@ -301,6 +347,7 @@ VecX LinearSolverSuite::solve(const SpMat& A,
                 } else {
                     luOk = solveWithCachedOrNewFactor(activeCache->m_impl->luColamd, LinearSolverType::SparseLU, SparseOrderingType::COLAMD);
                 }
+                if (stopToken.stop_requested()) return cancelledResult();
                 if (luOk) {
                     stats.solverUsed = LinearSolverType::SparseLU;
                     stats.message = "LDLT falhou; fallback seguro para SparseLU concluído com sucesso.";
@@ -321,13 +368,15 @@ VecX LinearSolverSuite::solve(const SpMat& A,
     } else if (chosen == LinearSolverType::SimplicialLLT) {
         auto& s = activeCache->m_impl->lltAmd;
         if (!solveWithCachedOrNewFactor(s, chosen, SparseOrderingType::AMD)) {
+            if (stopToken.stop_requested()) return cancelledResult();
             if (opts.allowFallback) {
                 // Fallback seguro para LDLT (matriz simétrica indefinida / pivô não-positivo) ou SparseLU
                 LinearSolverOptions fallbackOpts = opts;
                 fallbackOpts.type = sym ? LinearSolverType::SimplicialLDLT : LinearSolverType::SparseLU;
                 fallbackOpts.allowFallback = false;
                 LinearSolverStats fbStats;
-                VecX fbX = solve(A, b, fallbackOpts, fbStats, cache);
+                VecX fbX = solve(A, b, fallbackOpts, fbStats, cache, stopToken);
+                if (stopToken.stop_requested()) return cancelledResult();
                 if (fbStats.success) {
                     stats = fbStats;
                     stats.message = "Cholesky LLT não aplicável (matriz não-SPD); fallback seguro para "
@@ -336,7 +385,8 @@ VecX LinearSolverSuite::solve(const SpMat& A,
                 }
                 if (sym) {
                     fallbackOpts.type = LinearSolverType::SparseLU;
-                    fbX = solve(A, b, fallbackOpts, fbStats, cache);
+                    fbX = solve(A, b, fallbackOpts, fbStats, cache, stopToken);
+                    if (stopToken.stop_requested()) return cancelledResult();
                     if (fbStats.success) {
                         stats = fbStats;
                         stats.message = "Cholesky LLT/LDLT falhou; fallback seguro para SparseLU concluído.";
@@ -359,6 +409,7 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         } else {
             ok = solveWithCachedOrNewFactor(activeCache->m_impl->luColamd, chosen, SparseOrderingType::COLAMD);
         }
+        if (stopToken.stop_requested()) return cancelledResult();
         if (!ok) {
             stats.success = false;
             stats.errorCode = "SINGULAR_MATRIX";
@@ -370,22 +421,24 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         stats.usedIterative = true;
         bool ok = false;
         if (opts.preconditioner == PreconditionerType::IncompleteCholesky) {
+            if (stopToken.stop_requested()) return cancelledResult();
             Eigen::ConjugateGradient<SpMat, Eigen::Lower | Eigen::Upper, Eigen::IncompleteCholesky<double>> cg;
             cg.setMaxIterations(opts.maxIterations);
             cg.setTolerance(opts.tolerance);
             cg.compute(A);
-            if (cg.info() == Eigen::Success) {
+            if (cg.info() == Eigen::Success && !stopToken.stop_requested()) {
                 x = cg.solve(b);
                 stats.iterations = static_cast<int>(cg.iterations());
                 ok = (cg.info() == Eigen::Success && x.allFinite());
             }
         }
+        if (stopToken.stop_requested()) return cancelledResult();
         if (!ok && opts.preconditioner != PreconditionerType::None) {
             Eigen::ConjugateGradient<SpMat, Eigen::Lower | Eigen::Upper, Eigen::DiagonalPreconditioner<double>> cg;
             cg.setMaxIterations(opts.maxIterations);
             cg.setTolerance(opts.tolerance);
             cg.compute(A);
-            if (cg.info() == Eigen::Success) {
+            if (cg.info() == Eigen::Success && !stopToken.stop_requested()) {
                 x = cg.solve(b);
                 stats.iterations = static_cast<int>(cg.iterations());
                 ok = (cg.info() == Eigen::Success && x.allFinite());
@@ -395,12 +448,13 @@ VecX LinearSolverSuite::solve(const SpMat& A,
             cg.setMaxIterations(opts.maxIterations);
             cg.setTolerance(opts.tolerance);
             cg.compute(A);
-            if (cg.info() == Eigen::Success) {
+            if (cg.info() == Eigen::Success && !stopToken.stop_requested()) {
                 x = cg.solve(b);
                 stats.iterations = static_cast<int>(cg.iterations());
                 ok = (cg.info() == Eigen::Success && x.allFinite());
             }
         }
+        if (stopToken.stop_requested()) return cancelledResult();
         if (!ok) {
             stats.success = false;
             stats.errorCode = "ITERATIVE_DIVERGENCE";
@@ -412,27 +466,30 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         stats.usedIterative = true;
         bool ok = false;
         if (opts.preconditioner == PreconditionerType::IncompleteLUT || opts.preconditioner == PreconditionerType::Auto) {
+            if (stopToken.stop_requested()) return cancelledResult();
             Eigen::BiCGSTAB<SpMat, Eigen::IncompleteLUT<double>> bicg;
             bicg.setMaxIterations(opts.maxIterations);
             bicg.setTolerance(opts.tolerance);
             bicg.compute(A);
-            if (bicg.info() == Eigen::Success) {
+            if (bicg.info() == Eigen::Success && !stopToken.stop_requested()) {
                 x = bicg.solve(b);
                 stats.iterations = static_cast<int>(bicg.iterations());
                 ok = (bicg.info() == Eigen::Success && x.allFinite());
             }
         }
+        if (stopToken.stop_requested()) return cancelledResult();
         if (!ok) {
             Eigen::BiCGSTAB<SpMat, Eigen::DiagonalPreconditioner<double>> bicg;
             bicg.setMaxIterations(opts.maxIterations);
             bicg.setTolerance(opts.tolerance);
             bicg.compute(A);
-            if (bicg.info() == Eigen::Success) {
+            if (bicg.info() == Eigen::Success && !stopToken.stop_requested()) {
                 x = bicg.solve(b);
                 stats.iterations = static_cast<int>(bicg.iterations());
                 ok = (bicg.info() == Eigen::Success && x.allFinite());
             }
         }
+        if (stopToken.stop_requested()) return cancelledResult();
         if (!ok) {
             stats.success = false;
             stats.errorCode = "ITERATIVE_DIVERGENCE";
@@ -441,6 +498,8 @@ VecX LinearSolverSuite::solve(const SpMat& A,
         }
         populatePivotDiagnosticsFromMatrix(A, stats);
     }
+
+    if (stopToken.stop_requested()) return cancelledResult();
 
     const auto t1 = std::chrono::high_resolution_clock::now();
     stats.solveTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();

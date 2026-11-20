@@ -1,5 +1,5 @@
 THIRD-PARTY NOTICES AND ATTRIBUTIONS — OmniFrame 3D
-Version 2026.11.18.0, November 18, 2026
+Version 2026.11.20.0, November 20, 2026
 
 OmniFrame 3D incorporates and utilizes open-source components, libraries, and specifications:
 

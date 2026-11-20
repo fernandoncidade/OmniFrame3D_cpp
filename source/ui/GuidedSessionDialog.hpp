@@ -1,14 +1,19 @@
 #pragma once
 
+#include "kernel/mesh/MeshGenerator.hpp"
+
 #include <QColor>
 #include <QDialog>
 #include <QElapsedTimer>
+#include <QMetaObject>
 #include <QPointer>
 #include <QRect>
 #include <QString>
 #include <QWidget>
 
 #include <array>
+#include <cstdint>
+#include <functional>
 #include <vector>
 
 class QCloseEvent;
@@ -158,6 +163,7 @@ public:
     bool isSessionRunning() const { return m_running; }
     bool isPaused() const { return m_paused; }
     bool isCompleted() const { return m_completed; }
+    bool isStepAsyncBusy() const { return m_pendingAsyncStep != 0; }
     int currentStep() const { return m_currentStep; }
     int totalSteps() const { return kTotalSteps; }
     int currentPhase() const { return m_currentPhase; }
@@ -238,10 +244,11 @@ private:
     void closeAuxiliaryInputDialogs();
     void restoreSelectedExampleToInitialState();
     void finishSession();
-    bool waitForBackgroundSolvers(int timeoutMs = 15000);
-    void pumpUiEvents(int ms = 25);
+    void cancelPendingAsyncStep();
+    void onAsyncSuiteStepFinished(bool ok);
+    void runGuidedStaticAsyncStep(int step, std::function<void(bool)> afterSolved);
 
-    MainWindow* m_mainWindow = nullptr;
+    QPointer<MainWindow> m_mainWindow;
     QTimer* m_timer = nullptr;
     QTimer* m_countdownTimer = nullptr;
     QElapsedTimer m_phaseElapsed;
@@ -288,12 +295,18 @@ private:
     bool m_paused = false;
     bool m_completed = false;
     bool m_executingStep = false;
+    bool m_inStartOrStop = false;
     int m_currentStep = 0;   // 1..kTotalSteps quando ativo/concluído
     int m_currentPhase = 0;  // 0 = Ocioso/Concluído, 1 = Tooltip pré-ação, 2 = Ação executada / observação
     int m_customPhaseIntervalMs = -1;
     int m_currentPhaseDurationMs = 4500;
     int m_pausedRemainingMs = 0;
     int m_activeDialogStep = 0;
+    int m_pendingAsyncStep = 0;
+    int m_pendingAsyncStage = 0;
+    std::uint64_t m_staticAsyncToken = 0;
+    QMetaObject::Connection m_suiteAsyncConn;
+    kernel::MeshContainer m_savedStep27SurfaceMesh;
     QString m_currentStepTitle;
     QString m_currentTooltipText;
     QString m_currentTargetActionText;

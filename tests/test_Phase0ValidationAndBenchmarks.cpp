@@ -2,6 +2,7 @@
 #include "core/StructuralModel.hpp"
 #include "solver/FemSolver3D.hpp"
 #include "io/ProjectSerializer.hpp"
+#include "kernel/mesh/MeshGenerator.hpp"
 #include <QTemporaryDir>
 #include <QFile>
 #include <cmath>
@@ -217,6 +218,141 @@ void testAnalyticalBeamsPhase0() {
     }
 }
 
+void testMissingMeshNodesNoCrash() {
+    QTemporaryDir tmp;
+    TEST_ASSERT(tmp.isValid(), "QTemporaryDir deve ser valido para malha corrompida");
+
+    struct Case {
+        kernel::MeshCellType cellType;
+        std::vector<NodeId> nodeIds;
+        const char* name;
+    };
+    const std::vector<Case> cases = {
+        {kernel::MeshCellType::Tri3,  {1, 2, 999}, "Tri3"},
+        {kernel::MeshCellType::Quad4, {1, 2, 3, 999}, "Quad4"},
+        {kernel::MeshCellType::Tet4,  {1, 2, 3, 999}, "Tet4"},
+        {kernel::MeshCellType::Hex8,  {1, 2, 3, 4, 5, 6, 7, 999}, "Hex8"},
+    };
+
+    for (size_t idx = 0; idx < cases.size(); ++idx) {
+        StructuralModel m;
+        m.getMaterials().clear();
+        m.getCrossSections().clear();
+        const MaterialId matId = m.addMaterial(Material::makeConcreteC30(1));
+
+        // Adiciona nos 1..8 validos (999 propositalmente ausente)
+        const double coords[8][3] = {
+            {0,0,0}, {1,0,0}, {1,1,0}, {0,1,0},
+            {0,0,1}, {1,0,1}, {1,1,1}, {0,1,1}
+        };
+        for (int nid = 1; nid <= 8; ++nid) {
+            kernel::MeshNode mn;
+            mn.id = nid;
+            mn.position = kernel::Vec3(coords[nid - 1][0], coords[nid - 1][1], coords[nid - 1][2]);
+            if (nid <= 4) mn.fixed = {true, true, true, true, true, true};
+            m.surfaceMesh().nodes.push_back(mn);
+        }
+
+        kernel::MeshElement me;
+        me.id = 1;
+        me.type = cases[idx].cellType;
+        me.materialId = matId;
+        me.thickness = 0.20;
+        me.nodeIds = cases[idx].nodeIds;
+        m.surfaceMesh().elements.push_back(me);
+
+        // evaluateQuality direto nunca deve lancar std::out_of_range ([AUD-007])
+        const auto qm = kernel::MeshGenerator::evaluateQuality(m.surfaceMesh());
+        TEST_ASSERT(qm.invertedOrDegenerateCount == 1 && qm.validElements == 0,
+                    std::string("evaluateQuality deve contabilizar no 999 ausente sem excecao em ") + cases[idx].name);
+
+        const ModelValidation val = m.validate();
+        bool hasMissingNodeCode = false;
+        for (const auto& iss : val.issues) {
+            if (iss.code == "ERR_MESH_MISSING_NODE") {
+                hasMissingNodeCode = true;
+                break;
+            }
+        }
+        TEST_ASSERT(!val.valid && hasMissingNodeCode,
+                    std::string("validate() deve acusar ERR_MESH_MISSING_NODE para ") + cases[idx].name);
+
+        // Roundtrip via .omniframe tambem nao deve crashar
+        const QString path = tmp.filePath(QString("missing_%1.omniframe").arg(cases[idx].name));
+        TEST_ASSERT(ProjectSerializer::saveToFile(path, m), "Salvar .omniframe com malha inconsistente");
+        StructuralModel loaded;
+        if (ProjectSerializer::loadFromFile(path, loaded)) {
+            const ModelValidation lval = loaded.validate();
+            TEST_ASSERT(!lval.valid, "Modelo recarregado com no 999 deve permanecer invalido");
+        }
+    }
+}
+
+void testAud026ModelCascadeCleanupAndMeshQualityAllCorners() {
+    // 1. Limpeza em cascata ao remover nos/elementos e protecao de material/secao em uso
+    {
+        StructuralModel m;
+        m.clear();
+        const NodeId n1 = m.addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = m.addNode(3.0, 0.0, 0.0);
+        const NodeId n3 = m.addNode(3.0, 3.0, 0.0);
+        const ElementId e1 = m.addElement(n1, n2, 1, 1);
+        const ElementId e2 = m.addElement(n2, n3, 1, 1);
+
+        TEST_ASSERT(!m.removeMaterial(1), "removeMaterial deve recusar exclusao de material em uso por barra 1D");
+        TEST_ASSERT(!m.removeCrossSection(1), "removeCrossSection deve recusar exclusao de secao em uso por barra 1D");
+
+        kernel::LoadCase lc;
+        lc.id = 1;
+        lc.name = "TesteCascata";
+        lc.nodalLoads.push_back({n2, {10.0, 0.0, 0.0, 0.0, 0.0, 0.0}});
+        lc.elementLoads.push_back({e1, kernel::ElementLoadInput{}});
+        lc.elementLoads.push_back({e2, kernel::ElementLoadInput{}});
+        m.addLoadCase(lc);
+        m.getRigidLinks().push_back({n1, n2, true});
+        m.getRigidDiaphragms().push_back({n1, {n2, n3}, 2});
+        m.selectElement(e1, true);
+
+        TEST_ASSERT(m.removeNode(n2), "removeNode(n2) deve suceder");
+        TEST_ASSERT(m.getElements().empty(), "Barras incidentes a n2 devem ser removidas");
+        TEST_ASSERT(m.getSelectedElements().empty(), "m_selectedElements deve limpar barras removidas por removeNode");
+        TEST_ASSERT(m.getLoadCases()[0].nodalLoads.empty(), "nodalLoads de n2 devem ser removidas");
+        TEST_ASSERT(m.getLoadCases()[0].elementLoads.empty(), "elementLoads das barras incidentes devem ser removidas");
+        TEST_ASSERT(m.getRigidLinks().empty(), "rigidLinks referenciando n2 devem ser removidos");
+        TEST_ASSERT(m.getRigidDiaphragms().size() == 1 && m.getRigidDiaphragms()[0].slaveNodes.size() == 1 &&
+                        m.getRigidDiaphragms()[0].slaveNodes[0] == n3,
+                    "rigidDiaphragms deve remover apenas o escravo n2 mantendo n3");
+
+        const StructuralModel cloned = m.cloneWithoutHistory();
+        TEST_ASSERT(!cloned.canUndo() && cloned.getNodes().size() == m.getNodes().size(),
+                    "cloneWithoutHistory deve copiar dados sem historico de undo");
+    }
+
+    // 2. MeshGenerator::evaluateQuality deve detectar Quad4 bowtie e Hex8 com canto 7 invertido
+    {
+        kernel::MeshContainer quadBowtie;
+        quadBowtie.nodes = {
+            {1, kernel::Vec3(0.0, 0.0, 0.0), false, ""},
+            {2, kernel::Vec3(1.0, 1.0, 0.0), false, ""},
+            {3, kernel::Vec3(1.0, 0.0, 0.0), false, ""},
+            {4, kernel::Vec3(0.0, 1.0, 0.0), false, ""}
+        };
+        quadBowtie.elements.push_back({1, kernel::MeshCellType::Quad4, {1, 2, 3, 4}, ""});
+        const auto qQuad = kernel::MeshGenerator::evaluateQuality(quadBowtie);
+        TEST_ASSERT(qQuad.invertedOrDegenerateCount == 1 && qQuad.minJacobian <= 0.0,
+                    "evaluateQuality deve detectar Quad4 auto-intersectante (bowtie)");
+
+        kernel::MeshContainer hexCorner7Inv =
+            kernel::MeshGenerator::generateStructuredHexGrid(
+                kernel::Vec3(0.0, 0.0, 0.0), kernel::Vec3(1.0, 1.0, 1.0), 1, 1, 1, false, "H");
+        // No 8 (indice 7 = canto p7=(0,1,1)) deslocado para baixo de z=0 inverte apenas j7 (j0 e j6 permanecem > 0)
+        hexCorner7Inv.nodes[7].position = kernel::Vec3(1.5, -0.5, 1.0);
+        const auto qHex = kernel::MeshGenerator::evaluateQuality(hexCorner7Inv);
+        TEST_ASSERT(qHex.invertedOrDegenerateCount == 1 && qHex.minJacobian <= 0.0,
+                    "evaluateQuality deve testar todos os 8 cantos do Hex8 (incluindo canto 7)");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -224,6 +360,8 @@ int main() {
     testZeroLengthAndFiniteValidation();
     testSerializerTransactionalAndStrict();
     testAnalyticalBeamsPhase0();
+    testMissingMeshNodesNoCrash();
+    testAud026ModelCascadeCleanupAndMeshQualityAllCorners();
 
     std::cout << "[OK] test_Phase0ValidationAndBenchmarks passou com sucesso." << std::endl;
     return 0;

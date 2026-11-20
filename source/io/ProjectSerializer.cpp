@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
 #include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -10,6 +11,7 @@
 #include <QDateTime>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <unordered_set>
 
@@ -43,21 +45,23 @@ namespace omniframe
             const auto &nodes = model.getNodes();
             const auto &mNodes = model.surfaceMesh().nodes;
             unique.reserve(mNodes.size());
+            if (nodes.empty())
+            {
+                for (const auto &mn : mNodes)
+                {
+                    unique.push_back(&mn);
+                }
+                return unique;
+            }
+            SpatialPointHash framePointHash(1e-4);
+            framePointHash.reserve(nodes.size());
+            for (std::size_t i = 0; i < nodes.size(); ++i)
+            {
+                framePointHash.insert(nodes[i].x(), nodes[i].y(), nodes[i].z(), i);
+            }
             for (const auto &mn : mNodes)
             {
-                bool coincides = false;
-                for (const auto &fn : nodes)
-                {
-                    const double dx = fn.x() - mn.position.x();
-                    const double dy = fn.y() - mn.position.y();
-                    const double dz = fn.z() - mn.position.z();
-                    if ((dx * dx + dy * dy + dz * dz) <= 1e-12)
-                    {
-                        coincides = true;
-                        break;
-                    }
-                }
-                if (!coincides)
+                if (!framePointHash.findNearestWithinSq(mn.position.x(), mn.position.y(), mn.position.z(), 1e-12))
                 {
                     unique.push_back(&mn);
                 }
@@ -65,46 +69,56 @@ namespace omniframe
             return unique;
         }
 
-        bool readFiniteDouble(const QJsonObject &obj, const char *key, double defaultVal, bool required, double &out)
+        bool readFiniteDouble(const QJsonObject &obj, QLatin1StringView key, double defaultVal, bool required, double &out)
         {
-            if (!obj.contains(key))
+            const auto it = obj.constFind(key);
+            if (it == obj.constEnd())
             {
                 if (required)
                     return false;
                 out = defaultVal;
                 return std::isfinite(out);
             }
-            const QJsonValue v = obj.value(key);
-            if (!v.isDouble())
+            if (!it->isDouble())
                 return false;
-            const double val = v.toDouble();
+            const double val = it->toDouble();
             if (!std::isfinite(val))
                 return false;
             out = val;
             return true;
         }
 
-        bool readValidInt(const QJsonObject &obj, const char *key, int defaultVal, bool required, int &out)
+        bool readValidIntValue(const QJsonValue &v, int &out)
         {
-            if (!obj.contains(key))
+            if (!v.isDouble())
+                return false;
+            const double d = v.toDouble();
+            if (!std::isfinite(d) ||
+                d < static_cast<double>(std::numeric_limits<int>::min()) ||
+                d > static_cast<double>(std::numeric_limits<int>::max()) ||
+                std::floor(d) != d)
+            {
+                return false;
+            }
+            out = static_cast<int>(d);
+            return true;
+        }
+
+        bool readValidInt(const QJsonObject &obj, QLatin1StringView key, int defaultVal, bool required, int &out)
+        {
+            const auto it = obj.constFind(key);
+            if (it == obj.constEnd())
             {
                 if (required)
                     return false;
                 out = defaultVal;
                 return true;
             }
-            const QJsonValue v = obj.value(key);
-            if (!v.isDouble())
-                return false;
-            const double d = v.toDouble();
-            if (!std::isfinite(d) || std::floor(d) != d)
-                return false;
-            out = static_cast<int>(d);
-            return true;
+            return readValidIntValue(*it, out);
         }
     } // namespace
 
-    bool ProjectSerializer::saveToFile(const QString &filePath, const StructuralModel &model)
+    QJsonObject ProjectSerializer::serializeToJsonObject(const StructuralModel &model)
     {
         QJsonObject rootObj;
         if (!model.preservedUnknownJson().empty())
@@ -547,6 +561,13 @@ namespace omniframe
             rootObj["surfaceMesh"] = smObj;
         }
 
+        return rootObj;
+    }
+
+    bool ProjectSerializer::saveToFile(const QString &filePath, const StructuralModel &model)
+    {
+        const QJsonObject rootObj = serializeToJsonObject(model);
+
         QSaveFile file(filePath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         {
@@ -562,16 +583,32 @@ namespace omniframe
         return file.commit();
     }
 
-    bool ProjectSerializer::loadFromFile(const QString &filePath, StructuralModel &model)
+    bool ProjectSerializer::loadFromFile(const QString &filePath,
+                                         StructuralModel &model,
+                                         qint64 maxFileSizeBytes)
     {
+        if (maxFileSizeBytes <= 0)
+        {
+            return false;
+        }
+        const QFileInfo fi(filePath);
+        if (!fi.exists() || !fi.isFile() || fi.size() < 0 || fi.size() > maxFileSizeBytes)
+        {
+            return false;
+        }
+
         QFile file(filePath);
         if (!file.open(QIODevice::ReadOnly))
         {
             return false;
         }
 
-        const QByteArray data = file.readAll();
+        const QByteArray data = file.read(maxFileSizeBytes + 1);
         file.close();
+        if (data.size() > maxFileSizeBytes)
+        {
+            return false;
+        }
 
         QJsonParseError parseError;
         const QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
@@ -580,9 +617,15 @@ namespace omniframe
             return false;
         }
 
-        const QJsonObject rootObj = doc.object();
+        return deserializeFromJsonObject(doc.object(), model);
+    }
+
+    bool ProjectSerializer::deserializeFromJsonObject(const QJsonObject &rootObj, StructuralModel &model)
+    {
         StructuralModel loaded;
         loaded.clear();
+        {
+            StructuralModel::ScopedUndoSuppression batchGuard(loaded, false);
 
         // Preserva campos desconhecidos de esquemas futuros com aviso explícito
         {
@@ -621,13 +664,13 @@ namespace omniframe
             if (metaObj.contains("engineerName")) meta.engineerName = metaObj["engineerName"].toString().toStdString();
             if (metaObj.contains("clientName")) meta.clientName = metaObj["clientName"].toString().toStdString();
             if (metaObj.contains("siteLocation")) meta.siteLocation = metaObj["siteLocation"].toString().toStdString();
-            readFiniteDouble(metaObj, "soilSigmaAdm_kPa", meta.soilSigmaAdm_kPa, false, meta.soilSigmaAdm_kPa);
-            readFiniteDouble(metaObj, "footingB_m", meta.footingB_m, false, meta.footingB_m);
-            readFiniteDouble(metaObj, "footingL_m", meta.footingL_m, false, meta.footingL_m);
-            readFiniteDouble(metaObj, "windV0_ms", meta.windV0_ms, false, meta.windV0_ms);
-            readFiniteDouble(metaObj, "windS1", meta.windS1, false, meta.windS1);
-            readFiniteDouble(metaObj, "windS2", meta.windS2, false, meta.windS2);
-            readFiniteDouble(metaObj, "windS3", meta.windS3, false, meta.windS3);
+            readFiniteDouble(metaObj, QLatin1StringView("soilSigmaAdm_kPa"), meta.soilSigmaAdm_kPa, false, meta.soilSigmaAdm_kPa);
+            readFiniteDouble(metaObj, QLatin1StringView("footingB_m"), meta.footingB_m, false, meta.footingB_m);
+            readFiniteDouble(metaObj, QLatin1StringView("footingL_m"), meta.footingL_m, false, meta.footingL_m);
+            readFiniteDouble(metaObj, QLatin1StringView("windV0_ms"), meta.windV0_ms, false, meta.windV0_ms);
+            readFiniteDouble(metaObj, QLatin1StringView("windS1"), meta.windS1, false, meta.windS1);
+            readFiniteDouble(metaObj, QLatin1StringView("windS2"), meta.windS2, false, meta.windS2);
+            readFiniteDouble(metaObj, QLatin1StringView("windS3"), meta.windS3, false, meta.windS3);
         }
 
         // 1. Materiais
@@ -636,28 +679,32 @@ namespace omniframe
             if (!rootObj["materials"].isArray())
                 return false;
             loaded.getMaterials().clear();
+            const QJsonArray matArr = rootObj["materials"].toArray();
+            loaded.getMaterials().reserve(static_cast<std::size_t>(matArr.size()));
             std::unordered_set<MaterialId> matIds;
-            for (const auto &val : rootObj["materials"].toArray())
+            matIds.reserve(static_cast<std::size_t>(matArr.size()));
+            for (const auto &val : matArr)
             {
                 if (!val.isObject())
                     return false;
                 const QJsonObject mObj = val.toObject();
                 Material mat;
-                if (!readValidInt(mObj, "id", 0, true, mat.id) || mat.id <= 0 || !matIds.insert(mat.id).second)
+                if (!readValidInt(mObj, QLatin1StringView("id"), 0, true, mat.id) || mat.id <= 0 || !matIds.insert(mat.id).second)
                     return false;
                 mat.name = mObj["name"].toString().toStdString();
-                if (!readFiniteDouble(mObj, "E", 2.0e8, false, mat.E) || mat.E <= 0.0 ||
-                    !readFiniteDouble(mObj, "nu", 0.3, false, mat.nu) || mat.nu <= -1.0 || mat.nu >= 0.5 ||
-                    !readFiniteDouble(mObj, "alpha", 1.2e-5, false, mat.alpha) || mat.alpha < 0.0 ||
-                    !readFiniteDouble(mObj, "gamma", 78.5, false, mat.gamma) || mat.gamma < 0.0)
+                if (!readFiniteDouble(mObj, QLatin1StringView("E"), 2.0e8, false, mat.E) || mat.E <= 0.0 ||
+                    !readFiniteDouble(mObj, QLatin1StringView("nu"), 0.3, false, mat.nu) || mat.nu <= -1.0 || mat.nu >= 0.5 ||
+                    !readFiniteDouble(mObj, QLatin1StringView("alpha"), 1.2e-5, false, mat.alpha) || mat.alpha < 0.0 ||
+                    !readFiniteDouble(mObj, QLatin1StringView("gamma"), 78.5, false, mat.gamma) || mat.gamma < 0.0)
                     return false;
                 const double defaultRho = mat.gamma * (1000.0 / 9.80665);
-                if (!readFiniteDouble(mObj, "rho", defaultRho, false, mat.rho) || mat.rho < 0.0)
+                if (!readFiniteDouble(mObj, QLatin1StringView("rho"), defaultRho, false, mat.rho) || mat.rho < 0.0)
                     return false;
                 mat.isPlastic = mObj["isPlastic"].toBool(false);
-                if (!readFiniteDouble(mObj, "sigmaY", 2.5e5, false, mat.sigmaY) || mat.sigmaY < 0.0 ||
-                    !readFiniteDouble(mObj, "H_iso", 0.0, false, mat.H_iso) ||
-                    !readFiniteDouble(mObj, "H_kin", 0.0, false, mat.H_kin))
+                if (!readFiniteDouble(mObj, QLatin1StringView("sigmaY"), 2.5e5, false, mat.sigmaY) || mat.sigmaY < 0.0 ||
+                    (mat.isPlastic && mat.sigmaY <= 0.0) ||
+                    !readFiniteDouble(mObj, QLatin1StringView("H_iso"), 0.0, false, mat.H_iso) || mat.H_iso < 0.0 ||
+                    !readFiniteDouble(mObj, QLatin1StringView("H_kin"), 0.0, false, mat.H_kin) || mat.H_kin < 0.0)
                     return false;
                 loaded.addMaterial(mat);
             }
@@ -669,41 +716,45 @@ namespace omniframe
             if (!rootObj["sections"].isArray())
                 return false;
             loaded.getCrossSections().clear();
+            const QJsonArray secArr = rootObj["sections"].toArray();
+            loaded.getCrossSections().reserve(static_cast<std::size_t>(secArr.size()));
             std::unordered_set<SectionId> secIds;
-            for (const auto &val : rootObj["sections"].toArray())
+            secIds.reserve(static_cast<std::size_t>(secArr.size()));
+            for (const auto &val : secArr)
             {
                 if (!val.isObject())
                     return false;
                 const QJsonObject sObj = val.toObject();
                 CrossSection sec;
-                if (!readValidInt(sObj, "id", 0, true, sec.id) || sec.id <= 0 || !secIds.insert(sec.id).second)
+                if (!readValidInt(sObj, QLatin1StringView("id"), 0, true, sec.id) || sec.id <= 0 || !secIds.insert(sec.id).second)
                     return false;
                 sec.name = sObj["name"].toString().toStdString();
                 int shapeInt = 0;
-                if (!readValidInt(sObj, "shape", 0, false, shapeInt) || shapeInt < 0 || shapeInt > 11)
+                if (!readValidInt(sObj, QLatin1StringView("shape"), 0, false, shapeInt) || shapeInt < 0 || shapeInt > 11)
                     return false;
                 sec.shape = static_cast<SectionShape>(shapeInt);
-                if (!readFiniteDouble(sObj, "dim1", 0.2, false, sec.dim1) ||
-                    !readFiniteDouble(sObj, "dim2", 0.4, false, sec.dim2) ||
-                    !readFiniteDouble(sObj, "dim3", 0.01, false, sec.dim3) ||
-                    !readFiniteDouble(sObj, "dim4", 0.01, false, sec.dim4) ||
-                    !readFiniteDouble(sObj, "dim5", 0.165, false, sec.dim5) ||
-                    !readFiniteDouble(sObj, "dim6", 0.0102, false, sec.dim6) ||
-                    !readFiniteDouble(sObj, "A", 0.08, true, sec.A) || sec.A <= 0.0 ||
-                    !readFiniteDouble(sObj, "Iy", 1e-3, true, sec.Iy) || sec.Iy <= 0.0 ||
-                    !readFiniteDouble(sObj, "Iz", 1e-3, true, sec.Iz) || sec.Iz <= 0.0 ||
-                    !readFiniteDouble(sObj, "J", 5e-4, true, sec.J) || sec.J <= 0.0 ||
-                    !readFiniteDouble(sObj, "Iyz", 0.0, false, sec.Iyz) ||
-                    !readFiniteDouble(sObj, "I1", sec.Iy, false, sec.I1) ||
-                    !readFiniteDouble(sObj, "I2", sec.Iz, false, sec.I2) ||
-                    !readFiniteDouble(sObj, "principalAngle", 0.0, false, sec.principalAngle) ||
-                    !readFiniteDouble(sObj, "Cw", 0.0, false, sec.Cw) ||
-                    !readFiniteDouble(sObj, "Asy", (5.0 / 6.0) * sec.A, false, sec.Asy) ||
-                    !readFiniteDouble(sObj, "Asz", (5.0 / 6.0) * sec.A, false, sec.Asz))
+                if (!readFiniteDouble(sObj, QLatin1StringView("dim1"), 0.2, false, sec.dim1) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("dim2"), 0.4, false, sec.dim2) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("dim3"), 0.01, false, sec.dim3) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("dim4"), 0.01, false, sec.dim4) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("dim5"), 0.165, false, sec.dim5) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("dim6"), 0.0102, false, sec.dim6) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("A"), 0.08, true, sec.A) || sec.A <= 0.0 ||
+                    !readFiniteDouble(sObj, QLatin1StringView("Iy"), 1e-3, true, sec.Iy) || sec.Iy <= 0.0 ||
+                    !readFiniteDouble(sObj, QLatin1StringView("Iz"), 1e-3, true, sec.Iz) || sec.Iz <= 0.0 ||
+                    !readFiniteDouble(sObj, QLatin1StringView("J"), 5e-4, true, sec.J) || sec.J <= 0.0 ||
+                    !readFiniteDouble(sObj, QLatin1StringView("Iyz"), 0.0, false, sec.Iyz) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("I1"), sec.Iy, false, sec.I1) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("I2"), sec.Iz, false, sec.I2) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("principalAngle"), 0.0, false, sec.principalAngle) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("Cw"), 0.0, false, sec.Cw) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("Asy"), (5.0 / 6.0) * sec.A, false, sec.Asy) ||
+                    !readFiniteDouble(sObj, QLatin1StringView("Asz"), (5.0 / 6.0) * sec.A, false, sec.Asz))
                     return false;
                 if (sObj.contains("polygonLoops") && sObj["polygonLoops"].isArray())
                 {
-                    for (const auto &lv : sObj["polygonLoops"].toArray())
+                    const QJsonArray loopsArr = sObj["polygonLoops"].toArray();
+                    for (const auto &lv : loopsArr)
                     {
                         if (!lv.isObject()) return false;
                         const QJsonObject lObj = lv.toObject();
@@ -711,7 +762,8 @@ namespace omniframe
                         lp.isHole = lObj["isHole"].toBool(false);
                         if (lObj.contains("vertices") && lObj["vertices"].isArray())
                         {
-                            for (const auto &pv : lObj["vertices"].toArray())
+                            const QJsonArray vertsArr = lObj["vertices"].toArray();
+                            for (const auto &pv : vertsArr)
                             {
                                 if (!pv.isArray()) return false;
                                 const QJsonArray pArr = pv.toArray();
@@ -727,16 +779,17 @@ namespace omniframe
                 }
                 if (sObj.contains("compositeParts") && sObj["compositeParts"].isArray())
                 {
-                    for (const auto &cv : sObj["compositeParts"].toArray())
+                    const QJsonArray compArr = sObj["compositeParts"].toArray();
+                    for (const auto &cv : compArr)
                     {
                         if (!cv.isObject()) return false;
                         const QJsonObject cObj = cv.toObject();
                         kernel::CompositeRectPart cp;
-                        if (!readFiniteDouble(cObj, "yCenter", 0.0, false, cp.yCenter) ||
-                            !readFiniteDouble(cObj, "zCenter", 0.0, false, cp.zCenter) ||
-                            !readFiniteDouble(cObj, "widthB", 0.1, false, cp.widthB) ||
-                            !readFiniteDouble(cObj, "heightH", 0.1, false, cp.heightH) ||
-                            !readFiniteDouble(cObj, "modularRatioN", 1.0, false, cp.modularRatioN))
+                        if (!readFiniteDouble(cObj, QLatin1StringView("yCenter"), 0.0, false, cp.yCenter) ||
+                            !readFiniteDouble(cObj, QLatin1StringView("zCenter"), 0.0, false, cp.zCenter) ||
+                            !readFiniteDouble(cObj, QLatin1StringView("widthB"), 0.1, false, cp.widthB) ||
+                            !readFiniteDouble(cObj, QLatin1StringView("heightH"), 0.1, false, cp.heightH) ||
+                            !readFiniteDouble(cObj, QLatin1StringView("modularRatioN"), 1.0, false, cp.modularRatioN))
                             return false;
                         sec.compositeParts.push_back(cp);
                     }
@@ -747,32 +800,35 @@ namespace omniframe
 
         // 3. Nós
         std::unordered_set<NodeId> nodeIds;
-        if (rootObj.contains("nodes"))
+        if (const auto nodesIt = rootObj.constFind(QLatin1StringView("nodes")); nodesIt != rootObj.constEnd())
         {
-            if (!rootObj["nodes"].isArray())
+            if (!nodesIt->isArray())
                 return false;
-            for (const auto &val : rootObj["nodes"].toArray())
+            const QJsonArray nodesArr = nodesIt->toArray();
+            nodeIds.reserve(static_cast<std::size_t>(nodesArr.size()));
+            loaded.getNodes().reserve(static_cast<std::size_t>(nodesArr.size()));
+            for (const auto &val : nodesArr)
             {
                 if (!val.isObject())
                     return false;
                 const QJsonObject nObj = val.toObject();
                 Node n;
-                if (!readValidInt(nObj, "id", 0, true, n.id) || n.id <= 0 || !nodeIds.insert(n.id).second)
+                if (!readValidInt(nObj, QLatin1StringView("id"), 0, true, n.id) || n.id <= 0 || !nodeIds.insert(n.id).second)
                     return false;
-                if (!readFiniteDouble(nObj, "x", 0.0, true, n.position.x) ||
-                    !readFiniteDouble(nObj, "y", 0.0, true, n.position.y) ||
-                    !readFiniteDouble(nObj, "z", 0.0, true, n.position.z))
+                if (!readFiniteDouble(nObj, QLatin1StringView("x"), 0.0, true, n.position.x) ||
+                    !readFiniteDouble(nObj, QLatin1StringView("y"), 0.0, true, n.position.y) ||
+                    !readFiniteDouble(nObj, QLatin1StringView("z"), 0.0, true, n.position.z))
                     return false;
 
-                if (nObj.contains("support"))
+                if (const auto supIt = nObj.constFind(QLatin1StringView("support")); supIt != nObj.constEnd())
                 {
-                    if (!nObj["support"].isObject())
+                    if (!supIt->isObject())
                         return false;
-                    const QJsonObject supObj = nObj["support"].toObject();
-                    const QJsonArray fixArr = supObj["fixed"].toArray();
-                    const QJsonArray sprArr = supObj["springs"].toArray();
-                    const QJsonArray prsArr = supObj["prescribed"].toArray();
-                    const QJsonArray hasPrsArr = supObj["hasPrescribed"].toArray();
+                    const QJsonObject supObj = supIt->toObject();
+                    const QJsonArray fixArr = supObj.value(QLatin1StringView("fixed")).toArray();
+                    const QJsonArray sprArr = supObj.value(QLatin1StringView("springs")).toArray();
+                    const QJsonArray prsArr = supObj.value(QLatin1StringView("prescribed")).toArray();
+                    const QJsonArray hasPrsArr = supObj.value(QLatin1StringView("hasPrescribed")).toArray();
 
                     for (int k = 0; k < 6; ++k)
                     {
@@ -795,17 +851,17 @@ namespace omniframe
                     }
                 }
 
-                if (nObj.contains("load"))
+                if (const auto ldIt = nObj.constFind(QLatin1StringView("load")); ldIt != nObj.constEnd())
                 {
-                    if (!nObj["load"].isObject())
+                    if (!ldIt->isObject())
                         return false;
-                    const QJsonObject ldObj = nObj["load"].toObject();
-                    if (!readFiniteDouble(ldObj, "fx", 0.0, false, n.load.force.x) ||
-                        !readFiniteDouble(ldObj, "fy", 0.0, false, n.load.force.y) ||
-                        !readFiniteDouble(ldObj, "fz", 0.0, false, n.load.force.z) ||
-                        !readFiniteDouble(ldObj, "mx", 0.0, false, n.load.moment.x) ||
-                        !readFiniteDouble(ldObj, "my", 0.0, false, n.load.moment.y) ||
-                        !readFiniteDouble(ldObj, "mz", 0.0, false, n.load.moment.z))
+                    const QJsonObject ldObj = ldIt->toObject();
+                    if (!readFiniteDouble(ldObj, QLatin1StringView("fx"), 0.0, false, n.load.force.x) ||
+                        !readFiniteDouble(ldObj, QLatin1StringView("fy"), 0.0, false, n.load.force.y) ||
+                        !readFiniteDouble(ldObj, QLatin1StringView("fz"), 0.0, false, n.load.force.z) ||
+                        !readFiniteDouble(ldObj, QLatin1StringView("mx"), 0.0, false, n.load.moment.x) ||
+                        !readFiniteDouble(ldObj, QLatin1StringView("my"), 0.0, false, n.load.moment.y) ||
+                        !readFiniteDouble(ldObj, QLatin1StringView("mz"), 0.0, false, n.load.moment.z))
                         return false;
                 }
 
@@ -814,36 +870,39 @@ namespace omniframe
         }
 
         // 4. Elementos
-        if (rootObj.contains("elements"))
+        if (const auto elemsIt = rootObj.constFind(QLatin1StringView("elements")); elemsIt != rootObj.constEnd())
         {
-            if (!rootObj["elements"].isArray())
+            if (!elemsIt->isArray())
                 return false;
+            const QJsonArray elemsArr = elemsIt->toArray();
             std::unordered_set<ElementId> elemIds;
-            for (const auto &val : rootObj["elements"].toArray())
+            elemIds.reserve(static_cast<std::size_t>(elemsArr.size()));
+            loaded.getElements().reserve(static_cast<std::size_t>(elemsArr.size()));
+            for (const auto &val : elemsArr)
             {
                 if (!val.isObject())
                     return false;
                 const QJsonObject eObj = val.toObject();
                 Element e;
-                if (!readValidInt(eObj, "id", 0, true, e.id) || e.id <= 0 || !elemIds.insert(e.id).second ||
-                    !readValidInt(eObj, "nodeStart", 0, true, e.nodeStart) ||
-                    !readValidInt(eObj, "nodeEnd", 0, true, e.nodeEnd) ||
-                    !readValidInt(eObj, "materialId", 1, false, e.materialId) ||
-                    !readValidInt(eObj, "sectionId", 1, false, e.sectionId) ||
-                    !readFiniteDouble(eObj, "rollAngle", 0.0, false, e.rollAngle))
+                if (!readValidInt(eObj, QLatin1StringView("id"), 0, true, e.id) || e.id <= 0 || !elemIds.insert(e.id).second ||
+                    !readValidInt(eObj, QLatin1StringView("nodeStart"), 0, true, e.nodeStart) ||
+                    !readValidInt(eObj, QLatin1StringView("nodeEnd"), 0, true, e.nodeEnd) ||
+                    !readValidInt(eObj, QLatin1StringView("materialId"), 1, false, e.materialId) ||
+                    !readValidInt(eObj, QLatin1StringView("sectionId"), 1, false, e.sectionId) ||
+                    !readFiniteDouble(eObj, QLatin1StringView("rollAngle"), 0.0, false, e.rollAngle))
                     return false;
                 int formInt = 0;
-                if (!readValidInt(eObj, "formulation", 0, false, formInt) || formInt < 0 || formInt > 2)
+                if (!readValidInt(eObj, QLatin1StringView("formulation"), 0, false, formInt) || formInt < 0 || formInt > 2)
                     return false;
                 e.formulation = static_cast<ElementFormulation>(formInt);
 
-                if (eObj.contains("releases"))
+                if (const auto relIt = eObj.constFind(QLatin1StringView("releases")); relIt != eObj.constEnd())
                 {
-                    if (!eObj["releases"].isObject())
+                    if (!relIt->isObject())
                         return false;
-                    const QJsonObject relObj = eObj["releases"].toObject();
-                    const QJsonArray sArr = relObj["start"].toArray();
-                    const QJsonArray eArr = relObj["end"].toArray();
+                    const QJsonObject relObj = relIt->toObject();
+                    const QJsonArray sArr = relObj.value(QLatin1StringView("start")).toArray();
+                    const QJsonArray eArr = relObj.value(QLatin1StringView("end")).toArray();
                     for (int k = 0; k < 6; ++k)
                     {
                         if (k < sArr.size())
@@ -853,29 +912,29 @@ namespace omniframe
                     }
                 }
 
-                if (eObj.contains("distLoad"))
+                if (const auto qIt = eObj.constFind(QLatin1StringView("distLoad")); qIt != eObj.constEnd())
                 {
-                    if (!eObj["distLoad"].isObject())
+                    if (!qIt->isObject())
                         return false;
-                    const QJsonObject qObj = eObj["distLoad"].toObject();
-                    e.distLoad.active = qObj["active"].toBool();
+                    const QJsonObject qObj = qIt->toObject();
+                    e.distLoad.active = qObj.value(QLatin1StringView("active")).toBool();
                     int csInt = 0;
-                    if (!readValidInt(qObj, "coordSystem", 0, false, csInt) || csInt < 0 || csInt > 1)
+                    if (!readValidInt(qObj, QLatin1StringView("coordSystem"), 0, false, csInt) || csInt < 0 || csInt > 1)
                         return false;
                     e.distLoad.coordSystem = static_cast<CoordSystem>(csInt);
-                    if (!readFiniteDouble(qObj, "qx", 0.0, false, e.distLoad.w.x) ||
-                        !readFiniteDouble(qObj, "qy", 0.0, false, e.distLoad.w.y) ||
-                        !readFiniteDouble(qObj, "qz", 0.0, false, e.distLoad.w.z))
+                    if (!readFiniteDouble(qObj, QLatin1StringView("qx"), 0.0, false, e.distLoad.w.x) ||
+                        !readFiniteDouble(qObj, QLatin1StringView("qy"), 0.0, false, e.distLoad.w.y) ||
+                        !readFiniteDouble(qObj, QLatin1StringView("qz"), 0.0, false, e.distLoad.w.z))
                         return false;
                 }
 
-                if (eObj.contains("thermalLoad"))
+                if (const auto thIt = eObj.constFind(QLatin1StringView("thermalLoad")); thIt != eObj.constEnd())
                 {
-                    if (!eObj["thermalLoad"].isObject())
+                    if (!thIt->isObject())
                         return false;
-                    const QJsonObject thObj = eObj["thermalLoad"].toObject();
-                    e.thermalLoad.active = thObj["active"].toBool();
-                    if (!readFiniteDouble(thObj, "deltaT", 0.0, false, e.thermalLoad.deltaT))
+                    const QJsonObject thObj = thIt->toObject();
+                    e.thermalLoad.active = thObj.value(QLatin1StringView("active")).toBool();
+                    if (!readFiniteDouble(thObj, QLatin1StringView("deltaT"), 0.0, false, e.thermalLoad.deltaT))
                         return false;
                 }
 
@@ -889,17 +948,18 @@ namespace omniframe
             if (!rootObj["loadCases"].isArray())
                 return false;
             std::unordered_set<kernel::LoadCaseId> lcIds;
-            for (const auto &val : rootObj["loadCases"].toArray())
+            const QJsonArray lcArr = rootObj["loadCases"].toArray();
+            for (const auto &val : lcArr)
             {
                 if (!val.isObject())
                     return false;
                 const QJsonObject lcObj = val.toObject();
                 kernel::LoadCase lc;
-                if (!readValidInt(lcObj, "id", 0, true, lc.id) || lc.id <= 0 || !lcIds.insert(lc.id).second)
+                if (!readValidInt(lcObj, QLatin1StringView("id"), 0, true, lc.id) || lc.id <= 0 || !lcIds.insert(lc.id).second)
                     return false;
                 lc.name = lcObj["name"].toString().toStdString();
                 int catInt = 0;
-                if (!readValidInt(lcObj, "category", 0, false, catInt) || catInt < 0 || catInt > 8)
+                if (!readValidInt(lcObj, QLatin1StringView("category"), 0, false, catInt) || catInt < 0 || catInt > 8)
                     return false;
                 lc.category = static_cast<kernel::LoadCaseCategory>(catInt);
 
@@ -908,28 +968,29 @@ namespace omniframe
                     const QJsonObject swObj = lcObj["selfWeight"].toObject();
                     lc.selfWeight.enabled = swObj["enabled"].toBool(false);
                     double dx = 0.0, dy = 0.0, dz = -1.0;
-                    if (!readFiniteDouble(swObj, "factor", 1.0, false, lc.selfWeight.factor) ||
-                        !readFiniteDouble(swObj, "dx", 0.0, false, dx) ||
-                        !readFiniteDouble(swObj, "dy", 0.0, false, dy) ||
-                        !readFiniteDouble(swObj, "dz", -1.0, false, dz))
+                    if (!readFiniteDouble(swObj, QLatin1StringView("factor"), 1.0, false, lc.selfWeight.factor) ||
+                        !readFiniteDouble(swObj, QLatin1StringView("dx"), 0.0, false, dx) ||
+                        !readFiniteDouble(swObj, QLatin1StringView("dy"), 0.0, false, dy) ||
+                        !readFiniteDouble(swObj, QLatin1StringView("dz"), -1.0, false, dz))
                         return false;
                     lc.selfWeight.direction = {dx, dy, dz};
                 }
 
                 if (lcObj.contains("nodalLoads") && lcObj["nodalLoads"].isArray())
                 {
-                    for (const auto &nv : lcObj["nodalLoads"].toArray())
+                    const QJsonArray nlArr = lcObj["nodalLoads"].toArray();
+                    for (const auto &nv : nlArr)
                     {
                         if (!nv.isObject()) return false;
                         const QJsonObject nObj = nv.toObject();
                         kernel::NodalLoadPatternEntry ne;
-                        if (!readValidInt(nObj, "nodeId", 0, true, ne.nodeId) ||
-                            !readFiniteDouble(nObj, "fx", 0.0, false, ne.forceMoment[0]) ||
-                            !readFiniteDouble(nObj, "fy", 0.0, false, ne.forceMoment[1]) ||
-                            !readFiniteDouble(nObj, "fz", 0.0, false, ne.forceMoment[2]) ||
-                            !readFiniteDouble(nObj, "mx", 0.0, false, ne.forceMoment[3]) ||
-                            !readFiniteDouble(nObj, "my", 0.0, false, ne.forceMoment[4]) ||
-                            !readFiniteDouble(nObj, "mz", 0.0, false, ne.forceMoment[5]))
+                        if (!readValidInt(nObj, QLatin1StringView("nodeId"), 0, true, ne.nodeId) ||
+                            !readFiniteDouble(nObj, QLatin1StringView("fx"), 0.0, false, ne.forceMoment[0]) ||
+                            !readFiniteDouble(nObj, QLatin1StringView("fy"), 0.0, false, ne.forceMoment[1]) ||
+                            !readFiniteDouble(nObj, QLatin1StringView("fz"), 0.0, false, ne.forceMoment[2]) ||
+                            !readFiniteDouble(nObj, QLatin1StringView("mx"), 0.0, false, ne.forceMoment[3]) ||
+                            !readFiniteDouble(nObj, QLatin1StringView("my"), 0.0, false, ne.forceMoment[4]) ||
+                            !readFiniteDouble(nObj, QLatin1StringView("mz"), 0.0, false, ne.forceMoment[5]))
                             return false;
                         lc.nodalLoads.push_back(ne);
                     }
@@ -937,26 +998,27 @@ namespace omniframe
 
                 if (lcObj.contains("elementLoads") && lcObj["elementLoads"].isArray())
                 {
-                    for (const auto &ev : lcObj["elementLoads"].toArray())
+                    const QJsonArray elArr = lcObj["elementLoads"].toArray();
+                    for (const auto &ev : elArr)
                     {
                         if (!ev.isObject()) return false;
                         const QJsonObject eObj = ev.toObject();
                         kernel::ElementLoadPatternEntry ee;
-                        if (!readValidInt(eObj, "elementId", 0, true, ee.elementId))
+                        if (!readValidInt(eObj, QLatin1StringView("elementId"), 0, true, ee.elementId))
                             return false;
                         ee.load.hasDistributed = eObj["hasDistributed"].toBool(false);
-                        if (!readValidInt(eObj, "coordSystem", 0, false, ee.load.coordSystem) ||
+                        if (!readValidInt(eObj, QLatin1StringView("coordSystem"), 0, false, ee.load.coordSystem) ||
                             ee.load.coordSystem < 0 || ee.load.coordSystem > 1)
                             return false;
                         double qx = 0.0, qy = 0.0, qz = 0.0;
-                        if (!readFiniteDouble(eObj, "qx", 0.0, false, qx) ||
-                            !readFiniteDouble(eObj, "qy", 0.0, false, qy) ||
-                            !readFiniteDouble(eObj, "qz", 0.0, false, qz))
+                        if (!readFiniteDouble(eObj, QLatin1StringView("qx"), 0.0, false, qx) ||
+                            !readFiniteDouble(eObj, QLatin1StringView("qy"), 0.0, false, qy) ||
+                            !readFiniteDouble(eObj, QLatin1StringView("qz"), 0.0, false, qz))
                             return false;
                         ee.load.distributedForce = {qx, qy, qz};
                         ee.load.hasThermal = eObj["hasThermal"].toBool(false);
-                        if (!readFiniteDouble(eObj, "deltaT", 0.0, false, ee.load.deltaT) ||
-                            !readFiniteDouble(eObj, "normalPressure", 0.0, false, ee.load.normalPressure))
+                        if (!readFiniteDouble(eObj, QLatin1StringView("deltaT"), 0.0, false, ee.load.deltaT) ||
+                            !readFiniteDouble(eObj, QLatin1StringView("normalPressure"), 0.0, false, ee.load.normalPressure))
                             return false;
                         lc.elementLoads.push_back(ee);
                     }
@@ -971,28 +1033,30 @@ namespace omniframe
             if (!rootObj["loadCombinations"].isArray())
                 return false;
             std::unordered_set<kernel::LoadComboId> combIds;
-            for (const auto &val : rootObj["loadCombinations"].toArray())
+            const QJsonArray combArr = rootObj["loadCombinations"].toArray();
+            for (const auto &val : combArr)
             {
                 if (!val.isObject()) return false;
                 const QJsonObject cObj = val.toObject();
                 kernel::LoadCombination comb;
-                if (!readValidInt(cObj, "id", 0, true, comb.id) || comb.id <= 0 || !combIds.insert(comb.id).second)
+                if (!readValidInt(cObj, QLatin1StringView("id"), 0, true, comb.id) || comb.id <= 0 || !combIds.insert(comb.id).second)
                     return false;
                 comb.name = cObj["name"].toString().toStdString();
                 int lsInt = 0;
-                if (!readValidInt(cObj, "limitState", 0, false, lsInt) || lsInt < 0 || lsInt > 6)
+                if (!readValidInt(cObj, QLatin1StringView("limitState"), 0, false, lsInt) || lsInt < 0 || lsInt > 6)
                     return false;
                 comb.limitState = static_cast<kernel::LimitStateType>(lsInt);
                 comb.pDeltaEnabled = cObj["pDeltaEnabled"].toBool(false);
                 if (cObj.contains("factors") && cObj["factors"].isArray())
                 {
-                    for (const auto &fv : cObj["factors"].toArray())
+                    const QJsonArray facArr = cObj["factors"].toArray();
+                    for (const auto &fv : facArr)
                     {
                         if (!fv.isObject()) return false;
                         const QJsonObject fObj = fv.toObject();
                         kernel::LoadCombinationFactor lcf;
-                        if (!readValidInt(fObj, "loadCaseId", 0, true, lcf.loadCaseId) ||
-                            !readFiniteDouble(fObj, "gamma", 1.0, false, lcf.gamma))
+                        if (!readValidInt(fObj, QLatin1StringView("loadCaseId"), 0, true, lcf.loadCaseId) ||
+                            !readFiniteDouble(fObj, QLatin1StringView("gamma"), 1.0, false, lcf.gamma))
                             return false;
                         comb.factors.push_back(lcf);
                     }
@@ -1005,24 +1069,26 @@ namespace omniframe
         if (rootObj.contains("loadHistories"))
         {
             if (!rootObj["loadHistories"].isArray()) return false;
-            for (const auto &val : rootObj["loadHistories"].toArray())
+            const QJsonArray histArr = rootObj["loadHistories"].toArray();
+            for (const auto &val : histArr)
             {
                 if (!val.isObject()) return false;
                 const QJsonObject hObj = val.toObject();
                 kernel::LoadHistory h;
-                if (!readValidInt(hObj, "id", 1, false, h.id) ||
-                    !readValidInt(hObj, "loadCaseId", 1, false, h.loadCaseId))
+                if (!readValidInt(hObj, QLatin1StringView("id"), 1, false, h.id) ||
+                    !readValidInt(hObj, QLatin1StringView("loadCaseId"), 1, false, h.loadCaseId))
                     return false;
                 h.name = hObj["name"].toString().toStdString();
                 if (hObj.contains("points") && hObj["points"].isArray())
                 {
-                    for (const auto &pv : hObj["points"].toArray())
+                    const QJsonArray ptsArr = hObj["points"].toArray();
+                    for (const auto &pv : ptsArr)
                     {
                         if (!pv.isObject()) return false;
                         const QJsonObject pObj = pv.toObject();
                         kernel::LoadHistoryPoint pt;
-                        if (!readFiniteDouble(pObj, "t", 0.0, true, pt.timeOrStep) ||
-                            !readFiniteDouble(pObj, "f", 0.0, true, pt.factor))
+                        if (!readFiniteDouble(pObj, QLatin1StringView("t"), 0.0, true, pt.timeOrStep) ||
+                            !readFiniteDouble(pObj, QLatin1StringView("f"), 0.0, true, pt.factor))
                             return false;
                         h.points.push_back(pt);
                     }
@@ -1035,13 +1101,14 @@ namespace omniframe
         if (rootObj.contains("rigidLinks"))
         {
             if (!rootObj["rigidLinks"].isArray()) return false;
-            for (const auto &val : rootObj["rigidLinks"].toArray())
+            const QJsonArray rlArr = rootObj["rigidLinks"].toArray();
+            for (const auto &val : rlArr)
             {
                 if (!val.isObject()) return false;
                 const QJsonObject o = val.toObject();
                 RigidLinkSpec rl;
-                if (!readValidInt(o, "masterNode", 0, true, rl.masterNode) ||
-                    !readValidInt(o, "slaveNode", 0, true, rl.slaveNode))
+                if (!readValidInt(o, QLatin1StringView("masterNode"), 0, true, rl.masterNode) ||
+                    !readValidInt(o, QLatin1StringView("slaveNode"), 0, true, rl.slaveNode))
                     return false;
                 rl.coupleRotations = o["coupleRotations"].toBool(true);
                 loaded.getRigidLinks().push_back(rl);
@@ -1050,21 +1117,24 @@ namespace omniframe
         if (rootObj.contains("rigidDiaphragms"))
         {
             if (!rootObj["rigidDiaphragms"].isArray()) return false;
-            for (const auto &val : rootObj["rigidDiaphragms"].toArray())
+            const QJsonArray rdArr = rootObj["rigidDiaphragms"].toArray();
+            for (const auto &val : rdArr)
             {
                 if (!val.isObject()) return false;
                 const QJsonObject o = val.toObject();
                 RigidDiaphragmSpec dia;
-                if (!readValidInt(o, "masterNode", 0, true, dia.masterNode) ||
-                    !readValidInt(o, "normalAxis", 2, false, dia.normalAxis) ||
+                if (!readValidInt(o, QLatin1StringView("masterNode"), 0, true, dia.masterNode) ||
+                    !readValidInt(o, QLatin1StringView("normalAxis"), 2, false, dia.normalAxis) ||
                     dia.normalAxis < 0 || dia.normalAxis > 2)
                     return false;
                 if (o.contains("slaveNodes") && o["slaveNodes"].isArray())
                 {
-                    for (const auto &sv : o["slaveNodes"].toArray())
+                    const QJsonArray snArr = o["slaveNodes"].toArray();
+                    for (const auto &sv : snArr)
                     {
-                        if (!sv.isDouble()) return false;
-                        dia.slaveNodes.push_back(sv.toInt());
+                        int sid = 0;
+                        if (!readValidIntValue(sv, sid)) return false;
+                        dia.slaveNodes.push_back(sid);
                     }
                 }
                 loaded.getRigidDiaphragms().push_back(std::move(dia));
@@ -1076,12 +1146,12 @@ namespace omniframe
         {
             const QJsonObject soObj = rootObj["solverOptions"].toObject();
             int tInt = 0, oInt = 0, pInt = 0;
-            if (!readValidInt(soObj, "type", 0, false, tInt) || tInt < 0 || tInt > 5 ||
-                !readValidInt(soObj, "ordering", 0, false, oInt) || oInt < 0 || oInt > 3 ||
-                !readValidInt(soObj, "preconditioner", 0, false, pInt) || pInt < 0 || pInt > 4 ||
-                !readValidInt(soObj, "maxIterations", 5000, false, loaded.solverOptions().maxIterations) ||
-                !readFiniteDouble(soObj, "tolerance", 1e-10, false, loaded.solverOptions().tolerance) ||
-                !readValidInt(soObj, "refinementSteps", 2, false, loaded.solverOptions().refinementSteps))
+            if (!readValidInt(soObj, QLatin1StringView("type"), 0, false, tInt) || tInt < 0 || tInt > 5 ||
+                !readValidInt(soObj, QLatin1StringView("ordering"), 0, false, oInt) || oInt < 0 || oInt > 3 ||
+                !readValidInt(soObj, QLatin1StringView("preconditioner"), 0, false, pInt) || pInt < 0 || pInt > 4 ||
+                !readValidInt(soObj, QLatin1StringView("maxIterations"), 5000, false, loaded.solverOptions().maxIterations) ||
+                !readFiniteDouble(soObj, QLatin1StringView("tolerance"), 1e-10, false, loaded.solverOptions().tolerance) ||
+                !readValidInt(soObj, QLatin1StringView("refinementSteps"), 2, false, loaded.solverOptions().refinementSteps))
                 return false;
             loaded.solverOptions().type = static_cast<kernel::LinearSolverType>(tInt);
             loaded.solverOptions().ordering = static_cast<kernel::SparseOrderingType>(oInt);
@@ -1090,14 +1160,16 @@ namespace omniframe
         }
 
         // 10. Malha Superficial / Solida (Schema 2.1.0+, retrocompativel)
-        if (rootObj.contains("surfaceMesh") && rootObj["surfaceMesh"].isObject())
+        if (const auto smRootIt = rootObj.constFind(QLatin1StringView("surfaceMesh"));
+            smRootIt != rootObj.constEnd() && smRootIt->isObject())
         {
-            const QJsonObject smObj = rootObj["surfaceMesh"].toObject();
+            const QJsonObject smObj = smRootIt->toObject();
             kernel::MeshContainer sm;
-            auto readFixedDoubleArr = [](const QJsonObject &obj, const char *key, double *dst, int count) -> bool {
-                if (!obj.contains(key)) return true;
-                if (!obj[key].isArray()) return false;
-                const QJsonArray arr = obj[key].toArray();
+            auto readFixedDoubleArr = [](const QJsonObject &obj, QLatin1StringView key, double *dst, int count) -> bool {
+                const auto it = obj.constFind(key);
+                if (it == obj.constEnd()) return true;
+                if (!it->isArray()) return false;
+                const QJsonArray arr = it->toArray();
                 const int n = std::min<int>(count, static_cast<int>(arr.size()));
                 for (int i = 0; i < n; ++i)
                 {
@@ -1109,83 +1181,107 @@ namespace omniframe
                 return true;
             };
 
-            if (smObj.contains("nodes") && smObj["nodes"].isArray())
+            if (const auto smNodesIt = smObj.constFind(QLatin1StringView("nodes")); smNodesIt != smObj.constEnd())
             {
-                for (const auto &nv : smObj["nodes"].toArray())
+                if (!smNodesIt->isArray()) return false;
+                const QJsonArray smNodesArr = smNodesIt->toArray();
+                sm.nodes.reserve(static_cast<std::size_t>(smNodesArr.size()));
+                std::unordered_set<NodeId> meshNodeIds;
+                meshNodeIds.reserve(static_cast<std::size_t>(smNodesArr.size()));
+                for (const auto &nv : smNodesArr)
                 {
                     if (!nv.isObject()) return false;
                     const QJsonObject nObj = nv.toObject();
                     kernel::MeshNode mn;
                     double x = 0.0, y = 0.0, z = 0.0;
-                    if (!readValidInt(nObj, "id", 0, true, mn.id) ||
-                        !readFiniteDouble(nObj, "x", 0.0, true, x) ||
-                        !readFiniteDouble(nObj, "y", 0.0, true, y) ||
-                        !readFiniteDouble(nObj, "z", 0.0, true, z))
+                    if (!readValidInt(nObj, QLatin1StringView("id"), 0, true, mn.id) ||
+                        mn.id <= 0 || !meshNodeIds.insert(mn.id).second ||
+                        !readFiniteDouble(nObj, QLatin1StringView("x"), 0.0, true, x) ||
+                        !readFiniteDouble(nObj, QLatin1StringView("y"), 0.0, true, y) ||
+                        !readFiniteDouble(nObj, QLatin1StringView("z"), 0.0, true, z))
                         return false;
                     mn.position = kernel::Vec3(x, y, z);
-                    mn.isBoundary = nObj["isBoundary"].toBool(false);
-                    mn.tag = nObj["tag"].toString().toStdString();
-                    if (nObj.contains("fixed"))
+                    mn.isBoundary = nObj.value(QLatin1StringView("isBoundary")).toBool(false);
+                    if (const auto tagIt = nObj.constFind(QLatin1StringView("tag")); tagIt != nObj.constEnd())
+                        mn.tag = tagIt->toString().toStdString();
+                    if (const auto fixIt = nObj.constFind(QLatin1StringView("fixed")); fixIt != nObj.constEnd())
                     {
-                        if (!nObj["fixed"].isArray()) return false;
-                        const QJsonArray fa = nObj["fixed"].toArray();
+                        if (!fixIt->isArray()) return false;
+                        const QJsonArray fa = fixIt->toArray();
                         for (int d = 0; d < std::min<int>(6, static_cast<int>(fa.size())); ++d)
                             mn.fixed[static_cast<std::size_t>(d)] = fa[d].toBool(false);
                     }
-                    if (!readFixedDoubleArr(nObj, "springStiffness", mn.springStiffness.data(), 6) ||
-                        !readFixedDoubleArr(nObj, "prescribedDisplacement", mn.prescribedDisplacement.data(), 6) ||
-                        !readFixedDoubleArr(nObj, "nodalForce", mn.nodalForce.data(), 3) ||
-                        !readFixedDoubleArr(nObj, "nodalMoment", mn.nodalMoment.data(), 3))
+                    if (!readFixedDoubleArr(nObj, QLatin1StringView("springStiffness"), mn.springStiffness.data(), 6) ||
+                        !readFixedDoubleArr(nObj, QLatin1StringView("prescribedDisplacement"), mn.prescribedDisplacement.data(), 6) ||
+                        !readFixedDoubleArr(nObj, QLatin1StringView("nodalForce"), mn.nodalForce.data(), 3) ||
+                        !readFixedDoubleArr(nObj, QLatin1StringView("nodalMoment"), mn.nodalMoment.data(), 3))
                         return false;
-                    mn.hasResults = nObj["hasResults"].toBool(false);
+                    for (int d = 0; d < 6; ++d)
+                    {
+                        if (mn.springStiffness[static_cast<std::size_t>(d)] < 0.0)
+                            return false;
+                    }
+                    mn.hasResults = nObj.value(QLatin1StringView("hasResults")).toBool(false);
                     if (mn.hasResults)
                     {
-                        if (!readFixedDoubleArr(nObj, "displacement", mn.displacement.data(), 6) ||
-                            !readFixedDoubleArr(nObj, "reaction", mn.reaction.data(), 6))
+                        if (!readFixedDoubleArr(nObj, QLatin1StringView("displacement"), mn.displacement.data(), 6) ||
+                            !readFixedDoubleArr(nObj, QLatin1StringView("reaction"), mn.reaction.data(), 6))
                             return false;
                     }
                     sm.nodes.push_back(std::move(mn));
                 }
             }
-            if (smObj.contains("elements") && smObj["elements"].isArray())
+            if (const auto smElemsIt = smObj.constFind(QLatin1StringView("elements")); smElemsIt != smObj.constEnd())
             {
-                for (const auto &ev : smObj["elements"].toArray())
+                if (!smElemsIt->isArray()) return false;
+                const QJsonArray smElemsArr = smElemsIt->toArray();
+                sm.elements.reserve(static_cast<std::size_t>(smElemsArr.size()));
+                std::unordered_set<ElementId> meshElemIds;
+                meshElemIds.reserve(static_cast<std::size_t>(smElemsArr.size()));
+                for (const auto &ev : smElemsArr)
                 {
                     if (!ev.isObject()) return false;
                     const QJsonObject eObj = ev.toObject();
                     kernel::MeshElement me;
                     int tInt = 2;
-                    if (!readValidInt(eObj, "id", 0, true, me.id) ||
-                        !readValidInt(eObj, "type", 2, false, tInt) || tInt < 0 || tInt > 7)
+                    if (!readValidInt(eObj, QLatin1StringView("id"), 0, true, me.id) ||
+                        me.id <= 0 || !meshElemIds.insert(me.id).second ||
+                        !readValidInt(eObj, QLatin1StringView("type"), 2, false, tInt) || tInt < 0 || tInt > 7)
                         return false;
                     me.type = static_cast<kernel::MeshCellType>(tInt);
-                    me.groupTag = eObj["groupTag"].toString().toStdString();
-                    if (eObj.contains("nodeIds") && eObj["nodeIds"].isArray())
+                    if (const auto gtIt = eObj.constFind(QLatin1StringView("groupTag")); gtIt != eObj.constEnd())
+                        me.groupTag = gtIt->toString().toStdString();
+                    if (const auto nidsIt = eObj.constFind(QLatin1StringView("nodeIds"));
+                        nidsIt != eObj.constEnd() && nidsIt->isArray())
                     {
-                        for (const auto &nidVal : eObj["nodeIds"].toArray())
+                        const QJsonArray nidArr = nidsIt->toArray();
+                        me.nodeIds.reserve(static_cast<std::size_t>(nidArr.size()));
+                        for (const auto &nidVal : nidArr)
                         {
-                            if (!nidVal.isDouble()) return false;
-                            me.nodeIds.push_back(nidVal.toInt());
+                            int nid = 0;
+                            if (!readValidIntValue(nidVal, nid)) return false;
+                            me.nodeIds.push_back(nid);
                         }
                     }
-                    if (!readValidInt(eObj, "materialId", 1, false, me.materialId) ||
-                        !readValidInt(eObj, "sectionId", 0, false, me.sectionId) ||
-                        !readFiniteDouble(eObj, "thickness", 0.15, false, me.thickness) ||
-                        !readFiniteDouble(eObj, "normalPressure", 0.0, false, me.normalPressure) ||
-                        !readFiniteDouble(eObj, "deltaT", 0.0, false, me.deltaT) ||
-                        !readFixedDoubleArr(eObj, "distributedLoad", me.distributedLoad.data(), 3))
+                    if (!readValidInt(eObj, QLatin1StringView("materialId"), 1, false, me.materialId) ||
+                        !readValidInt(eObj, QLatin1StringView("sectionId"), 0, false, me.sectionId) ||
+                        !readFiniteDouble(eObj, QLatin1StringView("thickness"), 0.15, false, me.thickness) ||
+                        me.thickness <= 0.0 ||
+                        !readFiniteDouble(eObj, QLatin1StringView("normalPressure"), 0.0, false, me.normalPressure) ||
+                        !readFiniteDouble(eObj, QLatin1StringView("deltaT"), 0.0, false, me.deltaT) ||
+                        !readFixedDoubleArr(eObj, QLatin1StringView("distributedLoad"), me.distributedLoad.data(), 3))
                         return false;
-                    me.includeSelfWeight = eObj["includeSelfWeight"].toBool(false);
-                    me.hasResults = eObj["hasResults"].toBool(false);
+                    me.includeSelfWeight = eObj.value(QLatin1StringView("includeSelfWeight")).toBool(false);
+                    me.hasResults = eObj.value(QLatin1StringView("hasResults")).toBool(false);
                     if (me.hasResults)
                     {
-                        if (!readFiniteDouble(eObj, "vonMisesStress", 0.0, false, me.vonMisesStress) ||
-                            !readFiniteDouble(eObj, "maxPrincipalStress", 0.0, false, me.maxPrincipalStress) ||
-                            !readFiniteDouble(eObj, "minPrincipalStress", 0.0, false, me.minPrincipalStress) ||
-                            !readFixedDoubleArr(eObj, "membraneResultants", me.membraneResultants.data(), 3) ||
-                            !readFixedDoubleArr(eObj, "bendingResultants", me.bendingResultants.data(), 3) ||
-                            !readFixedDoubleArr(eObj, "transverseShear", me.transverseShear.data(), 2) ||
-                            !readFixedDoubleArr(eObj, "stressVoigt", me.stressVoigt.data(), 6))
+                        if (!readFiniteDouble(eObj, QLatin1StringView("vonMisesStress"), 0.0, false, me.vonMisesStress) ||
+                            !readFiniteDouble(eObj, QLatin1StringView("maxPrincipalStress"), 0.0, false, me.maxPrincipalStress) ||
+                            !readFiniteDouble(eObj, QLatin1StringView("minPrincipalStress"), 0.0, false, me.minPrincipalStress) ||
+                            !readFixedDoubleArr(eObj, QLatin1StringView("membraneResultants"), me.membraneResultants.data(), 3) ||
+                            !readFixedDoubleArr(eObj, QLatin1StringView("bendingResultants"), me.bendingResultants.data(), 3) ||
+                            !readFixedDoubleArr(eObj, QLatin1StringView("transverseShear"), me.transverseShear.data(), 2) ||
+                            !readFixedDoubleArr(eObj, QLatin1StringView("stressVoigt"), me.stressVoigt.data(), 6))
                             return false;
                     }
                     sm.elements.push_back(std::move(me));
@@ -1198,7 +1294,13 @@ namespace omniframe
                 {
                     if (!it.value().isArray()) continue;
                     std::vector<kernel::NodeId> ids;
-                    for (const auto &v : it.value().toArray()) ids.push_back(v.toInt());
+                    const QJsonArray idsArr = it.value().toArray();
+                    ids.reserve(idsArr.size());
+                    for (const auto &v : idsArr) {
+                        int nid = 0;
+                        if (!readValidIntValue(v, nid)) return false;
+                        ids.push_back(nid);
+                    }
                     sm.nodeSets[it.key().toStdString()] = std::move(ids);
                 }
             }
@@ -1209,12 +1311,19 @@ namespace omniframe
                 {
                     if (!it.value().isArray()) continue;
                     std::vector<kernel::ElementId> ids;
-                    for (const auto &v : it.value().toArray()) ids.push_back(v.toInt());
+                    const QJsonArray eidsArr = it.value().toArray();
+                    ids.reserve(eidsArr.size());
+                    for (const auto &v : eidsArr) {
+                        int eid = 0;
+                        if (!readValidIntValue(v, eid)) return false;
+                        ids.push_back(eid);
+                    }
                     sm.elementGroups[it.key().toStdString()] = std::move(ids);
                 }
             }
             loaded.surfaceMesh() = std::move(sm);
         }
+        } // end ScopedUndoSuppression
 
         loaded.clearUndoHistory();
         loaded.pushUndo();
@@ -1480,7 +1589,7 @@ namespace omniframe
                 const QString c6 = ce.isShell ? (QString::number(ce.membraneResultants[1], 'f', 2) + " kN/m")
                                               : (QString::number(ce.stressVoigt[1], 'f', 2) + " kPa");
                 const QString c7 = ce.isShell ? (QString::number(ce.bendingResultants[0], 'f', 3) + " kNm/m")
-                                              : (QString::number(ce.stressVoigt[4], 'f', 2) + " kPa");
+                                              : (QString::number(ce.stressVoigt[5], 'f', 2) + " kPa");
                 out << "<tr><td>" << ce.elementId << "</td><td>" << QString::fromStdString(ce.cellTypeName).toHtmlEscaped() << "</td>"
                     << "<td>" << QString::number(ce.vonMisesStress, 'f', 2) << "</td>"
                     << "<td>" << QString::number(ce.maxPrincipalStress, 'f', 2) << "</td>"
@@ -1700,7 +1809,7 @@ namespace omniframe
                 const QString c6 = ce.isShell ? (QString::number(ce.membraneResultants[1], 'f', 2) + " kN/m")
                                               : (QString::number(ce.stressVoigt[1], 'f', 2) + " kPa");
                 const QString c7 = ce.isShell ? (QString::number(ce.bendingResultants[0], 'f', 3) + " kNm/m")
-                                              : (QString::number(ce.stressVoigt[4], 'f', 2) + " kPa");
+                                              : (QString::number(ce.stressVoigt[5], 'f', 2) + " kPa");
                 out << "| " << ce.elementId << " | " << QString::fromStdString(ce.cellTypeName)
                     << " | " << QString::number(ce.vonMisesStress, 'f', 2)
                     << " | " << QString::number(ce.maxPrincipalStress, 'f', 2)

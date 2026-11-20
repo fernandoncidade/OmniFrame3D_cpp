@@ -12,8 +12,10 @@
 #include <QGuiApplication>
 #include <QLayout>
 #include <QRect>
+#include <QScopedValueRollback>
 #include <QScreen>
 #include <QWidget>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #ifndef WIN32_LEAN_AND_MEAN
@@ -63,7 +65,7 @@ void WindowZOrderManager::registerWindow(QWidget* window) {
     }
     pruneInvalidWindows();
 
-    for (const auto& existing : m_zOrderStack) {
+    for (const auto& existing : std::as_const(m_zOrderStack)) {
         if (existing.data() == window) {
             return;
         }
@@ -71,9 +73,17 @@ void WindowZOrderManager::registerWindow(QWidget* window) {
 
     m_zOrderStack.append(window);
     ThemeManager::instance().applyWindowChrome(window);
-    connect(window, &QObject::destroyed, this, [this](QObject*) {
-        pruneInvalidWindows();
-    });
+    if (!window->property("_omni_zorder_destroyed_hooked").toBool()) {
+        window->setProperty("_omni_zorder_destroyed_hooked", true);
+        connect(window, &QObject::destroyed, this, [this](QObject* obj) {
+            for (qsizetype i = m_zOrderStack.size() - 1; i >= 0; --i) {
+                if (m_zOrderStack[i].isNull() || static_cast<QObject*>(m_zOrderStack[i].data()) == obj) {
+                    m_zOrderStack.removeAt(i);
+                }
+            }
+            pruneInvalidWindows();
+        });
+    }
 }
 
 void WindowZOrderManager::registerDockWidget(QDockWidget* dock) {
@@ -82,7 +92,7 @@ void WindowZOrderManager::registerDockWidget(QDockWidget* dock) {
     }
     pruneInvalidWindows();
 
-    for (const auto& existing : m_docks) {
+    for (const auto& existing : std::as_const(m_docks)) {
         if (existing.data() == dock) {
             return;
         }
@@ -100,7 +110,7 @@ void WindowZOrderManager::registerDockWidget(QDockWidget* dock) {
             registerWindow(dockPtr.data());
             bringToFront(dockPtr.data(), true);
         } else {
-            for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
+            for (qsizetype i = m_zOrderStack.size() - 1; i >= 0; --i) {
                 if (m_zOrderStack[i].data() == dockPtr.data()) {
                     m_zOrderStack.removeAt(i);
                 }
@@ -202,34 +212,40 @@ void WindowZOrderManager::positionDialogOverRoot(QDialog* dlg) {
 }
 
 void WindowZOrderManager::showAndRaise(QWidget* window) {
-    if (!window) {
+    QPointer<QWidget> winPtr(window);
+    if (!winPtr) {
         return;
     }
-    registerWindow(window);
-
-    if (window->isMinimized()) {
-        window->setWindowState((window->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    registerWindow(winPtr.data());
+    if (!winPtr) {
+        return;
     }
-    if (!window->isVisible()) {
-        if (window != m_rootWindow.data()) {
-            window->ensurePolished();
-            if (window->layout()) {
-                window->layout()->activate();
+
+    if (winPtr->isMinimized()) {
+        winPtr->setWindowState((winPtr->windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+    }
+    if (!winPtr->isVisible()) {
+        if (winPtr.data() != m_rootWindow.data()) {
+            winPtr->ensurePolished();
+            if (!winPtr) return;
+            if (winPtr->layout()) {
+                winPtr->layout()->activate();
             }
-            const QSize minHint = window->minimumSizeHint().expandedTo(window->minimumSize());
-            const QSize layoutHint = window->sizeHint().expandedTo(minHint);
-            if (!window->testAttribute(Qt::WA_Resized)) {
-                window->resize(layoutHint);
-            } else if (window->width() < minHint.width() || window->height() < minHint.height()) {
-                window->resize(window->size().expandedTo(minHint));
+            const QSize minHint = winPtr->minimumSizeHint().expandedTo(winPtr->minimumSize());
+            const QSize layoutHint = winPtr->sizeHint().expandedTo(minHint);
+            if (!winPtr->testAttribute(Qt::WA_Resized)) {
+                winPtr->resize(layoutHint);
+            } else if (winPtr->width() < minHint.width() || winPtr->height() < minHint.height()) {
+                winPtr->resize(winPtr->size().expandedTo(minHint));
             }
         }
+        if (!winPtr) return;
 
         const QString platform = QGuiApplication::platformName();
         const bool prepareHiddenNativeChrome =
-            (window->isWindow() &&
-             window != m_rootWindow.data() &&
-             !window->testAttribute(Qt::WA_DontShowOnScreen) &&
+            (winPtr->isWindow() &&
+             winPtr.data() != m_rootWindow.data() &&
+             !winPtr->testAttribute(Qt::WA_DontShowOnScreen) &&
              platform != QLatin1String("offscreen") &&
              platform != QLatin1String("minimal"));
 
@@ -246,34 +262,44 @@ void WindowZOrderManager::showAndRaise(QWidget* window) {
         if (prepareHiddenNativeChrome) {
             // Cria o HWND ainda oculto, aplica tema/chrome, desativa zoom DWM e aplica cloak
             // para evitar janela branca/fantasma em frações de segundo antes do primeiro paint.
-            (void)window->winId();
-            ThemeManager::instance().applyWindowChrome(window);
-            ThemeManager::instance().setWindowTransitionsDisabled(window, true);
-            ThemeManager::instance().setWindowCloaked(window, true);
-            cloakGuard.target = window;
+            (void)winPtr->winId();
+            if (!winPtr) return;
+            ThemeManager::instance().applyWindowChrome(winPtr.data());
+            ThemeManager::instance().setWindowTransitionsDisabled(winPtr.data(), true);
+            ThemeManager::instance().setWindowCloaked(winPtr.data(), true);
+            cloakGuard.target = winPtr;
             cloakGuard.active = true;
         }
 
-        window->show();
+        winPtr->show();
+        if (!winPtr) return;
 
         if (prepareHiddenNativeChrome) {
             QCoreApplication::sendPostedEvents(nullptr, QEvent::PolishRequest);
-            QCoreApplication::sendPostedEvents(window, QEvent::Show);
+            if (!winPtr) return;
+            QCoreApplication::sendPostedEvents(winPtr.data(), QEvent::Show);
+            if (!winPtr) return;
             QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
-            if (window->layout()) {
-                window->layout()->activate();
+            if (!winPtr) return;
+            if (winPtr->layout()) {
+                winPtr->layout()->activate();
             }
-            window->repaint();
+            if (!winPtr) return;
+            winPtr->repaint();
+            if (!winPtr) return;
 #ifdef Q_OS_WIN
-            if (const WId wid = window->internalWinId(); wid != 0) {
+            if (const WId wid = winPtr->internalWinId(); wid != 0) {
                 ::UpdateWindow(reinterpret_cast<HWND>(wid));
             }
+            if (!winPtr) return;
 #endif
-            ThemeManager::instance().setWindowCloaked(window, false);
+            ThemeManager::instance().setWindowCloaked(winPtr.data(), false);
             cloakGuard.active = false;
         }
     }
-    bringToFront(window, true);
+    if (winPtr) {
+        bringToFront(winPtr.data(), true);
+    }
 }
 
 void WindowZOrderManager::bringToFront(QWidget* window, bool activateFocus) {
@@ -289,30 +315,33 @@ void WindowZOrderManager::bringToFront(QWidget* window, bool activateFocus) {
         }
     }
 
-    m_updatingZOrder = true;
-    pruneInvalidWindows();
+    QPointer<QWidget> targetPtr(target);
+    {
+        QScopedValueRollback<bool> guard(m_updatingZOrder, true);
+        pruneInvalidWindows();
+        if (!targetPtr) {
+            return;
+        }
 
-    const bool alreadyOnTop = (!m_zOrderStack.isEmpty() && m_zOrderStack.last().data() == target);
-    if (alreadyOnTop && (!activateFocus || target->isActiveWindow())) {
-        m_updatingZOrder = false;
-        return;
-    }
+        const bool alreadyOnTop = (!m_zOrderStack.isEmpty() && m_zOrderStack.last().data() == targetPtr.data());
+        if (alreadyOnTop && (!activateFocus || targetPtr->isActiveWindow())) {
+            return;
+        }
 
-    for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
-        if (m_zOrderStack[i].data() == target) {
-            m_zOrderStack.removeAt(i);
+        for (qsizetype i = m_zOrderStack.size() - 1; i >= 0; --i) {
+            if (m_zOrderStack[i].data() == targetPtr.data()) {
+                m_zOrderStack.removeAt(i);
+            }
+        }
+        m_zOrderStack.append(targetPtr);
+
+        if (targetPtr->isVisible()) {
+            targetPtr->raise();
+            if (targetPtr && activateFocus && !targetPtr->isActiveWindow()) {
+                targetPtr->activateWindow();
+            }
         }
     }
-    m_zOrderStack.append(target);
-
-    if (target->isVisible()) {
-        target->raise();
-        if (activateFocus && !target->isActiveWindow()) {
-            target->activateWindow();
-        }
-    }
-
-    m_updatingZOrder = false;
     emit zOrderChanged(zOrderStack());
 }
 
@@ -340,6 +369,7 @@ QMessageBox* WindowZOrderManager::showModelessMessage(
     QMessageBox::StandardButtons buttons,
     std::function<void(int)> onFinished) {
     auto* box = new QMessageBox(icon, title, text, buttons, nullptr);
+    box->setTextFormat(Qt::PlainText);
     prepareModelessDialog(box, false, true);
 
     if (onFinished) {
@@ -392,7 +422,7 @@ QList<QWidget*> WindowZOrderManager::zOrderStack() const {
 }
 
 QWidget* WindowZOrderManager::topWindow() const {
-    for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
+    for (qsizetype i = m_zOrderStack.size() - 1; i >= 0; --i) {
         if (m_zOrderStack[i]) {
             return m_zOrderStack[i].data();
         }
@@ -492,20 +522,23 @@ bool WindowZOrderManager::eventFilter(QObject* watched, QEvent* event) {
             }
             if (QWidget* managed = resolveManagedWindow(widget)) {
                 if (insideComboBox && t == QEvent::MouseButtonPress && managed->isActiveWindow()) {
-                    m_updatingZOrder = true;
-                    pruneInvalidWindows();
-                    const bool alreadyOnTop = (!m_zOrderStack.isEmpty() && m_zOrderStack.last().data() == managed);
-                    if (!alreadyOnTop) {
-                        for (int i = m_zOrderStack.size() - 1; i >= 0; --i) {
-                            if (m_zOrderStack[i].data() == managed) {
-                                m_zOrderStack.removeAt(i);
+                    bool stackChanged = false;
+                    {
+                        QScopedValueRollback<bool> guard(m_updatingZOrder, true);
+                        pruneInvalidWindows();
+                        const bool alreadyOnTop = (!m_zOrderStack.isEmpty() && m_zOrderStack.last().data() == managed);
+                        if (!alreadyOnTop) {
+                            for (qsizetype i = m_zOrderStack.size() - 1; i >= 0; --i) {
+                                if (m_zOrderStack[i].data() == managed) {
+                                    m_zOrderStack.removeAt(i);
+                                }
                             }
+                            m_zOrderStack.append(managed);
+                            stackChanged = true;
                         }
-                        m_zOrderStack.append(managed);
-                        m_updatingZOrder = false;
+                    }
+                    if (stackChanged) {
                         emit zOrderChanged(zOrderStack());
-                    } else {
-                        m_updatingZOrder = false;
                     }
                     return QObject::eventFilter(watched, event);
                 }

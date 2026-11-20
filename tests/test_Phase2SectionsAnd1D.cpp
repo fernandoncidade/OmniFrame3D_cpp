@@ -1,5 +1,6 @@
 #include "TestHelper.hpp"
 #include "core/StructuralModel.hpp"
+#include "kernel/materials/LinearElasticMaterial.hpp"
 #include "solver/FemSolver3D.hpp"
 #include "io/ProjectSerializer.hpp"
 #include <QTemporaryDir>
@@ -159,12 +160,70 @@ void testTruss3DAndSerialization() {
     TEST_ASSERT(reloaded.findCrossSection(20)->shape == SectionShape::BoxRHS, "Forma BoxRHS preservada");
 }
 
+void testAud012UnsymmetricAnglePrincipalBendingAndAnisotropicPlaneStress() {
+    // 1. Viga em balanco com cantoneira L (Iyz != 0): carga vertical Fz deve gerar deflexao obliqua (w e v acoplados)
+    {
+        StructuralModel m;
+        m.clear();
+        const CrossSection angle = CrossSection::makeAngleL(30, "Cantoneira 150x150x15", 0.15, 0.15, 0.015);
+        TEST_ASSERT(std::abs(angle.Iyz) > 1e-8, "Cantoneira L deve possuir produto de inercia Iyz != 0");
+        m.addCrossSection(angle);
+
+        const double L = 3.0;
+        const double Fz = -10.0;
+        const NodeId n1 = m.addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = m.addNode(L, 0.0, 0.0);
+        m.findNode(n1)->support = SupportRestraint::makeFixed();
+        m.findNode(n2)->load.force.z = Fz;
+        m.addElement(n1, n2, 1, 30);
+
+        const SolverResult res = FemSolver3D::solve(m);
+        TEST_ASSERT(res.success && res.equilibrium.isBalanced, "Balanco com secao AngleL deve resolver em equilibrio");
+
+        const Material* mat = m.findMaterial(1);
+        const double detI = angle.Iy * angle.Iz - angle.Iyz * angle.Iyz;
+        const double wExact = (Fz * std::pow(L, 3) * angle.Iz) / (3.0 * mat->E * detI);
+        const double vExact = (-Fz * std::pow(L, 3) * angle.Iyz) / (3.0 * mat->E * detI);
+
+        const double vCalc = m.findNode(n2)->displacement[1];
+        const double wCalc = m.findNode(n2)->displacement[2];
+        TEST_ASSERT(std::abs(wCalc - wExact) / std::abs(wExact) < 1e-6,
+                    "Deflexao vertical w da cantoneira deve refletir flexao obliqua com Iyz");
+        TEST_ASSERT(std::abs(vCalc - vExact) / std::abs(vExact) < 1e-6,
+                    "Deflexao lateral v da cantoneira deve acoplar via produto de inercia Iyz");
+
+        // Verificar consistencia na formulacao corrotacional sob carga moderada
+        kernel::NonlinearOptions nlOpts;
+        nlOpts.method = kernel::NonlinearMethod::NewtonRaphson;
+        nlOpts.kinematics = kernel::NonlinearKinematics::Corotational3D;
+        nlOpts.numSteps = 2;
+        const kernel::NonlinearResult nlRes = FemSolver3D::solveNonlinear(m, nlOpts);
+        TEST_ASSERT(nlRes.success, "Corotational3D com AngleL (Iyz != 0) deve convergir");
+        const double vCorot = m.findNode(n2)->displacement[1];
+        TEST_ASSERT(std::abs(vCorot - vExact) / std::abs(vExact) < 1e-3,
+                    "Corotational3D deve acoplar eixos principais quando Iyz != 0");
+    }
+
+    // 2. LinearElasticAnisotropic::constitutiveMatrixPlaneStress deve aplicar complemento de Schur (sigma_zz = 0)
+    {
+        kernel::LinearElasticIsotropic iso = kernel::LinearElasticIsotropic::steelAstmA36(1);
+        const Eigen::Matrix<double, 6, 6> C3d = iso.constitutiveMatrix3D();
+        kernel::LinearElasticAnisotropic aniso(2, "AnisoFromIso", C3d, 7850.0, 78.5);
+
+        const Eigen::Matrix3d CpsIso = iso.constitutiveMatrixPlaneStress();
+        const Eigen::Matrix3d CpsAniso = aniso.constitutiveMatrixPlaneStress();
+        TEST_ASSERT((CpsIso - CpsAniso).norm() / CpsIso.norm() < 1e-12,
+                    "constitutiveMatrixPlaneStress anisotropico deve igualar o complemento de Schur exato");
+    }
+}
+
 } // namespace
 
 int main() {
     testExtendedCrossSections();
     testTimoshenkoDeepAndSlenderLockingFree();
     testTruss3DAndSerialization();
+    testAud012UnsymmetricAnglePrincipalBendingAndAnisotropicPlaneStress();
 
     std::cout << "[OK] test_Phase2SectionsAnd1D passou com sucesso." << std::endl;
     return 0;

@@ -4,11 +4,62 @@
 
 namespace omniframe::kernel {
 
+namespace {
+
+Beam1DProps makePrincipalAxisProps(const Beam1DProps& p, double& outAlphaRad) {
+    const double avg = 0.5 * (p.Iy + p.Iz);
+    const double diff = 0.5 * (p.Iy - p.Iz);
+    const double R = std::hypot(diff, p.Iyz);
+    outAlphaRad = 0.5 * std::atan2(-2.0 * p.Iyz, p.Iy - p.Iz);
+    const double c = std::cos(outAlphaRad);
+    const double s = std::sin(outAlphaRad);
+
+    Beam1DProps pp = p;
+    pp.Iy = avg + R;
+    pp.Iz = std::max(1e-18, avg - R);
+    pp.Iyz = 0.0;
+    if (p.Asy > 0.0 && p.Asz > 0.0) {
+        pp.Asy = std::max(1e-12, p.Asy * c * c + p.Asz * s * s);
+        pp.Asz = std::max(1e-12, p.Asy * s * s + p.Asz * c * c);
+    }
+    return pp;
+}
+
+Eigen::Matrix3d makePrincipalRotation3(double alphaRad) {
+    const double c = std::cos(alphaRad);
+    const double s = std::sin(alphaRad);
+    Eigen::Matrix3d Rp = Eigen::Matrix3d::Identity();
+    Rp(1, 1) = c;
+    Rp(1, 2) = s;
+    Rp(2, 1) = -s;
+    Rp(2, 2) = c;
+    return Rp;
+}
+
+Eigen::Matrix<double, 12, 12> makePrincipalRotation12(double alphaRad) {
+    const Eigen::Matrix3d Rp = makePrincipalRotation3(alphaRad);
+    Eigen::Matrix<double, 12, 12> Tp = Eigen::Matrix<double, 12, 12>::Zero();
+    for (int blk = 0; blk < 4; ++blk) {
+        Tp.block<3, 3>(3 * blk, 3 * blk) = Rp;
+    }
+    return Tp;
+}
+
+} // namespace
+
 Eigen::Matrix<double, 12, 12> BeamTruss1D::computeUncondensedLocalStiffness(const Beam1DProps& p) {
     Eigen::Matrix<double, 12, 12> k0 = Eigen::Matrix<double, 12, 12>::Zero();
     const double L = p.L;
     if (!std::isfinite(L) || L <= 1e-12) {
         return k0;
+    }
+
+    if (std::isfinite(p.Iyz) && std::abs(p.Iyz) > 1e-18 && p.formulation != Beam1DFormulation::Truss3D) {
+        double alpha = 0.0;
+        const Beam1DProps pp = makePrincipalAxisProps(p, alpha);
+        const Eigen::Matrix<double, 12, 12> Tp = makePrincipalRotation12(alpha);
+        const Eigen::Matrix<double, 12, 12> kLoc = Tp.transpose() * computeUncondensedLocalStiffness(pp) * Tp;
+        return 0.5 * (kLoc + kLoc.transpose());
     }
 
     // 1. Axial (DOFs 0 e 6)
@@ -64,6 +115,51 @@ Eigen::Matrix<double, 12, 12> BeamTruss1D::computeUncondensedLocalStiffness(cons
     k0(10, 2) += -c2y; k0(10, 4) +=  c4y; k0(10, 8) +=  c2y; k0(10, 10) += c3y;
 
     return k0;
+}
+
+Eigen::Matrix<double, 12, 1> BeamTruss1D::computeConsistentLocalLoadVector(
+    const Beam1DProps& p,
+    const Vec3& qLoc,
+    double deltaT)
+{
+    Eigen::Matrix<double, 12, 1> fe = Eigen::Matrix<double, 12, 1>::Zero();
+    const double L = p.L;
+    if (!std::isfinite(L) || L <= 1e-12) {
+        return fe;
+    }
+
+    if (std::isfinite(qLoc.x()) && std::abs(qLoc.x()) > 1e-12) {
+        fe(0) += 0.5 * qLoc.x() * L;
+        fe(6) += 0.5 * qLoc.x() * L;
+    }
+
+    if (std::isfinite(qLoc.y()) && std::abs(qLoc.y()) > 1e-12) {
+        fe(1) += 0.5 * qLoc.y() * L;
+        fe(7) += 0.5 * qLoc.y() * L;
+        if (p.formulation != Beam1DFormulation::Truss3D) {
+            const double mZ = (qLoc.y() * L * L) / 12.0;
+            fe(5) += mZ;
+            fe(11) -= mZ;
+        }
+    }
+
+    if (std::isfinite(qLoc.z()) && std::abs(qLoc.z()) > 1e-12) {
+        fe(2) += 0.5 * qLoc.z() * L;
+        fe(8) += 0.5 * qLoc.z() * L;
+        if (p.formulation != Beam1DFormulation::Truss3D) {
+            const double mY = (qLoc.z() * L * L) / 12.0;
+            fe(4) -= mY;
+            fe(10) += mY;
+        }
+    }
+
+    if (std::isfinite(deltaT) && std::abs(deltaT) > 1e-9) {
+        const double nTh = p.E * p.A * p.alpha * deltaT;
+        fe(0) -= nTh;
+        fe(6) += nTh;
+    }
+
+    return fe;
 }
 
 Eigen::Matrix<double, 12, 12> BeamTruss1D::computeConsistentLocalMass(const Beam1DProps& p) {
@@ -219,6 +315,19 @@ Beam1DInternalEval BeamTruss1D::evaluateLocalDistribution(
 
     const double u1 = uLoc(0), v1 = uLoc(1), w1 = uLoc(2), th_y1 = uLoc(4), th_z1 = uLoc(5);
     const double u2 = uLoc(6), v2 = uLoc(7), w2 = uLoc(8), th_y2 = uLoc(10), th_z2 = uLoc(11);
+
+    if (std::isfinite(p.Iyz) && std::abs(p.Iyz) > 1e-18 && p.formulation != Beam1DFormulation::Truss3D) {
+        double alpha = 0.0;
+        const Beam1DProps pp = makePrincipalAxisProps(p, alpha);
+        const Eigen::Matrix3d Rp = makePrincipalRotation3(alpha);
+        const Eigen::Matrix<double, 12, 12> Tp = makePrincipalRotation12(alpha);
+        const Vec3 qPrin = Rp * qLoc;
+        const Eigen::Matrix<double, 12, 1> uPrin = Tp * uLoc;
+        const Eigen::Matrix<double, 12, 1> fPrin = Tp * fEndLoc;
+        const Beam1DInternalEval evPrin = evaluateLocalDistribution(xi, pp, qPrin, uPrin, fPrin);
+        res.defLocal = Rp.transpose() * evPrin.defLocal;
+        return res;
+    }
 
     double ux = (1.0 - xi) * u1 + xi * u2;
     if (std::abs(qLoc.x()) > 1e-9 && p.E * p.A > 1e-12) {

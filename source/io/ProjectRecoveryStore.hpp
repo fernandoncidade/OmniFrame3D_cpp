@@ -3,6 +3,9 @@
 #include "core/StructuralModel.hpp"
 
 #include <QString>
+#include <memory>
+
+class QLockFile;
 
 namespace omniframe::io {
 
@@ -71,21 +74,45 @@ struct ProjectRecoveryInfo {
  */
 class ProjectRecoveryStore {
 public:
-    static QString recoveryFilePath();
-    static QString recoveryMetaPath();
+    class ScopedSessionIsolation {
+    public:
+        explicit ScopedSessionIsolation(const QString& explicitSessionId = QString());
+        ~ScopedSessionIsolation();
+        ScopedSessionIsolation(const ScopedSessionIsolation&) = delete;
+        ScopedSessionIsolation& operator=(const ScopedSessionIsolation&) = delete;
+
+        QString sessionId() const { return m_activeSessionId; }
+        bool isPrimaryOwner() const { return m_isPrimaryOwner; }
+
+    private:
+        QString m_previousSessionId;
+        QString m_activeSessionId;
+        std::unique_ptr<QLockFile> m_primaryLock;
+        bool m_isPrimaryOwner = false;
+    };
+
+    static QString currentSessionId();
+    static void setCurrentSessionId(const QString& sessionId);
+
+    static QString recoveryFilePath(const QString& sessionId = QString());
+    static QString recoveryMetaPath(const QString& sessionId = QString());
 
     static bool saveSnapshot(const StructuralModel& model,
                              const QString& projectFilePath = QString(),
-                             SessionSourceKind sourceKind = SessionSourceKind::UnsavedUntitled);
+                             SessionSourceKind sourceKind = SessionSourceKind::UnsavedUntitled,
+                             const QString& sessionId = QString());
     static bool saveCleanSessionState(const StructuralModel& model,
                                       const QString& projectFilePath,
-                                      SessionSourceKind sourceKind);
+                                      SessionSourceKind sourceKind,
+                                      const QString& sessionId = QString());
 
-    static ProjectRecoveryInfo inspectSnapshot();
-    static ProjectRecoveryInfo inspectPreviousSession();
+    static ProjectRecoveryInfo inspectSnapshot(const QString& sessionId = QString());
+    static ProjectRecoveryInfo inspectPreviousSession(const QString& sessionId = QString());
 
-    static bool loadSnapshot(StructuralModel& outModel, ProjectRecoveryInfo* outInfo = nullptr);
-    static void clearSnapshot();
+    static bool loadSnapshot(StructuralModel& outModel,
+                             ProjectRecoveryInfo* outInfo = nullptr,
+                             const QString& sessionId = QString());
+    static void clearSnapshot(const QString& sessionId = QString());
 };
 
 } // namespace omniframe::io

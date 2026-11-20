@@ -71,6 +71,16 @@ void testClampedBeamGlobalZ() {
     assertNear(fMid.defLocal.z, expectedW, 1e-7, "Flecha no meio do vao biengastada qz");
     assertNear(fMid.defGlobal.z, expectedW, 1e-7, "Flecha global no meio do vao biengastada qz");
 
+    // [AUD-001] elementExtremes deve refletir exatamente elem->evaluateAt(...)
+    TEST_ASSERT(res.elementExtremes.size() == 1 && res.elementExtremes[0].elementId == eid,
+                "elementExtremes deve conter o elemento da viga biengastada");
+    const auto& extBeam = res.elementExtremes[0];
+    assertNear(extBeam.My_max, +wAbs * L * L / 12.0, 1e-4, "elementExtremes My_max viga biengastada");
+    assertNear(extBeam.My_min, -wAbs * L * L / 24.0, 1e-4, "elementExtremes My_min viga biengastada");
+    assertNear(extBeam.Vz_max, +wAbs * L / 2.0, 1e-4, "elementExtremes Vz_max viga biengastada");
+    assertNear(extBeam.Vz_min, -wAbs * L / 2.0, 1e-4, "elementExtremes Vz_min viga biengastada");
+    assertNear(extBeam.maxDeflection, std::abs(expectedW), 1e-7, "elementExtremes maxDeflection viga biengastada");
+
     // Re-edicao: dobra qz e verifica nova resposta exata
     elem->distLoad.w.z = 2.0 * qz;
     SolverResult res2 = FemSolver3D::solve(model);
@@ -223,6 +233,139 @@ void testInclinedBeamWithRollAndColumn() {
         // Deslocamento lateral no topo: qx * H^4 / (8 * E * I)
         double expectedUx = (qx * std::pow(H, 4)) / (8.0 * mat.E * sec.Iy);
         assertNear(model.findNode(n2)->displacement[0], expectedUx, 1e-6, "Deslocamento horizontal no topo do pilar em balanco");
+
+        // [AUD-001] Verificar extremos do pilar vertical em balanco vs evaluateAt
+        TEST_ASSERT(res.elementExtremes.size() == 1 && res.elementExtremes[0].elementId == eid,
+                    "elementExtremes deve conter o pilar em balanco");
+        InternalForces colMin = elem->evaluateAt(0.0, model);
+        InternalForces colTop = elem->evaluateAt(1.0, model);
+        assertNear(res.elementExtremes[0].N_min, colMin.N, 1e-6, "elementExtremes N_min pilar em balanco");
+        assertNear(res.elementExtremes[0].N_max, colTop.N, 1e-6, "elementExtremes N_max topo do pilar em balanco");
+        assertNear(res.elementExtremes[0].My_max, colMin.My, 1e-4, "elementExtremes My_max base do pilar em balanco");
+        assertNear(res.elementExtremes[0].maxDeflection, colTop.defGlobal.norm(), 1e-6, "elementExtremes deflexao pilar em balanco");
+    }
+}
+
+void testBuildingFrameElementExtremesConsistency() {
+    StructuralModel model = StructuralModel::createBuildingFrameExample();
+    SolverResult res = FemSolver3D::solve(model);
+    TEST_ASSERT(res.success && res.equilibrium.isBalanced, "Portico exemplo building deve resolver equilibrado");
+    TEST_ASSERT(res.elementExtremes.size() == model.getElements().size(),
+                "elementExtremes deve ter 1 entrada por elemento 1D");
+
+    int columnsWithCompression = 0;
+    for (const auto& ext : res.elementExtremes) {
+        const Element* el = model.findElement(ext.elementId);
+        TEST_ASSERT(el != nullptr && el->hasResults, "Elemento do portico deve possuir hasResults = true");
+
+        double expectedNMin = 0.0, expectedNMax = 0.0;
+        double expectedMyMin = 0.0, expectedMyMax = 0.0;
+        double expectedMzMin = 0.0, expectedMzMax = 0.0;
+        double expectedMaxDef = 0.0;
+        constexpr int Nsamples = 32;
+        for (int s = 0; s <= Nsamples; ++s) {
+            const double xi = static_cast<double>(s) / static_cast<double>(Nsamples);
+            const InternalForces f = el->evaluateAt(xi, model);
+            if (s == 0) {
+                expectedNMin = expectedNMax = f.N;
+                expectedMyMin = expectedMyMax = f.My;
+                expectedMzMin = expectedMzMax = f.Mz;
+                expectedMaxDef = f.defGlobal.norm();
+            } else {
+                expectedNMin = std::min(expectedNMin, f.N);
+                expectedNMax = std::max(expectedNMax, f.N);
+                expectedMyMin = std::min(expectedMyMin, f.My);
+                expectedMyMax = std::max(expectedMyMax, f.My);
+                expectedMzMin = std::min(expectedMzMin, f.Mz);
+                expectedMzMax = std::max(expectedMzMax, f.Mz);
+                expectedMaxDef = std::max(expectedMaxDef, f.defGlobal.norm());
+            }
+        }
+        assertNear(ext.N_min, expectedNMin, 1e-9, "Consistencia ext.N_min vs evaluateAt no building");
+        assertNear(ext.N_max, expectedNMax, 1e-9, "Consistencia ext.N_max vs evaluateAt no building");
+        assertNear(ext.My_min, expectedMyMin, 1e-9, "Consistencia ext.My_min vs evaluateAt no building");
+        assertNear(ext.My_max, expectedMyMax, 1e-9, "Consistencia ext.My_max vs evaluateAt no building");
+        assertNear(ext.Mz_min, expectedMzMin, 1e-9, "Consistencia ext.Mz_min vs evaluateAt no building");
+        assertNear(ext.Mz_max, expectedMzMax, 1e-9, "Consistencia ext.Mz_max vs evaluateAt no building");
+        assertNear(ext.maxDeflection, expectedMaxDef, 1e-9, "Consistencia ext.maxDeflection vs evaluateAt no building");
+
+        const Node* n1 = model.findNode(el->nodeStart);
+        const Node* n2 = model.findNode(el->nodeEnd);
+        TEST_ASSERT(n1 && n2, "Nos do elemento do portico devem existir");
+        const Vec3 dp = n2->position - n1->position;
+        if (std::abs(dp.z) / std::max(0.05, dp.norm()) > 0.707) {
+            TEST_ASSERT(ext.N_min < -1.0, "Pilar do building deve apresentar compressao axial N_min < -1 kN");
+            ++columnsWithCompression;
+        }
+    }
+    TEST_ASSERT(columnsWithCompression > 0, "Portico building deve conter pilares comprimidos avaliados");
+}
+
+void testAud012LoadCaseSelfWeightInternalForcesAndLine2ConsistentLoads() {
+    // 1. Viga biengastada resolvida via solveLoadCase com selfWeight ativo deve incluir q = gamma*A em f0 e evaluateAt(0.5)
+    {
+        StructuralModel m;
+        m.clear();
+        const Material* mat = m.findMaterial(1);
+        const CrossSection* sec = m.findCrossSection(1);
+        TEST_ASSERT(mat && sec, "Material e secao padrao devem existir");
+
+        const double L = 4.0;
+        const NodeId n1 = m.addNode(0.0, 0.0, 0.0);
+        const NodeId n2 = m.addNode(L, 0.0, 0.0);
+        m.findNode(n1)->support = SupportRestraint::makeFixed();
+        m.findNode(n2)->support = SupportRestraint::makeFixed();
+        const ElementId eid = m.addElement(n1, n2, 1, 1);
+
+        kernel::LoadCase lc;
+        lc.id = 1;
+        lc.name = "PesoProprio";
+        lc.selfWeight.enabled = true;
+        lc.selfWeight.direction = kernel::Vec3(0.0, 0.0, -1.0);
+        lc.selfWeight.factor = 1.0;
+
+        const SolverResult res = FemSolver3D::solveLoadCase(m, lc);
+        TEST_ASSERT(res.success && res.equilibrium.isBalanced, "solveLoadCase com selfWeight deve fechar equilibrio");
+
+        const double q = mat->gamma * sec->A; // kN/m
+        const Element* el = m.findElement(eid);
+        TEST_ASSERT(el && el->hasResults, "Elemento deve ter resultados pos-processados em solveLoadCase");
+        const InternalForces midF = el->evaluateAt(0.5, m);
+        // Em viga biengastada sob carga vertical -q (Z), momento no meio do vao tem magnitude q*L^2/24
+        assertNear(std::abs(midF.My), q * L * L / 24.0, 1e-5,
+                   "Momento fletor no meio do vao sob peso proprio de LoadCase deve igualar q*L^2/24");
+    }
+
+    // 2. Line2MeshKernelElement (horizontal e vertical) com carregamento distribuido consistente (momentos q*L^2/12)
+    {
+        StructuralModel m;
+        m.clear();
+        const double L = 2.0;
+        const double qx = 12.0;
+        kernel::MeshNode mn1, mn2;
+        mn1.id = 1;
+        mn1.position = kernel::Vec3(0.0, 0.0, 0.0);
+        mn1.fixed = {true, true, true, true, true, true};
+        mn2.id = 2;
+        mn2.position = kernel::Vec3(0.0, 0.0, L); // barra Line2 vertical
+        m.surfaceMesh().nodes = {mn1, mn2};
+
+        kernel::MeshElement me;
+        me.id = 1;
+        me.type = kernel::MeshCellType::Line2;
+        me.nodeIds = {1, 2};
+        me.materialId = 1;
+        me.sectionId = 1;
+        me.distributedLoad = kernel::Vec3(qx, 0.0, 0.0);
+        m.surfaceMesh().elements = {me};
+
+        const SolverResult res = FemSolver3D::solve(m);
+        TEST_ASSERT(res.success && res.equilibrium.isBalanced,
+                    "Line2 vertical com carga distribuida transversal deve fechar equilibrio de forcas e momentos");
+        // Reacao na base engastada: Rx = -qx*L = -24 kN, My = -qx*L^2/2 = -24 kN.m
+        assertNear(m.surfaceMesh().nodes[0].reaction[0], -qx * L, 1e-4, "Reacao Rx na base de Line2 vertical");
+        assertNear(std::abs(m.surfaceMesh().nodes[0].reaction[4]), qx * L * L * 0.5, 1e-4,
+                   "Momento reativo My na base de Line2 vertical deve incluir momento consistente");
     }
 }
 
@@ -233,6 +376,8 @@ int main() {
     testClampedBeamLocalY();
     testSimplySupportedBeam();
     testInclinedBeamWithRollAndColumn();
+    testBuildingFrameElementExtremesConsistency();
+    testAud012LoadCaseSelfWeightInternalForcesAndLine2ConsistentLoads();
     std::cout << "[SUCESSO] test_DistributedAndInternalForces validado 100%.\n";
     return 0;
 }

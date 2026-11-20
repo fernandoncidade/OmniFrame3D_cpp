@@ -564,7 +564,8 @@ void scheduleDockSeparatorRepaint(QMainWindow* window, QSplitter* splitter) {
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
-      m_windowManager(new WindowZOrderManager(this, this)) {
+      m_windowManager(new WindowZOrderManager(this, this)),
+      m_analysisExecutor(new ui::AsyncAnalysisExecutor([this]() { return m_modelRevision; }, this)) {
     resize(1400, 900);
 
     const QIcon icon = locale::GerenciadorTraducao::appIcon();
@@ -583,6 +584,44 @@ MainWindow::MainWindow(QWidget* parent)
     m_autoSaveTimer->setSingleShot(true);
     m_autoSaveTimer->setInterval(350);
     connect(m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::flushRecoverySnapshotIfDirty);
+
+    m_prefsSaveTimer = new QTimer(this);
+    m_prefsSaveTimer->setSingleShot(true);
+    m_prefsSaveTimer->setInterval(500);
+    connect(m_prefsSaveTimer, &QTimer::timeout, this, [this]() {
+        flushUserPreferencesSync();
+    });
+
+    connect(m_analysisExecutor, &ui::AsyncAnalysisExecutor::jobCompleted,
+            this, [this](std::uint64_t /*jobId*/, bool /*succeeded*/) {
+                if (m_solveInProgress || !m_pendingResolve) {
+                    return;
+                }
+                if (m_analysisExecutor && m_analysisExecutor->isBusy()) {
+                    return;
+                }
+                const bool rerunInteractive = m_pendingResolveInteractive;
+                m_pendingResolve = false;
+                m_pendingResolveInteractive = false;
+                const bool needSolveForContinuations = !m_staticSolveContinuations.empty();
+                if (needSolveForContinuations || (m_autoRecalculate && m_hasSolvedContext) || rerunInteractive) {
+                    if (m_model.validate().valid) {
+                        if (runSolver(rerunInteractive)) {
+                            return;
+                        }
+                    }
+                }
+                if (!m_staticSolveContinuations.empty()) {
+                    auto callbacks = std::move(m_staticSolveContinuations);
+                    m_staticSolveContinuations.clear();
+                    const bool ok = hasValidStaticResultForCurrentRevision();
+                    for (const auto& cb : callbacks) {
+                        if (cb) {
+                            cb(ok);
+                        }
+                    }
+                }
+            });
 
     {
         const ScopedBoolFlag startupGuard(m_rebuildingOrLoadingResultsSettings);
@@ -630,7 +669,7 @@ MainWindow::MainWindow(QWidget* parent)
         QStringLiteral("workspace"),
         QStringLiteral("resultsPanel")});
     if (!loadedPrefs || !hasAllSections) {
-        saveUserPreferences();
+        flushUserPreferencesSync();
     }
     if (!io::AppLogger::isInitialized()) {
         io::AppLogger::initialize(false, true);
@@ -651,9 +690,25 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow() {
     io::AppLogger::info(QStringLiteral("MainWindow"), QStringLiteral("Encerrando MainWindow e persistindo estado da sessao."));
-    persistCurrentSessionState();
-    if (m_activeSolverThread && m_activeSolverThread->isRunning()) {
-        m_activeSolverThread->wait(5000);
+    m_staticSolveContinuations.clear();
+    if (m_analysisExecutor) {
+        m_analysisExecutor->cancelAndWait(5000, false);
+    }
+    if (m_activeAutoSaveThread && m_activeAutoSaveThread->isRunning()) {
+        m_activeAutoSaveThread->wait(5000);
+    }
+    if (m_prefsSaveTimer && m_prefsSaveTimer->isActive()) {
+        flushUserPreferencesSync();
+    }
+    if (!m_sessionStatePersistedOnClose) {
+        persistCurrentSessionState();
+        m_sessionStatePersistedOnClose = true;
+    }
+    if (m_windowManager) {
+        m_windowManager->closeAllChildWindows();
+    }
+    if (m_viewport) {
+        m_viewport->setModel(nullptr);
     }
 }
 
@@ -779,35 +834,9 @@ void MainWindow::syncUiStyleMenuState() {
 void MainWindow::refreshReactionSummaryRowTheme() {
     const bool nativeUi = ThemeManager::instance().isNativeUi();
     const bool isLight = ThemeManager::instance().isLight();
-    const QColor bg = isLight ? QColor(219, 234, 254) : QColor(43, 108, 176);
-    const QColor fg = isLight ? QColor(30, 58, 138) : Qt::white;
-
-    auto styleTableSummary = [&](QTableWidget* tbl) {
-        if (!tbl || tbl->rowCount() <= 0) {
-            return;
-        }
-        const int sumRow = tbl->rowCount() - 1;
-        QTableWidgetItem* itemSum = tbl->item(sumRow, 0);
-        if (!itemSum) {
-            return;
-        }
-        if (nativeUi) {
-            const QPalette pal = QApplication::palette();
-            itemSum->setBackground(pal.brush(QPalette::AlternateBase));
-            itemSum->setForeground(pal.brush(QPalette::WindowText));
-        } else {
-            itemSum->setBackground(bg);
-            itemSum->setForeground(fg);
-        }
-        QFont f = itemSum->font();
-        f.setBold(true);
-        itemSum->setFont(f);
-    };
-
-    styleTableSummary(m_reacTable);
-    for (int L = 0; L < 4; ++L) {
-        if (QTableWidget* clone = m_extraLayoutTables[static_cast<std::size_t>(L)][1]) {
-            styleTableSummary(clone);
+    for (ui::ResultTableModel* model : m_resultTableModels) {
+        if (model != nullptr) {
+            model->setThemeState(isLight, nativeUi);
         }
     }
 }
@@ -1506,7 +1535,8 @@ void MainWindow::setupDocks() {
             tb->setUsesScrollButtons(false);
             tb->setElideMode(Qt::ElideRight);
             tb->setExpanding(false);
-            for (QToolButton* btn : tb->findChildren<QToolButton*>()) {
+            const QList<QToolButton*> tabButtons = tb->findChildren<QToolButton*>();
+            for (QToolButton* btn : tabButtons) {
                 btn->hide();
                 btn->setEnabled(false);
                 btn->setFixedSize(0, 0);
@@ -1530,14 +1560,14 @@ void MainWindow::setupDocks() {
 
     m_tableConfigurator = new ui::ResultTableConfigurator(m_windowManager, this);
     connect(m_tableConfigurator, &ui::ResultTableConfigurator::nodeDoubleClicked, this, [this](unsigned int nodeId) {
-        m_model.selectNode(nodeId, true);
+        m_model.selectNode(static_cast<NodeId>(nodeId), true);
         onSelectionChanged();
         if (m_viewport) {
             m_viewport->update();
         }
     });
     connect(m_tableConfigurator, &ui::ResultTableConfigurator::elementDoubleClicked, this, [this](unsigned int elementId) {
-        m_model.selectElement(elementId, true);
+        m_model.selectElement(static_cast<ElementId>(elementId), true);
         onSelectionChanged();
         if (m_viewport) {
             m_viewport->update();
@@ -1546,49 +1576,43 @@ void MainWindow::setupDocks() {
     connect(m_tableConfigurator, &ui::ResultTableConfigurator::statusMessageRequested, this, [this](const QString& msg, int) {
         showStatusMessage(msg);
     });
-    connect(m_tableConfigurator, &ui::ResultTableConfigurator::configurationChanged, this, [this](QTableWidget*) {
+    connect(m_tableConfigurator, &ui::ResultTableConfigurator::configurationChanged, this, [this](QTableView*) {
         if (!m_rebuildingOrLoadingResultsSettings) {
             saveUserPreferences();
         }
     });
 
     const bool isLight = ThemeManager::instance().isLight();
+    const bool nativeUi = ThemeManager::instance().isNativeUi();
+    auto createSharedResultView = [&](ui::ResultTableKind kind, const QString& objName) -> QTableView* {
+        const std::size_t idx = static_cast<std::size_t>(kind);
+        const QStringList hdrs = resultTableHeaders(kind);
+        if (m_resultTableModels[idx] == nullptr) {
+            auto* sharedModel = new ui::ResultTableModel(this);
+            sharedModel->setThemeState(isLight, nativeUi);
+            sharedModel->setHeaders(hdrs);
+            m_resultTableModels[idx] = sharedModel;
+        }
+        auto* view = new QTableView(m_hiddenTablesHost);
+        view->setObjectName(objName);
+        auto* proxy = new ui::ResultTableProxyModel(view);
+        proxy->setSourceModel(m_resultTableModels[idx]);
+        view->setModel(proxy);
+        m_tableConfigurator->configureTable(view, kind, hdrs, isLight);
+        return view;
+    };
 
     // Aba 1: Deslocamentos Nodais
-    m_dispTable = new QTableWidget(m_hiddenTablesHost);
-    m_dispTable->setObjectName(QStringLiteral("dispTable"));
-    m_tableConfigurator->configureTable(
-        m_dispTable,
-        ui::ResultTableKind::Displacements,
-        resultTableHeaders(ui::ResultTableKind::Displacements),
-        isLight);
+    m_dispTable = createSharedResultView(ui::ResultTableKind::Displacements, QStringLiteral("dispTable"));
 
     // Aba 2: Reações de Apoio
-    m_reacTable = new QTableWidget(m_hiddenTablesHost);
-    m_reacTable->setObjectName(QStringLiteral("reacTable"));
-    m_tableConfigurator->configureTable(
-        m_reacTable,
-        ui::ResultTableKind::Reactions,
-        resultTableHeaders(ui::ResultTableKind::Reactions),
-        isLight);
+    m_reacTable = createSharedResultView(ui::ResultTableKind::Reactions, QStringLiteral("reacTable"));
 
     // Aba 3: Esforços nas Barras
-    m_forcesTable = new QTableWidget(m_hiddenTablesHost);
-    m_forcesTable->setObjectName(QStringLiteral("forcesTable"));
-    m_tableConfigurator->configureTable(
-        m_forcesTable,
-        ui::ResultTableKind::BarForces,
-        resultTableHeaders(ui::ResultTableKind::BarForces),
-        isLight);
+    m_forcesTable = createSharedResultView(ui::ResultTableKind::BarForces, QStringLiteral("forcesTable"));
 
     // Aba 4: Esforços e Tensões 2D/3D (Casca/Sólido)
-    m_continuumTable = new QTableWidget(m_hiddenTablesHost);
-    m_continuumTable->setObjectName(QStringLiteral("continuumTable"));
-    m_tableConfigurator->configureTable(
-        m_continuumTable,
-        ui::ResultTableKind::ContinuumStress,
-        resultTableHeaders(ui::ResultTableKind::ContinuumStress),
-        isLight);
+    m_continuumTable = createSharedResultView(ui::ResultTableKind::ContinuumStress, QStringLiteral("continuumTable"));
 
     rebuildResultsLayoutsUi();
     m_resultsSplitter->setSizes({1000});
@@ -1900,6 +1924,17 @@ void MainWindow::refreshAfterModelLoad(bool markDirty, bool fitViewport) {
         m_recoveryPromptBtnReject.clear();
         m_recoveryPromptBox->close();
     }
+    m_pendingResolve = false;
+    m_pendingResolveInteractive = false;
+    if (!m_staticSolveContinuations.empty()) {
+        auto oldContinuations = std::move(m_staticSolveContinuations);
+        m_staticSolveContinuations.clear();
+        for (const auto& cb : oldContinuations) {
+            if (cb) {
+                cb(false);
+            }
+        }
+    }
     {
         const ScopedBoolFlag loadGuard(m_loadingOrTemplateModel);
         m_hasSolvedContext = false;
@@ -1928,6 +1963,7 @@ void MainWindow::refreshAfterModelLoad(bool markDirty, bool fitViewport) {
 }
 
 void MainWindow::markProjectDirty() {
+    m_sessionStatePersistedOnClose = false;
     m_hasUnsavedEdits = true;
     if (m_sessionSourceKind == io::SessionSourceKind::Empty) {
         m_sessionSourceKind = m_currentProjectFilePath.trimmed().isEmpty()
@@ -1941,9 +1977,13 @@ void MainWindow::markProjectDirty() {
 }
 
 void MainWindow::clearDirtyState(bool clearRecoverySnapshot) {
+    m_sessionStatePersistedOnClose = false;
     m_hasUnsavedEdits = false;
     if (m_autoSaveTimer) {
         m_autoSaveTimer->stop();
+    }
+    if (m_activeAutoSaveThread && m_activeAutoSaveThread->isRunning()) {
+        m_activeAutoSaveThread->wait(5000);
     }
     if (clearRecoverySnapshot) {
         io::ProjectRecoveryStore::clearSnapshot();
@@ -1955,6 +1995,9 @@ void MainWindow::persistCurrentSessionState() {
     if (m_autoSaveTimer) {
         m_autoSaveTimer->stop();
     }
+    if (m_activeAutoSaveThread && m_activeAutoSaveThread->isRunning()) {
+        m_activeAutoSaveThread->wait(5000);
+    }
     if (m_hasUnsavedEdits) {
         const io::SessionSourceKind effectiveKind =
             (m_sessionSourceKind == io::SessionSourceKind::Empty)
@@ -1962,7 +2005,8 @@ void MainWindow::persistCurrentSessionState() {
                        ? io::SessionSourceKind::UnsavedUntitled
                        : io::SessionSourceKind::SavedProject)
                 : m_sessionSourceKind;
-        io::ProjectRecoveryStore::saveSnapshot(m_model, m_currentProjectFilePath, effectiveKind);
+        const StructuralModel snapshot = m_model.cloneWithoutHistory();
+        io::ProjectRecoveryStore::saveSnapshot(snapshot, m_currentProjectFilePath, effectiveKind);
     } else if (m_sessionSourceKind != io::SessionSourceKind::Empty) {
         io::ProjectRecoveryStore::saveCleanSessionState(m_model, m_currentProjectFilePath, m_sessionSourceKind);
     } else {
@@ -1971,10 +2015,56 @@ void MainWindow::persistCurrentSessionState() {
 }
 
 void MainWindow::flushRecoverySnapshotIfDirty() {
-    persistCurrentSessionState();
-    if (m_actRecoverSession) {
-        m_actRecoverSession->setEnabled(io::ProjectRecoveryStore::inspectPreviousSession().available);
+    if (m_autoSaveTimer) {
+        m_autoSaveTimer->stop();
     }
+    if (!m_hasUnsavedEdits) {
+        persistCurrentSessionState();
+        if (m_actRecoverSession) {
+            m_actRecoverSession->setEnabled(io::ProjectRecoveryStore::inspectPreviousSession().available);
+        }
+        return;
+    }
+    if (m_activeAutoSaveThread && m_activeAutoSaveThread->isRunning()) {
+        if (m_autoSaveTimer) {
+            m_autoSaveTimer->start();
+        }
+        return;
+    }
+
+    const io::SessionSourceKind effectiveKind =
+        (m_sessionSourceKind == io::SessionSourceKind::Empty)
+            ? (m_currentProjectFilePath.trimmed().isEmpty()
+                   ? io::SessionSourceKind::UnsavedUntitled
+                   : io::SessionSourceKind::SavedProject)
+            : m_sessionSourceKind;
+    auto snapshotPtr = std::make_shared<StructuralModel>(m_model.cloneWithoutHistory());
+    const QString projectPath = m_currentProjectFilePath;
+    const QString sessionId = io::ProjectRecoveryStore::currentSessionId();
+
+    QThread* worker = QThread::create([snapshotPtr, projectPath, effectiveKind, sessionId]() {
+        try {
+            io::ProjectRecoveryStore::saveSnapshot(*snapshotPtr, projectPath, effectiveKind, sessionId);
+        } catch (const std::exception& ex) {
+            io::AppLogger::warning(QStringLiteral("Recovery"),
+                                   QStringLiteral("Falha ao gravar snapshot de recuperação: %1")
+                                       .arg(QString::fromUtf8(ex.what())));
+        } catch (...) {
+            io::AppLogger::warning(QStringLiteral("Recovery"),
+                                   QStringLiteral("Exceção desconhecida ao gravar snapshot de recuperação."));
+        }
+    });
+    m_activeAutoSaveThread = worker;
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    connect(worker, &QThread::finished, this, [this, worker]() {
+        if (m_activeAutoSaveThread == worker) {
+            m_activeAutoSaveThread = nullptr;
+        }
+        if (m_actRecoverSession) {
+            m_actRecoverSession->setEnabled(io::ProjectRecoveryStore::inspectPreviousSession().available);
+        }
+    });
+    worker->start();
 }
 
 void MainWindow::updateWindowTitleAndFileActions() {
@@ -2027,18 +2117,18 @@ QString MainWindow::formatRecoveryMessage(const io::ProjectRecoveryInfo& info,
             outAcceptButtonText = GerenciadorTraducao::trText("Carregar Edição Anterior");
             return GerenciadorTraducao::trText(
                        "Foi encontrada uma edição não salva da sessão anterior no exemplo \"%1\" (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar a edição anterior ou iniciar um novo projeto?")
-                .arg(exName)
-                .arg(info.nodeCount)
-                .arg(info.elementCount)
-                .arg(info.meshElementCount);
+                .arg(exName,
+                     QString::number(info.nodeCount),
+                     QString::number(info.elementCount),
+                     QString::number(info.meshElementCount));
         }
         outAcceptButtonText = GerenciadorTraducao::trText("Carregar Exemplo Anterior");
         return GerenciadorTraducao::trText(
                    "Na sessão anterior, o exemplo estrutural \"%1\" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar o exemplo anterior ou iniciar um novo projeto?")
-            .arg(exName)
-            .arg(info.nodeCount)
-            .arg(info.elementCount)
-            .arg(info.meshElementCount);
+            .arg(exName,
+                 QString::number(info.nodeCount),
+                 QString::number(info.elementCount),
+                 QString::number(info.meshElementCount));
     }
 
     const QString projLabel = !fileBaseName.isEmpty()
@@ -2051,19 +2141,19 @@ QString MainWindow::formatRecoveryMessage(const io::ProjectRecoveryInfo& info,
         outAcceptButtonText = GerenciadorTraducao::trText("Carregar Edição Anterior");
         return GerenciadorTraducao::trText(
                    "Foi encontrada uma edição não salva da sessão anterior no projeto \"%1\" (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar a edição anterior ou iniciar um novo projeto?")
-            .arg(projLabel)
-            .arg(info.nodeCount)
-            .arg(info.elementCount)
-            .arg(info.meshElementCount);
+            .arg(projLabel,
+                 QString::number(info.nodeCount),
+                 QString::number(info.elementCount),
+                 QString::number(info.meshElementCount));
     }
 
     outAcceptButtonText = GerenciadorTraducao::trText("Carregar Projeto Anterior");
     return GerenciadorTraducao::trText(
                "Na sessão anterior, o projeto \"%1\" estava aberto (%2 nós, %3 barras, %4 elementos 2D/3D).\n\nDeseja carregar o projeto anterior ou iniciar um novo projeto?")
-        .arg(projLabel)
-        .arg(info.nodeCount)
-        .arg(info.elementCount)
-        .arg(info.meshElementCount);
+        .arg(projLabel,
+             QString::number(info.nodeCount),
+             QString::number(info.elementCount),
+             QString::number(info.meshElementCount));
 }
 
 void MainWindow::updateRecoveryPromptBoxTexts() {
@@ -2151,8 +2241,8 @@ void MainWindow::checkAndOfferStartupRecovery() {
     io::AppLogger::info(
         QStringLiteral("Startup"),
         QStringLiteral("Politica AskOnStartup: exibindo dialogo de retomada (sourceKind=%1, unsaved=%2, file=%3).")
-            .arg(static_cast<int>(info.sourceKind))
-            .arg(info.hasUnsavedChanges ? QStringLiteral("true") : QStringLiteral("false"),
+            .arg(QString::number(static_cast<int>(info.sourceKind)),
+                 info.hasUnsavedChanges ? QStringLiteral("true") : QStringLiteral("false"),
                  info.projectFilePath));
 
     m_recoveryPromptInfo = info;
@@ -2581,8 +2671,7 @@ void MainWindow::onExportIfc() {
             if (io::IfcInterop::exportToFile(path.toStdString(), m_model, meshPtr, &guidMap, &rep) && rep.success) {
                 showStatusMessage(
                     locale::GerenciadorTraducao::trText("IFC4 exportado (%1 entidades STEP): %2")
-                        .arg(rep.entitiesExported)
-                        .arg(path));
+                        .arg(QString::number(rep.entitiesExported), path));
             } else {
                 m_windowManager->showModelessMessage(
                     QMessageBox::Critical,
@@ -2593,29 +2682,53 @@ void MainWindow::onExportIfc() {
     );
 }
 
-bool MainWindow::ensureStaticSolvedSync() {
-    const bool hasAnyElements = !m_model.getElements().empty() || !m_model.surfaceMesh().elements.empty();
-    if (m_lastSolverResult.success && hasAnyElements) {
-        return true;
+bool MainWindow::hasValidStaticResultForCurrentRevision() const noexcept {
+    return m_lastSolverResult.success && m_lastSolvedRevision == m_modelRevision;
+}
+
+void MainWindow::completeBackgroundStaticSolve(bool ok) {
+    emit backgroundSolverFinished(ok);
+    if (!m_staticSolveContinuations.empty()) {
+        auto callbacks = std::move(m_staticSolveContinuations);
+        m_staticSolveContinuations.clear();
+        for (const auto& cb : callbacks) {
+            if (cb) {
+                cb(ok);
+            }
+        }
     }
-    if (m_solveInProgress || !hasAnyElements) {
-        return false;
+}
+
+void MainWindow::ensureStaticSolvedAsync(std::function<void(bool)> onFinished) {
+    const bool hasAnyElements = !m_model.getElements().empty() || !m_model.surfaceMesh().elements.empty();
+    if (!hasAnyElements) {
+        if (onFinished) {
+            onFinished(false);
+        }
+        return;
+    }
+    if (hasValidStaticResultForCurrentRevision()) {
+        if (onFinished) {
+            onFinished(true);
+        }
+        return;
     }
     const ModelValidation val = m_model.validate();
     if (!val.valid) {
-        return false;
+        if (onFinished) {
+            onFinished(false);
+        }
+        return;
     }
-    SolverResult res = FemSolver3D::solve(m_model);
-    if (!res.success) {
-        return false;
+    if (onFinished) {
+        m_staticSolveContinuations.push_back(std::move(onFinished));
     }
-    m_lastSolverResult = std::move(res);
-    m_hasSolvedContext = true;
-    updateResultsTables();
-    updateInspector();
-    if (m_viewport) m_viewport->update();
-    if (m_analysisSuiteDialog) m_analysisSuiteDialog->refreshContext();
-    return true;
+    if (m_solveInProgress && m_activeStaticRevision == m_modelRevision) {
+        return;
+    }
+    if (!runSolver(false)) {
+        m_pendingResolve = true;
+    }
 }
 
 std::unordered_map<ElementId, double> MainWindow::computeModelDcrMap() const {
@@ -2663,32 +2776,39 @@ void MainWindow::onExportPdfReport() {
             opts.viewportSnapshot = m_viewport->grabFramebuffer();
         }
         if (m_analysisSuiteDialog) {
-            opts.modalResult = m_analysisSuiteDialog->latestModalResult();
-            opts.bucklingResult = m_analysisSuiteDialog->latestBucklingResult();
-            opts.nonlinearResult = m_analysisSuiteDialog->latestNonlinearResult();
+            if (const auto* mRes = m_analysisSuiteDialog->latestModalResult()) {
+                opts.modalResult = std::make_shared<const kernel::ModalResult>(*mRes);
+            }
+            if (const auto* bRes = m_analysisSuiteDialog->latestBucklingResult()) {
+                opts.bucklingResult = std::make_shared<const kernel::BucklingResult>(*bRes);
+            }
+            if (const auto* nRes = m_analysisSuiteDialog->latestNonlinearResult()) {
+                opts.nonlinearResult = std::make_shared<const kernel::NonlinearResult>(*nRes);
+            }
         }
+        QPointer<MainWindow> self(this);
         m_windowManager->showModelessFileDialog(
             QFileDialog::AcceptSave,
             QFileDialog::AnyFile,
             locale::GerenciadorTraducao::trText("Exportar Memorial Executivo (PDF A4)"),
             initialFileDialogPath(QStringLiteral("Memorial_Executivo_OmniFrame.pdf")),
             locale::GerenciadorTraducao::trText("Documentos PDF (*.pdf);;Todos (*)"),
-            [this, opts](const QString& path) {
-                if (path.isEmpty()) return;
-                rememberFileDialogPath(path);
+            [self, opts](const QString& path) {
+                if (!self || path.isEmpty()) return;
+                self->rememberFileDialogPath(path);
                 QString errMsg;
                 QApplication::setOverrideCursor(Qt::WaitCursor);
                 const bool ok = io::PdfReportGenerator::generateExecutivePdf(
-                    path, m_model, m_lastSolverResult, opts, &errMsg);
+                    path, self->m_model, self->m_lastSolverResult, opts, &errMsg);
                 QApplication::restoreOverrideCursor();
                 if (ok) {
-                    showStatusMessage(locale::GerenciadorTraducao::trText("Memorial executivo PDF exportado: %1").arg(path));
-                    m_windowManager->showModelessMessage(
+                    self->showStatusMessage(locale::GerenciadorTraducao::trText("Memorial executivo PDF exportado: %1").arg(path));
+                    self->m_windowManager->showModelessMessage(
                         QMessageBox::Information,
                         locale::GerenciadorTraducao::trText("Sucesso"),
                         locale::GerenciadorTraducao::trText("Memorial Executivo A4 PDF gerado com sucesso!"));
                 } else {
-                    m_windowManager->showModelessMessage(
+                    self->m_windowManager->showModelessMessage(
                         QMessageBox::Critical,
                         locale::GerenciadorTraducao::trText("Erro ao Gerar PDF"),
                         errMsg);
@@ -2754,7 +2874,9 @@ void MainWindow::onOpenAnalysisSuite() {
         },
         [this](const QString& msg) { showStatusMessage(msg); },
         [this]() { onModelModified(); },
-        [this]() { onProjectMetadataOrOptionsModified(); });
+        [this]() { onProjectMetadataOrOptionsModified(); },
+        [this]() -> std::uint64_t { return m_modelRevision; },
+        m_analysisExecutor);
     m_analysisSuiteDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
     bindPersistentDialog(QStringLiteral("AnalysisSuiteDialog"), dlg, true);
@@ -2767,35 +2889,41 @@ void MainWindow::onOpenPostControls() {
         m_windowManager->showAndRaise(m_postProcessControlDialog.data());
         return;
     }
-    auto* dlg = new PostProcessControlDialog(nullptr, m_viewport, [this]() -> bool {
-        const bool solved = ensureStaticSolvedSync();
-        const auto dcrMap = computeModelDcrMap();
-        if (m_viewport) {
-            m_viewport->setElementDcrMap(dcrMap);
-        }
-        if (m_nbrComplianceDialog) {
-            m_nbrComplianceDialog->runAudit();
-        }
-        return solved && !dcrMap.empty();
+    auto* dlg = new PostProcessControlDialog(nullptr, m_viewport, [this](std::function<void(bool)> doneCb) {
+        ensureStaticSolvedAsync([this, doneCb = std::move(doneCb)](bool solved) {
+            const auto dcrMap = computeModelDcrMap();
+            if (m_viewport) {
+                m_viewport->setElementDcrMap(dcrMap);
+            }
+            if (m_nbrComplianceDialog) {
+                m_nbrComplianceDialog->runAudit();
+            }
+            if (doneCb) {
+                doneCb(solved && !dcrMap.empty());
+            }
+        });
     });
     m_postProcessControlDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
     bindPersistentDialog(QStringLiteral("PostProcessControlDialog"), dlg, false);
-    for (auto* cb : dlg->findChildren<QComboBox*>()) {
+    const QList<QComboBox*> comboChildren = dlg->findChildren<QComboBox*>();
+    for (auto* cb : comboChildren) {
         connect(cb, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
             if (!m_rebuildingOrLoadingResultsSettings) {
                 saveUserPreferences();
             }
         });
     }
-    for (auto* chk : dlg->findChildren<QCheckBox*>()) {
+    const QList<QCheckBox*> checkChildren = dlg->findChildren<QCheckBox*>();
+    for (auto* chk : checkChildren) {
         connect(chk, &QCheckBox::toggled, this, [this](bool) {
             if (!m_rebuildingOrLoadingResultsSettings) {
                 saveUserPreferences();
             }
         });
     }
-    for (auto* dsp : dlg->findChildren<QDoubleSpinBox*>()) {
+    const QList<QDoubleSpinBox*> dspinChildren = dlg->findChildren<QDoubleSpinBox*>();
+    for (auto* dsp : dspinChildren) {
         connect(dsp, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double) {
             if (!m_rebuildingOrLoadingResultsSettings) {
                 saveUserPreferences();
@@ -2817,7 +2945,7 @@ void MainWindow::onOpenNbrCompliance() {
         m_viewport,
         &m_lastSolverResult,
         [this]() { onExportPdfReport(); },
-        [this]() { return ensureStaticSolvedSync(); });
+        [this](std::function<void(bool)> doneCb) { ensureStaticSolvedAsync(std::move(doneCb)); });
     m_nbrComplianceDialog = dlg;
     m_windowManager->prepareModelessDialog(dlg, true, true);
     bindPersistentDialog(QStringLiteral("NbrComplianceDialog"), dlg, true);
@@ -2865,7 +2993,7 @@ void MainWindow::onSolveStructure() {
 }
 
 bool MainWindow::runSolver(bool interactive) {
-    if (m_solveInProgress) {
+    if (m_solveInProgress || (m_analysisExecutor && m_analysisExecutor->isBusy())) {
         m_pendingResolve = true;
         if (interactive) {
             m_pendingResolveInteractive = true;
@@ -2874,7 +3002,12 @@ bool MainWindow::runSolver(bool interactive) {
         return false;
     }
 
+    if (!m_analysisExecutor) {
+        return false;
+    }
+
     m_solveInProgress = true;
+    m_activeStaticRevision = m_modelRevision;
     m_pendingResolve = false;
     m_pendingResolveInteractive = false;
     if (m_btnSolve) m_btnSolve->setEnabled(false);
@@ -2885,167 +3018,13 @@ bool MainWindow::runSolver(bool interactive) {
     m_solverStatusLabel->setText(locale::GerenciadorTraducao::trText("Calculando matriz de rigidez global esparsa..."));
 
     struct AsyncSolvePayload {
-        StructuralModel snapshot;
+        std::shared_ptr<StructuralModel> snapshot;
         SolverResult result;
-        std::uint64_t revision = 0;
     };
-    auto payload = std::make_shared<AsyncSolvePayload>();
-    payload->snapshot = m_model;
-    payload->revision = m_modelRevision;
+    auto snapshot = std::make_shared<StructuralModel>(m_model.cloneWithoutHistory());
 
-    QThread* worker = QThread::create([payload]() {
-        payload->result = FemSolver3D::solve(payload->snapshot);
-    });
-    m_activeSolverThread = worker;
-    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-    connect(worker, &QThread::finished, this, [this, payload, worker, interactive]() {
-        m_solveInProgress = false;
-        if (m_activeSolverThread == worker) {
-            m_activeSolverThread = nullptr;
-        }
-        if (m_btnSolve) m_btnSolve->setEnabled(true);
-        if (m_statusProgress) {
-            m_statusProgress->setVisible(false);
-            m_statusProgress->setRange(0, 1);
-            m_statusProgress->setValue(0);
-        }
-
-        if (m_pendingResolve || payload->revision != m_modelRevision) {
-            const bool rerunInteractive = m_pendingResolveInteractive;
-            m_pendingResolve = false;
-            m_pendingResolveInteractive = false;
-            if ((m_autoRecalculate && m_hasSolvedContext) || rerunInteractive) {
-                if (m_model.validate().valid) {
-                    runSolver(rerunInteractive);
-                    return;
-                }
-            }
-            if (payload->revision != m_modelRevision) {
-                showStatusMessage(locale::GerenciadorTraducao::trText("Modelo modificado durante o cálculo em segundo plano; execute F5 novamente."));
-                updateResultsTables();
-                if (QApplication::activePopupWidget() != nullptr) {
-                    QTimer::singleShot(120, this, &MainWindow::updateInspector);
-                } else {
-                    updateInspector();
-                }
-                m_viewport->update();
-                return;
-            }
-        }
-
-        const auto& srcNodes = payload->snapshot.getNodes();
-        const auto& srcElems = payload->snapshot.getElements();
-        const auto& srcMesh = payload->snapshot.surfaceMesh();
-        auto& dstNodes = m_model.getNodes();
-        auto& dstElems = m_model.getElements();
-        auto& dstMesh = m_model.surfaceMesh();
-        bool sameTopology = (srcNodes.size() == dstNodes.size())
-                         && (srcElems.size() == dstElems.size())
-                         && (srcMesh.nodes.size() == dstMesh.nodes.size())
-                         && (srcMesh.elements.size() == dstMesh.elements.size());
-        if (sameTopology) {
-            for (size_t i = 0; i < srcNodes.size(); ++i) {
-                if (srcNodes[i].id != dstNodes[i].id ||
-                    (srcNodes[i].position - dstNodes[i].position).norm() > 1e-9) {
-                    sameTopology = false;
-                    break;
-                }
-            }
-        }
-        if (sameTopology) {
-            for (size_t i = 0; i < srcElems.size(); ++i) {
-                if (srcElems[i].id != dstElems[i].id ||
-                    srcElems[i].nodeStart != dstElems[i].nodeStart ||
-                    srcElems[i].nodeEnd != dstElems[i].nodeEnd) {
-                    sameTopology = false;
-                    break;
-                }
-            }
-        }
-        if (sameTopology) {
-            for (size_t i = 0; i < srcMesh.nodes.size(); ++i) {
-                if (srcMesh.nodes[i].id != dstMesh.nodes[i].id ||
-                    (srcMesh.nodes[i].position - dstMesh.nodes[i].position).norm() > 1e-9) {
-                    sameTopology = false;
-                    break;
-                }
-            }
-        }
-
-        if (!sameTopology) {
-            showStatusMessage(locale::GerenciadorTraducao::trText("Modelo modificado durante o cálculo em segundo plano; execute F5 novamente."));
-            updateResultsTables();
-            updateInspector();
-            m_viewport->update();
-            return;
-        }
-
-        for (size_t i = 0; i < srcNodes.size(); ++i) {
-            dstNodes[i].displacement = srcNodes[i].displacement;
-            dstNodes[i].reaction = srcNodes[i].reaction;
-        }
-        for (size_t i = 0; i < srcElems.size(); ++i) {
-            dstElems[i].globalDisplacements = srcElems[i].globalDisplacements;
-            dstElems[i].localDisplacements = srcElems[i].localDisplacements;
-            dstElems[i].localEndForces = srcElems[i].localEndForces;
-            dstElems[i].hasResults = srcElems[i].hasResults;
-        }
-        for (size_t i = 0; i < srcMesh.nodes.size(); ++i) {
-            dstMesh.nodes[i].hasResults = srcMesh.nodes[i].hasResults;
-            dstMesh.nodes[i].displacement = srcMesh.nodes[i].displacement;
-            dstMesh.nodes[i].reaction = srcMesh.nodes[i].reaction;
-        }
-        for (size_t i = 0; i < srcMesh.elements.size(); ++i) {
-            dstMesh.elements[i].hasResults = srcMesh.elements[i].hasResults;
-            dstMesh.elements[i].vonMisesStress = srcMesh.elements[i].vonMisesStress;
-            dstMesh.elements[i].maxPrincipalStress = srcMesh.elements[i].maxPrincipalStress;
-            dstMesh.elements[i].minPrincipalStress = srcMesh.elements[i].minPrincipalStress;
-            dstMesh.elements[i].membraneResultants = srcMesh.elements[i].membraneResultants;
-            dstMesh.elements[i].bendingResultants = srcMesh.elements[i].bendingResultants;
-            dstMesh.elements[i].transverseShear = srcMesh.elements[i].transverseShear;
-            dstMesh.elements[i].stressVoigt = srcMesh.elements[i].stressVoigt;
-        }
-        m_lastSolverResult = payload->result;
-
-        if (m_lastSolverResult.success) {
-            QString msg = locale::GerenciadorTraducao::trText("Cálculo MEF concluído com sucesso em %1 ms (%2 nós, %3 barras, %4 DOFs). Equilíbrio: %5")
-                          .arg(m_lastSolverResult.executionTimeMs, 0, 'f', 1)
-                          .arg(m_lastSolverResult.totalNodes)
-                          .arg(m_lastSolverResult.totalElements)
-                          .arg(m_lastSolverResult.totalDofs)
-                          .arg(m_lastSolverResult.equilibrium.isBalanced
-                              ? locale::GerenciadorTraducao::trText("OK (ΣF=0)")
-                              : locale::GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
-            if (m_lastSolverResult.totalSurfaceElements > 0) {
-                msg += QStringLiteral(" | 2D/3D: +%1n / +%2e")
-                           .arg(m_lastSolverResult.totalSurfaceNodes)
-                           .arg(m_lastSolverResult.totalSurfaceElements);
-            }
-
-            m_solverStatusLabel->setText(msg);
-            showStatusMessage(msg);
-
-            // Se nenhum diagrama estiver ativo após cálculo manual, ativa a Deformada 3D
-            if (interactive && !m_hasLoadedCustomDiagram && m_viewport->activeDiagram() == DiagramType::None) {
-                m_diagramCombo->setCurrentIndex(1); // Deformada 3D
-            }
-
-            if (m_viewport && m_viewport->postContourMode() == Viewport3D::PostContourMode::NbrComplianceDcr) {
-                m_viewport->setElementDcrMap(computeModelDcrMap());
-            }
-            updateResultsTables();
-            if (QApplication::activePopupWidget() != nullptr) {
-                QTimer::singleShot(120, this, &MainWindow::updateInspector);
-            } else {
-                updateInspector();
-            }
-            m_viewport->update();
-            if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
-            if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
-            return;
-        }
-
-        const QString translatedErr = translateCoreMessage(QString::fromStdString(m_lastSolverResult.errorMessage));
+    auto finishFailureUi = [this, interactive](const QString& rawErrMsg) {
+        const QString translatedErr = translateCoreMessage(rawErrMsg);
         io::AppLogger::warning(
             QStringLiteral("Solver"),
             QStringLiteral("Erro no calculo MEF: %1").arg(translatedErr));
@@ -3056,8 +3035,10 @@ bool MainWindow::runSolver(bool interactive) {
         } else {
             updateInspector();
         }
-        m_viewport->update();
-
+        if (m_viewport) {
+            m_viewport->markGeometryDirty();
+            m_viewport->update();
+        }
         if (interactive) {
             m_windowManager->showModelessMessage(
                 QMessageBox::Warning,
@@ -3065,8 +3046,222 @@ bool MainWindow::runSolver(bool interactive) {
                 translatedErr
             );
         }
-    });
-    worker->start();
+        completeBackgroundStaticSolve(false);
+    };
+
+    const bool submitted = m_analysisExecutor->submit<AsyncSolvePayload>(
+        this,
+        [snapshot](std::stop_token stopToken) -> AsyncSolvePayload {
+            AsyncSolvePayload out;
+            out.snapshot = snapshot;
+            if (snapshot) {
+                out.result = FemSolver3D::solveWithOptions(*snapshot, snapshot->solverOptions(), stopToken);
+            }
+            return out;
+        },
+        [this, interactive, finishFailureUi](const AsyncSolvePayload& payload,
+                                              std::uint64_t startRev,
+                                              bool wasStopped) {
+            m_solveInProgress = false;
+            m_activeStaticJobId = 0;
+            m_activeStaticRevision = ~std::uint64_t{0};
+            if (m_btnSolve) m_btnSolve->setEnabled(true);
+            if (m_statusProgress) {
+                m_statusProgress->setVisible(false);
+                m_statusProgress->setRange(0, 1);
+                m_statusProgress->setValue(0);
+            }
+
+            if (wasStopped && m_lastSolverResult.success &&
+                startRev == m_modelRevision && !m_pendingResolve) {
+                completeBackgroundStaticSolve(true);
+                return;
+            }
+
+            if (m_pendingResolve || startRev != m_modelRevision) {
+                const bool rerunInteractive = m_pendingResolveInteractive;
+                m_pendingResolve = false;
+                m_pendingResolveInteractive = false;
+                if ((m_autoRecalculate && m_hasSolvedContext) || rerunInteractive || !m_staticSolveContinuations.empty()) {
+                    if (m_model.validate().valid) {
+                        if (runSolver(rerunInteractive)) {
+                            return;
+                        }
+                    }
+                }
+                if (startRev != m_modelRevision) {
+                    showStatusMessage(locale::GerenciadorTraducao::trText("Modelo modificado durante o cálculo em segundo plano; execute F5 novamente."));
+                    updateResultsTables();
+                    if (QApplication::activePopupWidget() != nullptr) {
+                        QTimer::singleShot(120, this, &MainWindow::updateInspector);
+                    } else {
+                        updateInspector();
+                    }
+                    if (m_viewport) {
+                        m_viewport->update();
+                    }
+                    completeBackgroundStaticSolve(false);
+                    return;
+                }
+            }
+
+            if (!payload.snapshot) {
+                finishFailureUi(QStringLiteral("Snapshot de modelo nulo durante análise estática."));
+                return;
+            }
+
+            const auto& srcNodes = payload.snapshot->getNodes();
+            const auto& srcElems = payload.snapshot->getElements();
+            const auto& srcMesh = payload.snapshot->surfaceMesh();
+            auto& dstNodes = m_model.getNodes();
+            auto& dstElems = m_model.getElements();
+            auto& dstMesh = m_model.surfaceMesh();
+            bool sameTopology = (srcNodes.size() == dstNodes.size())
+                             && (srcElems.size() == dstElems.size())
+                             && (srcMesh.nodes.size() == dstMesh.nodes.size())
+                             && (srcMesh.elements.size() == dstMesh.elements.size());
+            if (sameTopology) {
+                for (size_t i = 0; i < srcNodes.size(); ++i) {
+                    if (srcNodes[i].id != dstNodes[i].id ||
+                        (srcNodes[i].position - dstNodes[i].position).norm() > 1e-9) {
+                        sameTopology = false;
+                        break;
+                    }
+                }
+            }
+            if (sameTopology) {
+                for (size_t i = 0; i < srcElems.size(); ++i) {
+                    if (srcElems[i].id != dstElems[i].id ||
+                        srcElems[i].nodeStart != dstElems[i].nodeStart ||
+                        srcElems[i].nodeEnd != dstElems[i].nodeEnd) {
+                        sameTopology = false;
+                        break;
+                    }
+                }
+            }
+            if (sameTopology) {
+                for (size_t i = 0; i < srcMesh.nodes.size(); ++i) {
+                    if (srcMesh.nodes[i].id != dstMesh.nodes[i].id ||
+                        (srcMesh.nodes[i].position - dstMesh.nodes[i].position).norm() > 1e-9) {
+                        sameTopology = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!sameTopology) {
+                showStatusMessage(locale::GerenciadorTraducao::trText("Modelo modificado durante o cálculo em segundo plano; execute F5 novamente."));
+                updateResultsTables();
+                updateInspector();
+                if (m_viewport) {
+                    m_viewport->update();
+                }
+                completeBackgroundStaticSolve(false);
+                return;
+            }
+
+            for (size_t i = 0; i < srcNodes.size(); ++i) {
+                dstNodes[i].displacement = srcNodes[i].displacement;
+                dstNodes[i].reaction = srcNodes[i].reaction;
+            }
+            for (size_t i = 0; i < srcElems.size(); ++i) {
+                dstElems[i].globalDisplacements = srcElems[i].globalDisplacements;
+                dstElems[i].localDisplacements = srcElems[i].localDisplacements;
+                dstElems[i].localEndForces = srcElems[i].localEndForces;
+                dstElems[i].hasResults = srcElems[i].hasResults;
+            }
+            for (size_t i = 0; i < srcMesh.nodes.size(); ++i) {
+                dstMesh.nodes[i].hasResults = srcMesh.nodes[i].hasResults;
+                dstMesh.nodes[i].displacement = srcMesh.nodes[i].displacement;
+                dstMesh.nodes[i].reaction = srcMesh.nodes[i].reaction;
+            }
+            for (size_t i = 0; i < srcMesh.elements.size(); ++i) {
+                dstMesh.elements[i].hasResults = srcMesh.elements[i].hasResults;
+                dstMesh.elements[i].vonMisesStress = srcMesh.elements[i].vonMisesStress;
+                dstMesh.elements[i].maxPrincipalStress = srcMesh.elements[i].maxPrincipalStress;
+                dstMesh.elements[i].minPrincipalStress = srcMesh.elements[i].minPrincipalStress;
+                dstMesh.elements[i].membraneResultants = srcMesh.elements[i].membraneResultants;
+                dstMesh.elements[i].bendingResultants = srcMesh.elements[i].bendingResultants;
+                dstMesh.elements[i].transverseShear = srcMesh.elements[i].transverseShear;
+                dstMesh.elements[i].stressVoigt = srcMesh.elements[i].stressVoigt;
+            }
+            m_lastSolverResult = payload.result;
+
+            if (m_lastSolverResult.success) {
+                m_lastSolvedRevision = startRev;
+                m_model.bumpRevision();
+                QString msg = locale::GerenciadorTraducao::trText("Cálculo MEF concluído com sucesso em %1 ms (%2 nós, %3 barras, %4 DOFs). Equilíbrio: %5")
+                              .arg(QString::number(m_lastSolverResult.executionTimeMs, 'f', 1),
+                                   QString::number(m_lastSolverResult.totalNodes),
+                                   QString::number(m_lastSolverResult.totalElements),
+                                   QString::number(m_lastSolverResult.totalDofs),
+                                   m_lastSolverResult.equilibrium.isBalanced
+                                       ? locale::GerenciadorTraducao::trText("OK (ΣF=0)")
+                                       : locale::GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
+                if (m_lastSolverResult.totalSurfaceElements > 0) {
+                    msg += QStringLiteral(" | 2D/3D: +%1n / +%2e")
+                               .arg(m_lastSolverResult.totalSurfaceNodes)
+                               .arg(m_lastSolverResult.totalSurfaceElements);
+                }
+
+                m_solverStatusLabel->setText(msg);
+                showStatusMessage(msg);
+
+                // Se nenhum diagrama estiver ativo após cálculo manual, ativa a Deformada 3D
+                if (interactive && !m_hasLoadedCustomDiagram && m_viewport->activeDiagram() == DiagramType::None) {
+                    m_diagramCombo->setCurrentIndex(1); // Deformada 3D
+                }
+
+                if (m_viewport && m_viewport->postContourMode() == Viewport3D::PostContourMode::NbrComplianceDcr) {
+                    m_viewport->setElementDcrMap(computeModelDcrMap());
+                }
+                updateResultsTables();
+                if (QApplication::activePopupWidget() != nullptr) {
+                    QTimer::singleShot(120, this, &MainWindow::updateInspector);
+                } else {
+                    updateInspector();
+                }
+                if (m_viewport) {
+                    m_viewport->markGeometryDirty();
+                    m_viewport->update();
+                }
+                if (m_nbrComplianceDialog) m_nbrComplianceDialog->runAudit();
+                if (m_postProcessControlDialog) m_postProcessControlDialog->syncFromViewport();
+                completeBackgroundStaticSolve(true);
+                return;
+            }
+
+            finishFailureUi(QString::fromStdString(m_lastSolverResult.errorMessage));
+        },
+        [this, finishFailureUi](const QString& errMsg) {
+            m_solveInProgress = false;
+            m_activeStaticJobId = 0;
+            m_activeStaticRevision = ~std::uint64_t{0};
+            if (m_btnSolve) m_btnSolve->setEnabled(true);
+            if (m_statusProgress) {
+                m_statusProgress->setVisible(false);
+                m_statusProgress->setRange(0, 1);
+                m_statusProgress->setValue(0);
+            }
+            m_lastSolverResult = SolverResult{};
+            m_lastSolverResult.success = false;
+            m_lastSolverResult.errorMessage = errMsg.toStdString();
+            finishFailureUi(errMsg);
+        },
+        &m_activeStaticJobId);
+
+    if (!submitted) {
+        m_solveInProgress = false;
+        m_activeStaticJobId = 0;
+        m_activeStaticRevision = ~std::uint64_t{0};
+        if (m_btnSolve) m_btnSolve->setEnabled(true);
+        if (m_statusProgress) {
+            m_statusProgress->setVisible(false);
+            m_statusProgress->setRange(0, 1);
+            m_statusProgress->setValue(0);
+        }
+        return false;
+    }
     return true;
 }
 
@@ -3368,6 +3563,10 @@ void MainWindow::onQuickAddNode() {
 void MainWindow::onSelectionChanged() {
     if (m_materialCatalogDialog) m_materialCatalogDialog->refreshList();
     if (m_sectionCatalogDialog) m_sectionCatalogDialog->refreshList();
+    if (m_viewport) {
+        m_viewport->markGeometryDirty();
+        m_viewport->update();
+    }
     updateInspector();
 }
 
@@ -3381,11 +3580,16 @@ void MainWindow::onProjectMetadataOrOptionsModified() {
 
 void MainWindow::onModelModified() {
     ++m_modelRevision;
+    m_lastSolvedRevision = ~std::uint64_t{0};
+    if (m_solveInProgress && m_analysisExecutor && m_activeStaticJobId != 0) {
+        m_analysisExecutor->requestCancelForJob(m_activeStaticJobId);
+    }
     m_model.clearResults();
     m_lastSolverResult = SolverResult();
     if (m_viewport) {
         m_viewport->clearElementDcrMap();
         m_viewport->clearPostAnimation();
+        m_viewport->markGeometryDirty();
     }
 
     QString statsMsg = locale::GerenciadorTraducao::trText("Nós: %1 | Barras: %2")
@@ -3412,7 +3616,7 @@ void MainWindow::onModelModified() {
                               m_model.surfaceMesh().elements.empty();
 
     if (m_autoRecalculate && m_hasSolvedContext && !isEmptyModel) {
-        if (m_solveInProgress) {
+        if (m_solveInProgress || (m_analysisExecutor && m_analysisExecutor->isBusy())) {
             m_pendingResolve = true;
             m_solverStatusLabel->setText(
                 locale::GerenciadorTraducao::trText("Cálculo em andamento; aguarde ou recalcule após concluir (F5)."));
@@ -3955,10 +4159,10 @@ void MainWindow::updateInspector() {
                     ? GerenciadorTraducao::trText("Global")
                     : GerenciadorTraducao::trText("Local");
                 qStr = QString("(%1) (%2, %3, %4) kN/m")
-                           .arg(csStr)
-                           .arg(elem->distLoad.w.x, 0, 'f', 1)
-                           .arg(elem->distLoad.w.y, 0, 'f', 1)
-                           .arg(elem->distLoad.w.z, 0, 'f', 1);
+                           .arg(csStr,
+                                QString::number(elem->distLoad.w.x, 'f', 1),
+                                QString::number(elem->distLoad.w.y, 'f', 1),
+                                QString::number(elem->distLoad.w.z, 'f', 1));
             }
             addRowWithEditBtn(GerenciadorTraducao::trText("Carga Distr.:"), qStr, &MainWindow::onAssignDistributedLoads);
 
@@ -3993,14 +4197,17 @@ void MainWindow::updateInspector() {
 }
 
 void MainWindow::updateResultsTables() {
-    m_dispTable->setRowCount(0);
-    m_reacTable->setRowCount(0);
-    m_forcesTable->setRowCount(0);
-    if (m_continuumTable) {
-        m_continuumTable->setRowCount(0);
-    }
+    auto* dispModel = m_resultTableModels[static_cast<std::size_t>(ui::ResultTableKind::Displacements)];
+    auto* reacModel = m_resultTableModels[static_cast<std::size_t>(ui::ResultTableKind::Reactions)];
+    auto* forcesModel = m_resultTableModels[static_cast<std::size_t>(ui::ResultTableKind::BarForces)];
+    auto* contModel = m_resultTableModels[static_cast<std::size_t>(ui::ResultTableKind::ContinuumStress)];
 
     if (!m_lastSolverResult.success) {
+        for (ui::ResultTableModel* model : m_resultTableModels) {
+            if (model != nullptr) {
+                model->clearRows();
+            }
+        }
         syncExtraLayoutTables();
         return;
     }
@@ -4008,156 +4215,177 @@ void MainWindow::updateResultsTables() {
     const auto& nodes = m_model.getNodes();
     const auto& mesh = m_model.surfaceMesh();
 
-    // Evita duplicar linhas de nós coincidentes entre barras 1D e malha 2D/3D acoplada
+    // Evita duplicar linhas de nós coincidentes entre barras 1D e malha 2D/3D acoplada (busca O(1))
+    SpatialPointHash frameHash(1e-4);
+    frameHash.reserve(nodes.size());
+    for (std::size_t idx = 0; idx < nodes.size(); ++idx) {
+        const auto& fn = nodes[idx];
+        frameHash.insert(fn.x(), fn.y(), fn.z(), idx);
+    }
+
     std::vector<const kernel::MeshNode*> uniqueMeshNodes;
     uniqueMeshNodes.reserve(mesh.nodes.size());
     for (const auto& mn : mesh.nodes) {
-        bool coincidesWithFrame = false;
-        for (const auto& fn : nodes) {
-            const double dx = fn.x() - mn.position.x();
-            const double dy = fn.y() - mn.position.y();
-            const double dz = fn.z() - mn.position.z();
-            if ((dx * dx + dy * dy + dz * dz) <= 1e-12) {
-                coincidesWithFrame = true;
-                break;
-            }
-        }
-        if (!coincidesWithFrame) {
+        if (!frameHash.findNearestWithinSq(mn.position.x(), mn.position.y(), mn.position.z(), 1e-12)) {
             uniqueMeshNodes.push_back(&mn);
         }
     }
 
-    // 1. Tabela de Deslocamentos Nodais
-    m_dispTable->setRowCount(static_cast<int>(nodes.size() + uniqueMeshNodes.size()));
-
-    for (int r = 0; r < static_cast<int>(nodes.size()); ++r) {
-        const auto& n = nodes[r];
-        auto* idItem = new QTableWidgetItem(QString::number(n.id));
-        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(n.id));
-        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("node"));
-        m_dispTable->setItem(r, 0, idItem);
-        m_dispTable->setItem(r, 1, new QTableWidgetItem(QString::number(n.displacement[0] * 1000.0, 'f', 3)));
-        m_dispTable->setItem(r, 2, new QTableWidgetItem(QString::number(n.displacement[1] * 1000.0, 'f', 3)));
-        m_dispTable->setItem(r, 3, new QTableWidgetItem(QString::number(n.displacement[2] * 1000.0, 'f', 3)));
-        m_dispTable->setItem(r, 4, new QTableWidgetItem(QString::number(n.displacement[3] * 1000.0, 'f', 3)));
-        m_dispTable->setItem(r, 5, new QTableWidgetItem(QString::number(n.displacement[4] * 1000.0, 'f', 3)));
-        m_dispTable->setItem(r, 6, new QTableWidgetItem(QString::number(n.displacement[5] * 1000.0, 'f', 3)));
-    }
-    for (int m = 0; m < static_cast<int>(uniqueMeshNodes.size()); ++m) {
-        const int r = static_cast<int>(nodes.size()) + m;
-        const auto* mn = uniqueMeshNodes[static_cast<std::size_t>(m)];
-        const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
-        auto* idItem = new QTableWidgetItem(idLabel);
-        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("mesh_node"));
-        m_dispTable->setItem(r, 0, idItem);
-        for (int d = 0; d < 6; ++d) {
-            m_dispTable->setItem(r, d + 1, new QTableWidgetItem(QString::number(mn->displacement[d] * 1000.0, 'f', 3)));
+    // 1. Tabela de Deslocamentos Nodais (modelo compartilhado)
+    if (dispModel != nullptr) {
+        std::vector<ui::ResultTableRow> dispRows;
+        dispRows.reserve(nodes.size() + uniqueMeshNodes.size());
+        for (const auto& n : nodes) {
+            ui::ResultTableRow row;
+            row.category = QStringLiteral("node");
+            row.entityId = static_cast<quint64>(n.id);
+            row.hasEntityId = true;
+            row.cells = {
+                QString::number(n.id),
+                QString::number(n.displacement[0] * 1000.0, 'f', 3),
+                QString::number(n.displacement[1] * 1000.0, 'f', 3),
+                QString::number(n.displacement[2] * 1000.0, 'f', 3),
+                QString::number(n.displacement[3] * 1000.0, 'f', 3),
+                QString::number(n.displacement[4] * 1000.0, 'f', 3),
+                QString::number(n.displacement[5] * 1000.0, 'f', 3)
+            };
+            dispRows.push_back(std::move(row));
         }
+        for (const auto* mn : uniqueMeshNodes) {
+            ui::ResultTableRow row;
+            row.category = QStringLiteral("mesh_node");
+            const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+            row.cells.reserve(7);
+            row.cells.append(idLabel);
+            for (int d = 0; d < 6; ++d) {
+                row.cells.append(QString::number(mn->displacement[d] * 1000.0, 'f', 3));
+            }
+            dispRows.push_back(std::move(row));
+        }
+        dispModel->setRows(std::move(dispRows));
     }
     if (m_tableConfigurator) {
         m_tableConfigurator->afterTablePopulated(m_dispTable);
     }
 
-    // 2. Tabela de Reações de Apoio
-    m_reacTable->setRowCount(0);
-    int supportedCount = 0;
-    for (const auto& n : nodes) {
-        if (n.isSupported()) supportedCount++;
-    }
-    for (const auto* mn : uniqueMeshNodes) {
-        if (mn->isSupported()) supportedCount++;
-    }
-
-    m_reacTable->setRowCount(supportedCount + 1); // +1 para linha de soma de equilíbrio
-    int row = 0;
-    for (const auto& n : nodes) {
-        if (!n.isSupported()) continue;
-        auto* idItem = new QTableWidgetItem(QString::number(n.id));
-        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(n.id));
-        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("support"));
-        m_reacTable->setItem(row, 0, idItem);
-        m_reacTable->setItem(row, 1, new QTableWidgetItem(QString::number(n.reaction[0], 'f', 2)));
-        m_reacTable->setItem(row, 2, new QTableWidgetItem(QString::number(n.reaction[1], 'f', 2)));
-        m_reacTable->setItem(row, 3, new QTableWidgetItem(QString::number(n.reaction[2], 'f', 2)));
-        m_reacTable->setItem(row, 4, new QTableWidgetItem(QString::number(n.reaction[3], 'f', 2)));
-        m_reacTable->setItem(row, 5, new QTableWidgetItem(QString::number(n.reaction[4], 'f', 2)));
-        m_reacTable->setItem(row, 6, new QTableWidgetItem(QString::number(n.reaction[5], 'f', 2)));
-        row++;
-    }
-    for (const auto* mn : uniqueMeshNodes) {
-        if (!mn->isSupported()) continue;
-        const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
-        auto* idItem = new QTableWidgetItem(idLabel);
-        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("mesh_support"));
-        m_reacTable->setItem(row, 0, idItem);
-        for (int d = 0; d < 6; ++d) {
-            m_reacTable->setItem(row, d + 1, new QTableWidgetItem(QString::number(mn->reaction[d], 'f', 2)));
+    // 2. Tabela de Reações de Apoio (modelo compartilhado)
+    if (reacModel != nullptr) {
+        std::vector<ui::ResultTableRow> reacRows;
+        reacRows.reserve(nodes.size() + uniqueMeshNodes.size() + 1);
+        for (const auto& n : nodes) {
+            if (!n.isSupported()) continue;
+            ui::ResultTableRow row;
+            row.category = QStringLiteral("support");
+            row.entityId = static_cast<quint64>(n.id);
+            row.hasEntityId = true;
+            row.cells = {
+                QString::number(n.id),
+                QString::number(n.reaction[0], 'f', 2),
+                QString::number(n.reaction[1], 'f', 2),
+                QString::number(n.reaction[2], 'f', 2),
+                QString::number(n.reaction[3], 'f', 2),
+                QString::number(n.reaction[4], 'f', 2),
+                QString::number(n.reaction[5], 'f', 2)
+            };
+            reacRows.push_back(std::move(row));
         }
-        row++;
-    }
+        for (const auto* mn : uniqueMeshNodes) {
+            if (!mn->isSupported()) continue;
+            ui::ResultTableRow row;
+            row.category = QStringLiteral("mesh_support");
+            const QString idLabel = nodes.empty() ? QString::number(mn->id) : QStringLiteral("M%1").arg(mn->id);
+            row.cells.reserve(7);
+            row.cells.append(idLabel);
+            for (int d = 0; d < 6; ++d) {
+                row.cells.append(QString::number(mn->reaction[d], 'f', 2));
+            }
+            reacRows.push_back(std::move(row));
+        }
 
-    // Linha de Soma Total
-    auto* itemSum = new QTableWidgetItem(locale::GerenciadorTraducao::trText("Σ Reações"));
-    itemSum->setData(ui::kResultTableSummaryRowRole, true);
-    itemSum->setData(ui::kResultTableRowCategoryRole, QStringLiteral("reaction_sum"));
-    m_reacTable->setItem(row, 0, itemSum);
-    m_reacTable->setItem(row, 1, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactions.x, 'f', 2)));
-    m_reacTable->setItem(row, 2, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactions.y, 'f', 2)));
-    m_reacTable->setItem(row, 3, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactions.z, 'f', 2)));
-    m_reacTable->setItem(row, 4, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.x, 'f', 2)));
-    m_reacTable->setItem(row, 5, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.y, 'f', 2)));
-    m_reacTable->setItem(row, 6, new QTableWidgetItem(QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.z, 'f', 2)));
+        ui::ResultTableRow sumRow;
+        sumRow.category = QStringLiteral("reaction_sum");
+        sumRow.isSummary = true;
+        sumRow.cells = {
+            locale::GerenciadorTraducao::trText("Σ Reações"),
+            QString::number(m_lastSolverResult.equilibrium.sumReactions.x, 'f', 2),
+            QString::number(m_lastSolverResult.equilibrium.sumReactions.y, 'f', 2),
+            QString::number(m_lastSolverResult.equilibrium.sumReactions.z, 'f', 2),
+            QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.x, 'f', 2),
+            QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.y, 'f', 2),
+            QString::number(m_lastSolverResult.equilibrium.sumReactionMoments.z, 'f', 2)
+        };
+        reacRows.push_back(std::move(sumRow));
+        reacModel->setRows(std::move(reacRows));
+    }
     refreshReactionSummaryRowTheme();
     if (m_tableConfigurator) {
         m_tableConfigurator->afterTablePopulated(m_reacTable);
         refreshReactionSummaryRowTheme();
     }
 
-    // 3. Tabela de Esforços nas Barras
-    m_forcesTable->setRowCount(0);
-    m_forcesTable->setRowCount(static_cast<int>(m_lastSolverResult.elementExtremes.size()));
-    for (int r = 0; r < static_cast<int>(m_lastSolverResult.elementExtremes.size()); ++r) {
-        const auto& ext = m_lastSolverResult.elementExtremes[r];
-        auto* idItem = new QTableWidgetItem(QString::number(ext.elementId));
-        idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(ext.elementId));
-        idItem->setData(ui::kResultTableRowCategoryRole, QStringLiteral("bar"));
-        m_forcesTable->setItem(r, 0, idItem);
-        m_forcesTable->setItem(r, 1, new QTableWidgetItem(QString("[%1; %2]").arg(ext.N_min, 0, 'f', 1).arg(ext.N_max, 0, 'f', 1)));
-        m_forcesTable->setItem(r, 2, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Vy_min, 0, 'f', 1).arg(ext.Vy_max, 0, 'f', 1)));
-        m_forcesTable->setItem(r, 3, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Vz_min, 0, 'f', 1).arg(ext.Vz_max, 0, 'f', 1)));
-        m_forcesTable->setItem(r, 4, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Tx_min, 0, 'f', 1).arg(ext.Tx_max, 0, 'f', 1)));
-        m_forcesTable->setItem(r, 5, new QTableWidgetItem(QString("[%1; %2]").arg(ext.My_min, 0, 'f', 1).arg(ext.My_max, 0, 'f', 1)));
-        m_forcesTable->setItem(r, 6, new QTableWidgetItem(QString("[%1; %2]").arg(ext.Mz_min, 0, 'f', 1).arg(ext.Mz_max, 0, 'f', 1)));
-        m_forcesTable->setItem(r, 7, new QTableWidgetItem(QString::number(ext.maxDeflection * 1000.0, 'f', 2)));
+    // 3. Tabela de Esforços nas Barras (modelo compartilhado)
+    if (forcesModel != nullptr) {
+        std::vector<ui::ResultTableRow> forceRows;
+        forceRows.reserve(m_lastSolverResult.elementExtremes.size());
+        for (const auto& ext : m_lastSolverResult.elementExtremes) {
+            ui::ResultTableRow row;
+            row.category = QStringLiteral("bar");
+            row.entityId = static_cast<quint64>(ext.elementId);
+            row.hasEntityId = true;
+            row.cells = {
+                QString::number(ext.elementId),
+                QString("[%1; %2]").arg(ext.N_min, 0, 'f', 1).arg(ext.N_max, 0, 'f', 1),
+                QString("[%1; %2]").arg(ext.Vy_min, 0, 'f', 1).arg(ext.Vy_max, 0, 'f', 1),
+                QString("[%1; %2]").arg(ext.Vz_min, 0, 'f', 1).arg(ext.Vz_max, 0, 'f', 1),
+                QString("[%1; %2]").arg(ext.Tx_min, 0, 'f', 1).arg(ext.Tx_max, 0, 'f', 1),
+                QString("[%1; %2]").arg(ext.My_min, 0, 'f', 1).arg(ext.My_max, 0, 'f', 1),
+                QString("[%1; %2]").arg(ext.Mz_min, 0, 'f', 1).arg(ext.Mz_max, 0, 'f', 1),
+                QString::number(ext.maxDeflection * 1000.0, 'f', 2)
+            };
+            forceRows.push_back(std::move(row));
+        }
+        forcesModel->setRows(std::move(forceRows));
     }
     if (m_tableConfigurator) {
         m_tableConfigurator->afterTablePopulated(m_forcesTable);
     }
 
-    // 4. Tabela de Esforços e Tensões 2D/3D (Casca / Sólido)
-    if (m_continuumTable) {
+    // 4. Tabela de Esforços e Tensões 2D/3D (Casca / Sólido - modelo compartilhado)
+    if (m_continuumTable && contModel != nullptr) {
         const auto& cont = m_lastSolverResult.continuumElementResults;
-        m_continuumTable->setRowCount(static_cast<int>(cont.size()));
-        for (int r = 0; r < static_cast<int>(cont.size()); ++r) {
-            const auto& ce = cont[static_cast<std::size_t>(r)];
-            auto* idItem = new QTableWidgetItem(QString::number(ce.elementId));
-            idItem->setData(ui::kResultTableEntityIdRole, static_cast<quint64>(ce.elementId));
-            idItem->setData(ui::kResultTableRowCategoryRole, ce.isShell ? QStringLiteral("shell") : QStringLiteral("solid"));
-            m_continuumTable->setItem(r, 0, idItem);
-            m_continuumTable->setItem(r, 1, new QTableWidgetItem(QString::fromStdString(ce.cellTypeName)));
-            m_continuumTable->setItem(r, 2, new QTableWidgetItem(QString::number(ce.vonMisesStress, 'f', 2)));
-            m_continuumTable->setItem(r, 3, new QTableWidgetItem(QString::number(ce.maxPrincipalStress, 'f', 2)));
-            m_continuumTable->setItem(r, 4, new QTableWidgetItem(QString::number(ce.minPrincipalStress, 'f', 2)));
+        std::vector<ui::ResultTableRow> contRows;
+        contRows.reserve(cont.size());
+        for (const auto& ce : cont) {
+            ui::ResultTableRow row;
+            row.category = ce.isShell ? QStringLiteral("shell") : QStringLiteral("solid");
+            row.entityId = static_cast<quint64>(ce.elementId);
+            row.hasEntityId = true;
             if (ce.isShell) {
-                m_continuumTable->setItem(r, 5, new QTableWidgetItem(QString::number(ce.membraneResultants[0], 'f', 2) + QStringLiteral(" kN/m")));
-                m_continuumTable->setItem(r, 6, new QTableWidgetItem(QString::number(ce.membraneResultants[1], 'f', 2) + QStringLiteral(" kN/m")));
-                m_continuumTable->setItem(r, 7, new QTableWidgetItem(QString::number(ce.bendingResultants[0], 'f', 3) + QStringLiteral(" kNm/m")));
+                row.cells = {
+                    QString::number(ce.elementId),
+                    QString::fromStdString(ce.cellTypeName),
+                    QString::number(ce.vonMisesStress, 'f', 2),
+                    QString::number(ce.maxPrincipalStress, 'f', 2),
+                    QString::number(ce.minPrincipalStress, 'f', 2),
+                    QString::number(ce.membraneResultants[0], 'f', 2) + QStringLiteral(" kN/m"),
+                    QString::number(ce.membraneResultants[1], 'f', 2) + QStringLiteral(" kN/m"),
+                    QString::number(ce.bendingResultants[0], 'f', 3) + QStringLiteral(" kNm/m")
+                };
             } else {
-                m_continuumTable->setItem(r, 5, new QTableWidgetItem(QString::number(ce.stressVoigt[0], 'f', 2) + QStringLiteral(" kPa")));
-                m_continuumTable->setItem(r, 6, new QTableWidgetItem(QString::number(ce.stressVoigt[1], 'f', 2) + QStringLiteral(" kPa")));
-                m_continuumTable->setItem(r, 7, new QTableWidgetItem(QString::number(ce.stressVoigt[4], 'f', 2) + QStringLiteral(" kPa")));
+                row.cells = {
+                    QString::number(ce.elementId),
+                    QString::fromStdString(ce.cellTypeName),
+                    QString::number(ce.vonMisesStress, 'f', 2),
+                    QString::number(ce.maxPrincipalStress, 'f', 2),
+                    QString::number(ce.minPrincipalStress, 'f', 2),
+                    QString::number(ce.stressVoigt[0], 'f', 2) + QStringLiteral(" kPa"),
+                    QString::number(ce.stressVoigt[1], 'f', 2) + QStringLiteral(" kPa"),
+                    QString::number(ce.stressVoigt[4], 'f', 2) + QStringLiteral(" kPa")
+                };
             }
+            contRows.push_back(std::move(row));
         }
+        contModel->setRows(std::move(contRows));
         if (m_tableConfigurator) {
             m_tableConfigurator->afterTablePopulated(m_continuumTable);
         }
@@ -4267,7 +4495,7 @@ QJsonObject MainWindow::serializeResultsPanelJson() const {
     QJsonArray sizesByModeArr;
     for (int m = 0; m < 4; ++m) {
         QJsonArray szArr;
-        for (int s : m_resultsSplitterSizesByMode[static_cast<std::size_t>(m)]) {
+        for (int s : std::as_const(m_resultsSplitterSizesByMode[static_cast<std::size_t>(m)])) {
             szArr.append(s);
         }
         sizesByModeArr.append(szArr);
@@ -4412,8 +4640,8 @@ QList<WidgetT*> collectPersistableWidgets(const QDialog* dlg) {
 QString dialogControlKey(const char* prefix, int idx, const QWidget* w) {
     const QString obj = w != nullptr ? w->objectName() : QString();
     return obj.isEmpty()
-               ? QStringLiteral("%1_%2").arg(QLatin1String(prefix)).arg(idx)
-               : QStringLiteral("%1_%2_%3").arg(QLatin1String(prefix)).arg(idx).arg(obj);
+               ? QStringLiteral("%1_%2").arg(QLatin1String(prefix), QString::number(idx))
+               : QStringLiteral("%1_%2_%3").arg(QLatin1String(prefix), QString::number(idx), obj);
 }
 
 bool shouldSkipLoadComboWidget(const QString& dialogKey,
@@ -4648,7 +4876,8 @@ void MainWindow::bindPersistentDialog(const QString& dialogKey, QDialog* dlg, bo
         return;
     }
 
-    for (QTabWidget* tw : collectPersistableWidgets<QTabWidget>(dlg)) {
+    const QList<QTabWidget*> tabWidgets = collectPersistableWidgets<QTabWidget>(dlg);
+    for (QTabWidget* tw : tabWidgets) {
         connect(tw, &QTabWidget::currentChanged, this, [onControlChanged](int) { onControlChanged(); });
     }
     const auto spins = collectPersistableWidgets<QSpinBox>(dlg);
@@ -4671,7 +4900,8 @@ void MainWindow::bindPersistentDialog(const QString& dialogKey, QDialog* dlg, bo
             connect(checks[i], &QCheckBox::toggled, this, [onControlChanged](bool) { onControlChanged(); });
         }
     }
-    for (QSlider* sl : collectPersistableWidgets<QSlider>(dlg)) {
+    const QList<QSlider*> sliders = collectPersistableWidgets<QSlider>(dlg);
+    for (QSlider* sl : sliders) {
         connect(sl, &QSlider::valueChanged, this, [onControlChanged](int) { onControlChanged(); });
     }
     const auto combos = collectPersistableWidgets<QComboBox>(dlg);
@@ -4706,6 +4936,17 @@ void MainWindow::captureAllOpenDialogsState() const {
 }
 
 void MainWindow::saveUserPreferences() const {
+    if (m_prefsSaveTimer != nullptr) {
+        m_prefsSaveTimer->start(500);
+        return;
+    }
+    flushUserPreferencesSync();
+}
+
+void MainWindow::flushUserPreferencesSync() const {
+    if (m_prefsSaveTimer != nullptr && m_prefsSaveTimer->isActive()) {
+        m_prefsSaveTimer->stop();
+    }
     const QJsonObject resultsPanelObj = serializeResultsPanelJson();
 
     captureAllOpenDialogsState();
@@ -5269,7 +5510,7 @@ void MainWindow::restoreAllDefaultSettings() {
 
         resetResultsLayoutsToDefault();
         if (m_tableConfigurator) {
-            for (QTableWidget* tbl : {m_dispTable, m_reacTable, m_forcesTable, m_continuumTable}) {
+            for (QTableView* tbl : {m_dispTable, m_reacTable, m_forcesTable, m_continuumTable}) {
                 if (tbl != nullptr) {
                     m_tableConfigurator->resetAllDefaults(tbl);
                 }
@@ -5280,14 +5521,14 @@ void MainWindow::restoreAllDefaultSettings() {
         onRestoreDefaultRenderSettings();
     }
 
-    saveUserPreferences();
+    flushUserPreferencesSync();
     if (m_viewport) {
         m_viewport->update();
     }
 }
 
 void MainWindow::onSaveAllSettingsNow() {
-    saveUserPreferences();
+    flushUserPreferencesSync();
     showStatusMessage(locale::GerenciadorTraducao::trText(
         "Todas as configurações e preferências foram salvas em AppData/Local/OmniFrame/user_preferences.json."));
 }
@@ -5404,7 +5645,7 @@ void MainWindow::rebuildResultsLayoutsUi() {
     const bool prevGuard = m_rebuildingOrLoadingResultsSettings;
     m_rebuildingOrLoadingResultsSettings = true;
 
-    auto primaryForKind = [this](int k) -> QTableWidget* {
+    auto primaryForKind = [this](int k) -> QTableView* {
         switch (k) {
         case 0: return m_dispTable;
         case 1: return m_reacTable;
@@ -5427,7 +5668,7 @@ void MainWindow::rebuildResultsLayoutsUi() {
         }
     }
 
-    auto stashHiddenTable = [this](QTableWidget* tbl) {
+    auto stashHiddenTable = [this](QTableView* tbl) {
         if (tbl != nullptr) {
             tbl->hide();
             tbl->setParent(m_hiddenTablesHost);
@@ -5454,15 +5695,18 @@ void MainWindow::rebuildResultsLayoutsUi() {
                 continue;
             }
             const auto kind = static_cast<ui::ResultTableKind>(k);
-            QTableWidget* tblToInsert = nullptr;
+            QTableView* tblToInsert = nullptr;
             if (!primaryPlaced[static_cast<std::size_t>(k)]) {
                 primaryPlaced[static_cast<std::size_t>(k)] = true;
                 tblToInsert = primaryForKind(k);
             } else {
-                QTableWidget*& cloneRef = m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)];
+                QTableView*& cloneRef = m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)];
                 if (cloneRef == nullptr) {
-                    cloneRef = new QTableWidget(m_hiddenTablesHost);
+                    cloneRef = new QTableView(m_hiddenTablesHost);
                     cloneRef->setObjectName(QStringLiteral("extraResultsTable_L%1_K%2").arg(L).arg(k));
+                    auto* proxy = new ui::ResultTableProxyModel(cloneRef);
+                    proxy->setSourceModel(m_resultTableModels[static_cast<std::size_t>(k)]);
+                    cloneRef->setModel(proxy);
                     if (m_tableConfigurator) {
                         m_tableConfigurator->configureTable(
                             cloneRef, kind, resultTableHeaders(kind), isLight);
@@ -5517,45 +5761,15 @@ void MainWindow::syncResultsLayoutsMenuState() {
 }
 
 void MainWindow::syncExtraLayoutTables() {
-    auto primaryForKind = [this](int k) -> const QTableWidget* {
-        switch (k) {
-        case 0: return m_dispTable;
-        case 1: return m_reacTable;
-        case 2: return m_forcesTable;
-        case 3: return m_continuumTable;
-        default: return nullptr;
-        }
-    };
+    if (m_resultsLayoutCount <= 1) {
+        return;
+    }
 
     for (int L = 0; L < 4; ++L) {
         for (int k = 0; k < 4; ++k) {
-            QTableWidget* dst = m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)];
+            QTableView* dst = m_extraLayoutTables[static_cast<std::size_t>(L)][static_cast<std::size_t>(k)];
             if (dst == nullptr || dst->parentWidget() == m_hiddenTablesHost) {
                 continue;
-            }
-            const QTableWidget* src = primaryForKind(k);
-            if (src == nullptr) {
-                continue;
-            }
-
-            {
-                const QSignalBlocker blocker(dst);
-                const int rows = src->rowCount();
-                const int cols = src->columnCount();
-                dst->setRowCount(rows);
-                if (dst->columnCount() != cols) {
-                    dst->setColumnCount(cols);
-                }
-                for (int r = 0; r < rows; ++r) {
-                    for (int c = 0; c < cols; ++c) {
-                        const QTableWidgetItem* sItem = src->item(r, c);
-                        if (sItem != nullptr) {
-                            dst->setItem(r, c, new QTableWidgetItem(*sItem));
-                        } else {
-                            dst->setItem(r, c, nullptr);
-                        }
-                    }
-                }
             }
             if (m_tableConfigurator) {
                 m_tableConfigurator->afterTablePopulated(dst);
@@ -5640,16 +5854,31 @@ void MainWindow::onInstallWindowsCliIntegration() {
     }
 }
 
+void MainWindow::setUninstallWindowsCliIntegrationHandler(std::function<bool(const QString&, QString*)> handler) {
+    m_uninstallCliHandler = std::move(handler);
+}
+
 void MainWindow::onUninstallWindowsCliIntegration() {
     using locale::GerenciadorTraducao;
     QString details;
-    os::uninstallWindowsCliIntegration(QString(), &details);
-    m_windowManager->showModelessMessage(
-        QMessageBox::Information,
-        GerenciadorTraducao::trText("Integração CLI Removida"),
-        GerenciadorTraducao::trText("As entradas de usuário (HKCU PATH, App Paths e associação .omniframe) deste diretório foram removidas com segurança.\n\n%1")
-            .arg(details));
-    showStatusMessage(GerenciadorTraducao::trText("Registro HKCU da CLI removido."));
+    const bool ok = m_uninstallCliHandler
+        ? m_uninstallCliHandler(QString(), &details)
+        : os::uninstallWindowsCliIntegration(QString(), &details);
+    if (ok) {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Information,
+            GerenciadorTraducao::trText("Integração CLI Removida"),
+            GerenciadorTraducao::trText("As entradas de usuário (HKCU PATH, App Paths e associação .omniframe) deste diretório foram removidas com segurança.\n\n%1")
+                .arg(details));
+        showStatusMessage(GerenciadorTraducao::trText("Registro HKCU da CLI removido."));
+    } else {
+        m_windowManager->showModelessMessage(
+            QMessageBox::Warning,
+            GerenciadorTraducao::trText("Falha ao Remover Integração CLI"),
+            GerenciadorTraducao::trText("Não foi possível remover integralmente as entradas da CLI no registro HKCU do Windows.\n\nDetalhes: %1")
+                .arg(details));
+        showStatusMessage(GerenciadorTraducao::trText("Falha ao remover registro HKCU da CLI."));
+    }
 }
 
 void MainWindow::onCheckWindowsCliIntegration() {
@@ -5666,13 +5895,13 @@ void MainWindow::onCheckWindowsCliIntegration() {
         "• App Paths (omniframe-cli.exe): %5\n"
         "• Associação .omniframe: %6\n"
         "• Pronto para CMD e PowerShell: %7")
-        .arg(st.installDirectory)
-        .arg(st.cliBinaryExists ? yesStr : noStr)
-        .arg(st.installDirInUserPath ? yesStr : noStr)
-        .arg(st.installDirInSystemPath ? yesStr : noStr)
-        .arg(st.appPathsCliRegistered ? yesStr : noStr)
-        .arg(st.fileAssocRegistered ? yesStr : noStr)
-        .arg(st.isReadyForCmdAndPowerShell() ? yesStr : noStr);
+        .arg(st.installDirectory,
+             st.cliBinaryExists ? yesStr : noStr,
+             st.installDirInUserPath ? yesStr : noStr,
+             st.installDirInSystemPath ? yesStr : noStr,
+             st.appPathsCliRegistered ? yesStr : noStr,
+             st.fileAssocRegistered ? yesStr : noStr,
+             st.isReadyForCmdAndPowerShell() ? yesStr : noStr);
 
     m_windowManager->showModelessMessage(
         QMessageBox::Information,
@@ -6035,14 +6264,23 @@ void MainWindow::changeEvent(QEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    flushRecoverySnapshotIfDirty();
     if (!m_closingConfirmed && m_confirmUnsavedOnClose && m_hasUnsavedEdits && event &&
         (event->spontaneous() || m_userRequestedQuit)) {
+        persistCurrentSessionState();
+        if (m_actRecoverSession) {
+            m_actRecoverSession->setEnabled(io::ProjectRecoveryStore::inspectPreviousSession().available);
+        }
         event->ignore();
         promptUnsavedChangesBeforeClose();
         return;
     }
-    saveUserPreferences();
+    m_staticSolveContinuations.clear();
+    if (m_analysisExecutor) {
+        m_analysisExecutor->cancelAndWait(5000, false);
+    }
+    persistCurrentSessionState();
+    m_sessionStatePersistedOnClose = true;
+    flushUserPreferencesSync();
     if (m_windowManager) {
         m_windowManager->closeAllChildWindows();
     }
@@ -6404,17 +6642,21 @@ void MainWindow::retranslateUi() {
         }
     }
 
-    auto retranslateTable = [this](QTableWidget* table, ui::ResultTableKind kind) {
+    auto retranslateTable = [this](QTableView* table, ui::ResultTableKind kind) {
         if (!table) {
             return;
         }
         const QStringList hdrs = resultTableHeaders(kind);
         if (m_tableConfigurator) {
             m_tableConfigurator->updateHeaders(table, hdrs);
-        } else {
-            table->setHorizontalHeaderLabels(hdrs);
         }
     };
+    for (int k = 0; k < 4; ++k) {
+        if (m_resultTableModels[static_cast<std::size_t>(k)] != nullptr) {
+            m_resultTableModels[static_cast<std::size_t>(k)]->setHeaders(
+                resultTableHeaders(static_cast<ui::ResultTableKind>(k)));
+        }
+    }
     retranslateTable(m_dispTable, ui::ResultTableKind::Displacements);
     retranslateTable(m_reacTable, ui::ResultTableKind::Reactions);
     retranslateTable(m_forcesTable, ui::ResultTableKind::BarForces);
@@ -6426,12 +6668,9 @@ void MainWindow::retranslateUi() {
                 static_cast<ui::ResultTableKind>(k));
         }
     }
-    if (m_reacTable && m_reacTable->rowCount() > 0) {
-        if (QTableWidgetItem* sumItem = m_reacTable->item(m_reacTable->rowCount() - 1, 0);
-            sumItem != nullptr && sumItem->data(ui::kResultTableSummaryRowRole).toBool()) {
-            sumItem->setText(GerenciadorTraducao::trText("Σ Reações"));
-            refreshReactionSummaryRowTheme();
-        }
+    if (auto* reacModel = m_resultTableModels[static_cast<std::size_t>(ui::ResultTableKind::Reactions)]) {
+        reacModel->updateSummaryLabel(GerenciadorTraducao::trText("Σ Reações"));
+        refreshReactionSummaryRowTheme();
     }
     syncExtraLayoutTables();
 
@@ -6450,13 +6689,13 @@ void MainWindow::retranslateUi() {
         if (m_lastSolverResult.success) {
             QString okMsg =
                 GerenciadorTraducao::trText("Cálculo MEF concluído com sucesso em %1 ms (%2 nós, %3 barras, %4 DOFs). Equilíbrio: %5")
-                .arg(m_lastSolverResult.executionTimeMs, 0, 'f', 1)
-                .arg(m_lastSolverResult.totalNodes)
-                .arg(m_lastSolverResult.totalElements)
-                .arg(m_lastSolverResult.totalDofs)
-                .arg(m_lastSolverResult.equilibrium.isBalanced
-                    ? GerenciadorTraducao::trText("OK (ΣF=0)")
-                    : GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
+                .arg(QString::number(m_lastSolverResult.executionTimeMs, 'f', 1),
+                     QString::number(m_lastSolverResult.totalNodes),
+                     QString::number(m_lastSolverResult.totalElements),
+                     QString::number(m_lastSolverResult.totalDofs),
+                     m_lastSolverResult.equilibrium.isBalanced
+                         ? GerenciadorTraducao::trText("OK (ΣF=0)")
+                         : GerenciadorTraducao::trText("Alerta de Desequilíbrio"));
             if (m_lastSolverResult.totalSurfaceElements > 0) {
                 okMsg += QStringLiteral(" | 2D/3D: +%1n / +%2e")
                              .arg(m_lastSolverResult.totalSurfaceNodes)
@@ -6479,13 +6718,9 @@ void MainWindow::retranslateUi() {
         }
     }
 
-    if (m_reacTable && m_reacTable->rowCount() > 0 && !m_lastSolverResult.success) {
-        // Keep idle cleanly
-    } else if (m_reacTable && m_reacTable->rowCount() > 0) {
-        const int lastRow = m_reacTable->rowCount() - 1;
-        if (auto* item = m_reacTable->item(lastRow, 0)) {
-            item->setText(GerenciadorTraducao::trText("Σ Reações"));
-        }
+    if (auto* reacModel = m_resultTableModels[static_cast<std::size_t>(ui::ResultTableKind::Reactions)];
+        reacModel != nullptr && reacModel->rowCount() > 0 && m_lastSolverResult.success) {
+        reacModel->updateSummaryLabel(GerenciadorTraducao::trText("Σ Reações"));
     }
 
     updateInspector();

@@ -2,6 +2,7 @@
 
 #include "../core/StructuralModel.hpp"
 #include "../kernel/mesh/MeshGenerator.hpp"
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,6 +36,8 @@ struct IfcInteropReport {
  */
 class IfcInterop {
 public:
+    static constexpr std::size_t kDefaultMaxFileSizeBytes = 128ULL * 1024ULL * 1024ULL;
+
     static std::string makeDeterministicGuid(const std::string& seedKey);
 
     static bool exportToFile(const std::string& filePath,
@@ -52,13 +55,15 @@ public:
                                StructuralModel& outModel,
                                kernel::MeshContainer* outShellMesh = nullptr,
                                IfcGuidMap* outGuidMap = nullptr,
-                               IfcInteropReport* report = nullptr);
+                               IfcInteropReport* report = nullptr,
+                               std::size_t maxFileSizeBytes = kDefaultMaxFileSizeBytes);
 
     static bool importFromString(const std::string& stepText,
                                  StructuralModel& outModel,
                                  kernel::MeshContainer* outShellMesh = nullptr,
                                  IfcGuidMap* outGuidMap = nullptr,
-                                 IfcInteropReport* report = nullptr);
+                                 IfcInteropReport* report = nullptr,
+                                 std::size_t maxFileSizeBytes = kDefaultMaxFileSizeBytes);
 };
 
 } // namespace omniframe::io

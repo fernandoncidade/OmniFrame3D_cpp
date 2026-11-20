@@ -1,6 +1,6 @@
 ================================================================================
 OMNIFRAME 3D — COMPLETE OPERATIONS AND ENGINEERING MANUAL
-Version: 2026.11.18.0 | Date: November 18, 2026 | Author: Fernando Nillsson Cidade
+Version: 2026.11.20.0 | Date: November 20, 2026 | Author: Fernando Nillsson Cidade
 Document Language: English (US) — Strict line-by-line correspondence with pt-BR
 ================================================================================
 
@@ -40,7 +40,7 @@ CHAPTER 2 — PROJECT MANAGEMENT, FILES, INTEROPERABILITY AND EXAMPLES
 
 2.1 New Project, Clean Startup, Session Recovery and .omniframe Format
 By default, the application starts with a completely empty workspace (with no preloaded model or previous results). Triggering File > New Project (Ctrl+N) resets the workspace after confirmation in a modeless dialog, while keeping full multi-level history under Edit > Undo (Ctrl+Z) and Redo (Ctrl+Y).
-• Automatic Recovery Snapshot and Exit Protection: whenever you edit nodes, members, supports, loads, combinations, solver options, or wind metadata, an automatic recovery copy is saved under %LOCALAPPDATA%\OmniFrame\recovery\ (recovery_autosave.omniframe). Closing the application with unsaved edits presents a modeless confirmation dialog offering Save, Exit and Keep Recovery, or Cancel.
+• Automatic Recovery Snapshot and Exit Protection: whenever you edit nodes, members, supports, loads, combinations, solver options, or wind metadata, a single atomic per-session recovery bundle (safely locked against collisions between multiple open windows) is automatically written under %LOCALAPPDATA%\OmniFrame\recovery\. Closing the application with unsaved edits presents a modeless confirmation dialog offering Save, Exit and Keep Recovery, or Cancel.
 • Startup Policy (Previous Session): whenever a saved project, example, or unsaved edit remains from the previous session, the "Resume Previous Session" prompt lets you choose Load Previous Edit / Load Previous Project / Load Previous Example or Start New Project. This policy can be customized under Settings > Session, Startup and Logs (Ask on startup, Automatically load previous, or Always start a new project).
 The native .omniframe format (Schema 2.1.0, backward-compatible with 1.0 and 2.0) uses human-readable UTF-8 JSON storing materials (including density ρ and J2 parameters), cross sections, nodes, elements, load combinations, and code-check settings with strict numerical validation rejecting non-finite values (NaN or infinity) on load.
 WARNING: keep backup copies before editing .omniframe files manually in external text editors, preserving unique integer identifiers for nodes, materials, and cross sections.
@@ -49,8 +49,8 @@ WARNING: keep backup copies before editing .omniframe files manually in external
 To load an existing model, use File > Open (.omniframe)... (Ctrl+O) and pick the target file from the modeless file dialog (which automatically remembers the last used directory); upon loading, the window title displays the filename and the camera frames the entire structure.
 To save changes to the active file, use File > Save (.omniframe) (Ctrl+S), or use File > Save As (.omniframe)... (Ctrl+Shift+S) to write to a new path; pending unsaved edits show the [*] modified indicator in the window title, and File > Recover Previous Session... restores the last recorded session from disk at any time.
 Beyond the native format, the File menu offers four bidirectional, fully offline CAD and BIM interoperability tools:
-• Import DXF... and Export DXF...: reads 3D wireframe lines and layers from CAD drawings (.dxf) with tolerance-based node merging, and exports structural members and faces back to DXF.
-• Import BIM IFC4... and Export BIM IFC4...: imports open STEP IFC4 (.ifc) structural models reconstructing nodes, members, and surfaces, and exports the OmniFrame 3D model as IFC4 entities compatible with BIM platforms.
+• Import DXF... and Export DXF...: reads 3D wireframe lines and layers from CAD drawings (.dxf) with anti-DoS file-size bounds (128 MB default), strict finite-coordinate validation, and tolerance-based node merging, exporting structural members and faces (including surface meshes) back to DXF.
+• Import BIM IFC4... and Export BIM IFC4...: imports open STEP IFC4 (.ifc) structural models reconstructing nodes, members, structural supports, and real shell thicknesses cleanly even when referenced nodes are missing, and exports the OmniFrame 3D model (including surface meshes) as IFC4 entities compatible with BIM platforms.
 
 2.3 Calculation Report Export (HTML, Markdown and A4 PDF)
 The File menu provides three built-in exporters for engineering calculation documentation with zero external dependencies:
@@ -119,7 +119,7 @@ With Measure (M) mode active, click the first point or reference node and then c
 
 4.4 Safe Deletion and Selection Clearing
 To delete unwanted entities, select one or more nodes or members in the viewport and trigger Delete (Del) (Del key or the corresponding toolbar button).
-Deleting a node automatically removes every member attached to that node so the structural mesh remains topologically valid without dangling references; any deletion can be reverted cleanly via Edit > Undo (Ctrl+Z).
+Deleting a node automatically removes all members attached to it as well as associated rigid links/diaphragms, loads, and selection references so the structural mesh remains topologically valid without dangling references; any deletion can be reverted cleanly via Edit > Undo (Ctrl+Z).
 Pressing Esc exits active chained creation modes or clears the current selection cleanly.
 
 4.5 Side Property Inspector (Selected Element / Node) and Batch Selection
@@ -131,7 +131,7 @@ Clicking any node or member in the 3D Viewport (or holding Ctrl for multi-select
 4.6 Parametric 1D/2D/3D Mesh Generator (Shells and Solids)
 Open Structure > 1D/2D/3D Mesh Generator... (or 2D/3D Mesh... on Toolbar 2) to generate and couple surface or volumetric finite element meshes anywhere in your project with an integrated end-to-end (E2E) workflow:
 • Supported Element Families (Mesh Type:): generates refined 1D lines (Line2), 2D shell/plate meshes (2D Structured Quad4 Slab/Shell, 2D Quadratic Quad8 Slab/Shell, Structured Tri3, and Delaunay Tri3 Polygon) for slabs, walls, and shells, 3D solid blocks (Structured Hex8, Quadratic Hex20, and Structured Tet4), and 2D -> 3D Hex8 Extrusion.
-• Material, Thickness, Supports and Direct Pressure: choose Mesh Material: from the project catalog, set Thickness (2D Shell): in meters, pick a ready Constraint Condition: preset (Unconstrained (Free), Fixed outer edges, Pinned outer edges (uX,uY,uZ=0), Fixed bottom base (Zmin), or Fixed left face (Xmin)), and enter Pressure / Z Load (2D/3D): in kPa (such as -5.00 kPa) directly prior to mesh generation.
+• Material, Thickness, Supports and Dimension-Aware Load: choose Mesh Material: from the project catalog, set Thickness (2D Shell): in meters, pick a ready Constraint Condition: preset (including proper bottom-base Zmin restraint for 3D solids without over-restraining all 6 faces), and enter loads in the unit matching the mesh dimension — Linear Z Load (1D) in kN/m, Normal Pressure / Z Load (2D) in kPa, or Body Force / Volumetric Z Load (3D) in kN/m³ (2D -> 3D extrusion validates and requires a Tri3/Quad4 base mesh).
 • Automatic Bounding-Box Fitting and Dimensions: enter Origin (X / Y / Z), Dimensions (Lx / Ly / Lz), Subdivisions (nx / ny / nz), and Delaunay target size, or click Fit to Model Bounds to adapt the generator box automatically to the active frame bounds.
 • Quality Diagnostics, Coupling and Cleanup: displays node/element counts and quality metrics (J_min, Aspect ratio range, and max Skewness); running SOLVE STRUCTURE (F5) automatically merges coincident 1D and 2D/3D nodes (while pure solid nodes allocate only 3 translational DOFs uX, uY, uZ) and populates the 2D/3D Forces (Shell/Solid) tab. Use Clear Mesh to remove the parametric 2D/3D mesh cleanly while keeping the primary 3D frame intact.
 
@@ -141,16 +141,16 @@ CHAPTER 5 — STRUCTURAL PROPERTIES, BOUNDARY CONDITIONS, THERMAL AND COMBINATIO
 Open Structure > Materials... (or click Materials... on the toolbar) to open the modeless material editor where you can create, edit, or select materials defined by their physical constants: Longitudinal Elastic Modulus E (GPa), Poisson's Ratio ν, Thermal Expansion Coefficient α (/°C), Specific Weight γ (kN/m³), and Mass Density ρ.
 Four ready-to-use engineering presets are included: Structural Steel (ASTM A36) (E = 200 GPa, ν = 0.30, γ = 78.5 kN/m³), Structural Concrete C30 (E = 30 GPa, ν = 0.20, γ = 25.0 kN/m³), Aluminum 6061-T6 (E = 70 GPa, ν = 0.33, γ = 27.0 kN/m³), and Structural Timber (E = 14.5 GPa, ν = 0.20, γ = 8.0 kN/m³).
 When enabled for elastoplastic nonlinear analyses, materials also store yield stress σy (MPa) plus isotropic (H_iso) and kinematic (H_kin) hardening moduli for the von Mises J2 Plasticity constitutive model.
-Confirming with members selected in the 3D viewport assigns the chosen material to all selected members immediately without interrupting your modeling workflow.
+Confirming with members selected in the 3D viewport assigns the chosen material to all selected members immediately without interrupting your modeling workflow; materials currently assigned to 2D/3D continuum mesh elements are also protected against accidental deletion.
 
 5.2 Cross Sections and Automatic Inertia Calculation
-Open Structure > Cross Sections... (or Sections... on the toolbar) to configure member cross-section geometry using five analytical shape families in meters (m), m², and m⁴:
+Open Structure > Cross Sections... (or Sections... on the toolbar) to configure member cross-section geometry using analytical shape families in meters (m), m², and m⁴:
 • Rectangular: specify width b (along local y) and height h (along local z).
 • Circular Solid: specify outer diameter D.
 • Circular Tube: specify outer diameter D_ext and wall thickness t.
 • Rolled or Welded I-Profile: specify total depth h, flange width b_f, flange thickness t_f, and web thickness t_w.
-• Generic (Manual): enter area A, principal moments of inertia Iy and Iz, and Saint-Venant torsion constant J directly.
-Computed sectional properties (A, Iy, Iz, and J) update dynamically for verification and are assigned in batch to all selected members.
+• Generic (Manual), Custom Polygon and Composite Section: direct entry of A, Iy, Iz, and J alongside preserved dialog support for Custom Polygon and Composite Section families (plus steel shapes such as Angle L, Channel U, and Asymmetric I-Profile).
+Computed sectional properties (A, Iy, Iz, and J) are dynamically validated against invalid wall, flange, web, or leg dimensions and displayed for verification before batch assignment to selected members.
 
 5.3 Nodal Supports, Elastic Springs and Prescribed Settlements
 Open Structure > Support Conditions... (or Supports... on the toolbar) with one or more nodes selected to configure each of the six global degrees of freedom (uX, uY, uZ, θX, θY, θZ) individually.
@@ -182,7 +182,7 @@ Using the thermal expansion coefficient α configured on the member material, th
 
 5.9 Load Cases, ABNT NBR Combinations & 6120/6123 Assistants
 Open Structure > Load Cases, NBR Combinations & Wind... (or Combinations... on Toolbar 2) to manage multiple load cases (Dead G, Live Q, Wind W, Thermal T, Seismic E) and factored combinations:
-• Automatic ABNT NBR Combinations: the Generate NBR Combinations button captures active viewport loads when needed and generates standard combinations (ULS-1 Normal, ULS-2 P-Delta, and SLS Quasi-Permanent), alongside custom entries via + New Combination.
+• Automatic ABNT NBR Combinations: the Generate NBR Combinations button captures active viewport loads when needed and generates standard combinations (ULS-1 Normal, ULS-2 P-Delta — automatically enabling real iterative P-Delta analysis — and SLS Quasi-Permanent with ψ2 = 0 for seismic loads), alongside custom entries via + New Combination.
 • Engineering Code Assistants: dedicated tabs assist in estimating basic/characteristic wind speed and stagnation pressure under ABNT NBR 6123:2023 (V0, S1, S2, S3) and reviewing occupancy live-load parameters under ABNT NBR 6120:2019.
 
 CHAPTER 6 — FINITE ELEMENT ANALYSIS, ADVANCED SUITE AND NBR AUDIT
@@ -192,7 +192,7 @@ Before assembling the linear system, the model undergoes validate() structural c
 If the model contains kinematic mechanisms, global under-restraint, or a non-positive-definite stiffness matrix, the solver halts safely and displays a diagnostic message inside a modeless alert window identifying the probable cause.
 
 6.2 Matrix Formulation and Sparse Solver Suite (LinearSolverSuite)
-Triggering Structure > RUN ANALYSIS (F5 key or the ▶ RUN ANALYSIS (F5) toolbar button) executes FemSolver3D asynchronously on a background worker thread through the following 64-bit double-precision stages:
+Triggering Structure > RUN ANALYSIS (F5 key or the ▶ RUN ANALYSIS (F5) toolbar button) launches FemSolver3D via the unified asynchronous executor (running real iterative P-Delta when enabled) on a background worker thread without freezing the UI, enforcing mutual exclusion between F5 and the Advanced Suite, cooperative cancellation, and automatic discard of stale results if the model changes mid-solve:
 1. Computation of the exact 12×12 local member stiffness matrix including axial (EA/L), torsional (GJ/L), and biaxial Euler-Bernoulli bending (12EI/L³, 6EI/L², 4EI/L, 2EI/L) stiffness terms plus static condensation for end releases and 2D/3D shell/solid elements when an active mesh exists.
 2. Orthogonal transformation to global coordinates via block matrix [T] = diag(R, R, R, R) using K_glob = T^T · K_loc · T and fixed-end force vector transformation (covering self-weight, distributed loads, and thermal ΔT).
 3. Global sparse stiffness matrix assembly incorporating elastic spring stiffnesses, support restraints, and prescribed displacements.
@@ -204,16 +204,16 @@ Residual force errors (ΔFx, ΔFy, ΔFz) and residual moment errors about the or
 
 6.4 Advanced Analysis Suite (Modal, Buckling, Dynamic and Nonlinear)
 Open Structure > Advanced Analysis Suite... (or Advanced... on Toolbar 2) to run multi-physics background simulations on the active structural model:
-• Combinations & Envelope and Linear Solver Selector: select the sparse solver backend under Solver: (Auto, SimplicialLDLT (SPD Cholesky), SparseLU (COLAMD), or ConjugateGradient (PCG)) and run Solve Cases & Combinations to compute displacements, member forces, and envelopes for each configured case/NBR combination, then plot any case/combination in the 3D Viewport.
+• Combinations & Envelope and Linear Solver Selector: select the sparse solver backend under Solver: (Auto, SimplicialLDLT (SPD Cholesky), SparseLU (COLAMD), or ConjugateGradient (PCG)) and run Solve Cases & Combinations under the exclusive asynchronous queue to compute every case and NBR combination (including P-Delta when enabled), inspecting envelopes and plotting any case/combination in the 3D Viewport.
 • Modal Analysis: extracts natural frequencies (Hz), periods (s), modal participation factors, and effective masses for the requested number of modes, enabling live 3D mode-shape animation.
 • Linear Buckling and Initial Geometric Imperfection: solves critical buckling load factors (λ_cr) and global stability mode shapes for the applied loads; select a mode row in the table, set the amplitude in Initial Imperfection (amp) (m), and click Apply Imperfection to Geometry to perturb nodal coordinates before P-Delta or nonlinear analyses.
-• Harmonic FRF & Response Spectrum: computes frequency-response sweeps (amplitude and phase under modal/Rayleigh damping) and CQC/SRSS spectral combinations (with seismic spectrum parameters and explicit OutOfLocalPdfScope transparency note for NBR 15421).
+• Harmonic FRF & Response Spectrum: computes frequency-response sweeps (amplitude and phase with accurate non-doubled modal/Rayleigh damping) and CQC/SRSS spectral combinations featuring the corrected NBR 15421 plateau (2.5·Ca·ag) and sign-invariant orthogonal directional combination (explicitly tagged OutOfLocalPdfScope for NBR 15421).
 • Transient / Seismic (Newmark-Beta & HHT-Alpha): under Excitation Type:, choose Seismic Accelerogram (a_g) (X, Y, or Z directions with peak a_g) or Force Time History F(t) (selecting Base Load Case F(t): from Active Model Loads (All) or a specific load case with Scale Factor (A₀):), pick Time Integrator: between Newmark-Beta (γ=0.50, β=0.25) and HHT-Alpha (α=-0.05), configure Time Step (Δt) and Number of Steps, and play back via Play History in 3D Viewport.
-• Nonlinear Analysis (P-Delta / Newton-Raphson / Arc-Length): choose the solver strategy (Iterative P-Delta, Newton-Raphson, or Crisfield Arc-Length), kinematics (Small Strain, 2nd-Order P-Delta, or 3D Corotational), Full Tangent (Full Newton) and Line Search options, step count, and target load factor λ_target, inspecting residual ||R||, energy convergence, and J2 yield indicators (Yielded J2).
+• Nonlinear Analysis (P-Delta / Newton-Raphson / Arc-Length): choose the solver strategy (Iterative P-Delta, Newton-Raphson, or Crisfield Arc-Length), kinematics (Small Strain, 2nd-Order P-Delta, or 3D Corotational), Full Tangent (Full Newton) and real backtracking Line Search (with exact previous-state restoration on rejected trial steps), step count, and target load factor λ_target, monitoring true equilibrium residual ||R|| and J2 yield status (Yielded J2).
 
 6.5 ABNT NBR Code Compliance Audit and 3D DCR Heatmap
 Open Structure > ABNT NBR Code Compliance Audit (6118 / 8800 / 6122)... (or NBR Audit... on Toolbar 2) to evaluate the structural model against locally verified Brazilian technical standards:
-• Audited Normative Scope & Transparency: performs checks under ABNT NBR 6118:2023 (reinforced concrete ULS/SLS helpers), NBR 8800:2024 (steel tension, compression, bending, and shear members plus γz / B2 stability), NBR 6122:2022 (shallow footing bearing stress against allowable soil σ_adm), NBR 6123:2023 (wind), NBR 6120:2019, and NBR 7480:2022, explicitly tagging verified rules as LocalPdfVerified and absent standards as OutOfLocalPdfScope.
+• Audited Normative Scope & Transparency: performs checks under ABNT NBR 6118:2023 (reinforced concrete ULS/SLS helpers fed from synced member force extremes), NBR 8800:2024 (steel tension, compression, bending, and shear with plastic moment cap when Cb > 1 plus γz / B2 stability), NBR 6122:2022 (consistent axial footing force N_k against allowable soil σ_adm), NBR 6123:2023 (wind), NBR 6120:2019, and NBR 7480:2022, tagging verified rules as LocalPdfVerified and absent standards as OutOfLocalPdfScope.
 • 3D DCR Heatmap in Viewport: projects member Demand-to-Capacity Ratios (DCR) directly onto the 3D structure with spectral utilization coloring so overstressed elements near or above 1.00 stand out immediately.
 • Direct PDF Report Export: the Export PDF Report (A4)... button inside the audit dialog exports the complete calculation report including clause-by-clause ABNT checks.
 
@@ -239,14 +239,14 @@ Within the Bottom Dock (Result Tables & Structural Diagnostics), four synchroniz
 • Member Forces Tab: lists minimum and maximum values of N, Vy, Vz, Tx, My, Mz and maximum deflection recorded along each member.
 • 2D/3D Forces (Shell/Solid) Tab: lists each 2D/3D continuum mesh element with Element, Type, equivalent von Mises stress (σ_vM (kPa)), principal stresses (σ_1 (kPa), σ_3 (kPa)), and local resultants/stress components (Nxx / σxx, Nyy / σyy, Mxx / τxz).
 • Smart Selection, Header Wrapping and 3D Picking: click the table top-left corner button to toggle between selecting all visible cells and clearing selection; click column headers (with Ctrl to toggle or Shift for range) to select entire columns; narrowing a column automatically reflows multi-line headers and row height; and double-clicking any row selects and highlights the corresponding node, member, or 2D/3D element in the 3D Viewport.
-• Context Menu, Sorting, Colors and Export (.xlsx, .csv, .txt, .json, .xml): right-click cells or headers to Configure Columns (hide/show, Select All Columns, Reset Columns), toggle Sort Rows (smart numeric, min/max range, and natural sorting on header clicks while keeping "Reaction Sum" pinned at the bottom), change Table Row Order (Append at Bottom, Prepend at Top, or Reverse Current Table Rows), Color Columns (Ctrl+Shift+A) and Configure Colors by category (Structural/Mesh Nodes, Supports, Reaction Sum, Frame Bars, 2D Shells, and 3D Solids with automatic contrast text), Copy Selection (Ctrl+C), Copy with Headers (Ctrl+Shift+C), Copy Entire Table, and configure Export Options (Export Active Columns Only / Export Selection Only) before clicking Export Table.
-• Multiple Result Panel Layouts: under Settings > Result Tables Panel Layouts, split the bottom dock into 1 Layout (All Tables), 2 Layouts, 3 Layouts, or 4 Layouts side by side with adjustable splitters, pick which tables appear in 1st Layout Tables through 4th Layout Tables (or Select All Tables), and use Restore Default Layouts to return to the default layout.
+• Context Menu, Sorting, Colors and Safe Export (.xlsx, .csv, .txt, .json, .xml): right-click cells or headers to Configure Columns (hide/show, Select All Columns, Reset Columns), toggle Sort Rows (keeping "Reaction Sum" pinned at the bottom), change Table Row Order, Color Columns (Ctrl+Shift+A) and Configure Category Colors (with automatic contrast text), Copy Selection / with Headers / Entire Table, and configure Export Options (Export Active Columns Only / Export Selection Only, strictly honoring non-contiguous cells and empty selections) before clicking Export Table (CSV/TXT/XLSX sanitize formula prefixes =, +, -, @, or TAB while preserving valid negative numbers, and XML/XLSX filter illegal control characters).
+• Multi-Layout Dock Sharing a Single MVC Model: under Settings > Result Tables Panel Layouts, split the bottom dock into 1 Layout (All Tables), 2 Layouts, 3 Layouts, or 4 Layouts side by side backed by a single shared data model without duplicating cells in memory, pick which tables appear in 1st Layout Tables through 4th Layout Tables (or Select All Tables), and use Restore Default Layouts to return to the default layout.
 
 7.4 Advanced 3D Post-Processing Controls (Contours, Clip Plane and Animation)
 Open Structure > 3D Controls (Contours / Clip / Animation)... (or Clip/Contours... on Toolbar 2) to inspect advanced results inside the OpenGL Viewport:
-• Surface Contour Maps & Mesh Overlay: under Contour:, switch between Default (Selection/Theme Colors), Displacement Vector Map |u|, DCR Heatmap (ABNT NBR), and von Mises Stress (Shell/Solid), plus toggle Show 2D/3D Mesh (Surfaces/Solids) to display or hide generated meshes over the model.
+• Surface Contour Maps & Mesh Overlay: under Contour:, switch between Default (Selection/Theme Colors), Displacement Vector Map |u|, DCR Heatmap (ABNT NBR, with legend stops aligned to 0.50 / 0.85 / 1.00), and von Mises Stress (Shell/Solid), plus toggle Show 2D/3D Mesh (Surfaces/Solids); if OpenGL 3.3 Core is unavailable in this session, a clean fallback notice is displayed without crashing.
 • Interactive 3D Clipping Plane: select a sectioning axis (Off, X, Y, or Z), scrub the slice offset continuously across the model bounding box, and flip side orientation to inspect interior solids and dense frames without clipping the working plane grid (XY, XZ, YZ) or cursor preview marker.
-• Continuous 3D Animation: animate static deformed shapes, natural vibration mode shapes, buckling modes, or harmonic/time-history steps in real time with adjustable playback speed and amplitude.
+• Continuous 3D Animation: animate static deformed shapes, natural vibration mode shapes, buckling modes, or harmonic/time-history steps in real time with adjustable playback speed and amplitude — including models composed solely of 2D/3D continuum meshes without frame bars.
 
 CHAPTER 8 — GRAPHICS SETTINGS, IMAGE RESOLUTION, THEME AND LANGUAGE
 
@@ -259,7 +259,7 @@ To eliminate jagged aliasing along angled lines, grid subdivisions, and slender 
 8.2 Advanced Resolution and Image Settings Dialog (Live Preview)
 Under Settings > Advanced Resolution and Image Settings... (plus the quick Settings submenus: Graphics Quality Preset, Internal Resolution Scale (SSAA), Hardware Anti-Aliasing (MSAA), Line and Image Definition, Active Plane Appearance, Vertical Sync (VSync), and Restore Maximum Quality Defaults), every option updates the 3D Viewport live before clicking Apply or OK:
 • Graphics Quality Presets: Automatic (Maximum Quality), Ultra (200% SSAA + Max MSAA), High (150% SSAA + 8× MSAA), Balanced (100% Native + 4× MSAA), Performance (100% Native + Shader AA), and Custom (assigned automatically upon manual tuning).
-• Fine Manual Controls: Automatic (GPU Max) resolution checkbox, Internal Resolution Scale (SSAA) slider, Auto or manual MSAA selector (Off, 2x, 4x, 8x, 16x), Subpixel Analytical Line Anti-Aliasing (Shader SDF) toggle, Line Width Multiplier, Edge AA softness, Adaptive Sharpening, Downsample Filter method (Catmull-Rom 16-tap + Sharpen, Smooth Bicubic, or Standard Bilinear), VSync toggle, and viewport resolution telemetry toggle.
+• Fine Manual Controls: Automatic (GPU Max) resolution checkbox, Internal Resolution Scale (SSAA) slider, Auto or manual MSAA selector (Off, 2x, 4x, 8x, 16x), Subpixel Analytical Line Anti-Aliasing (Shader SDF) toggle, Line Width Multiplier, Edge AA softness, Adaptive Sharpening, Downsample Filter method (adjusting Edge AA softness, Adaptive Sharpening, or grid contrast switches the active preset to Custom), VSync toggle, and viewport resolution telemetry toggle.
 • GPU Hardware Telemetry and Persistence: the dialog reports detected GPU renderer name, vendor, OpenGL version, max hardware MSAA/texture limits, and physical rendered pixel resolution; Cancel cleanly restores prior viewport settings, while Apply or OK saves settings locally inside the graphics section of user_preferences.json.
 
 8.3 Active Plane Themes, Interface Theme (Light/Dark), Native/Custom UI and Contrast
@@ -326,7 +326,7 @@ The OmniFrame 3D ecosystem also provides integrated command-line and maintenance
 • OmniFrame CLI (omniframe-cli.exe): native console executable integrated with the main OmniFrame.exe binary and Windows 10/11 (CMD and PowerShell), sharing 100% of OmniFrameCore and OmniFrameKernel. Refer to Chapter 10 of this Manual (or click the CLI Commands (CMD/PowerShell) button in the top bar) for the complete reference covering installation, access, all supported flags, JSON output schema, exit codes, and ready-to-run workflows.
 • VersionEditor (VersionEditor.exe): graphical and CLI utility for synchronized version number and revision date updates across configured Portuguese (BR) and English (US) documents and manifests.
 • CompileTranslationsGUI (CompileTranslationsGUI.exe): graphical utility for inspecting, compiling (.ts to .qm), and deploying Qt translations cleanly.
-• Automated Test Suite (CTest): 20 standalone analytical, advanced-solver, mesh, interoperability, ABNT NBR compliance, and UI workflow verification suites safeguarding numerical and interactive accuracy on every build.
+• Automated Test Suite (CTest): 22 standalone analytical, advanced-solver, mesh, rendering/performance, interoperability, ABNT NBR compliance, security/tools, and UI workflow verification suites safeguarding numerical and interactive accuracy on every build.
 
 CHAPTER 10 — WINDOWS 10/11 COMMAND-LINE INTERFACE (omniframe-cli.exe — CMD & POWERSHELL)
 
@@ -391,14 +391,14 @@ WARNING: After registering PATH via --install-windows-integration or register_cl
 • --imperfection-mode <N>: selects the 1-based buckling mode index used by --imperfection (default: 1).
 
 10.7 Export Formats, Engineering Reports, JSON Schema and Exit Codes
-• --export <fmt> <path>: exports model geometry and/or computed results to disk (repeatable in a single command for multiple formats). Supported formats: json (serialized .omniframe project including displacements and stresses), csv (nodal displacements plus continuum shell/solid stress table), vtk (legacy VTK UNSTRUCTURED_GRID 1D/2D/3D with nodal displacement vectors and cell von_mises_kPa for ParaView), dxf (3D CAD interchange), and ifc (IFC4 structural BIM interchange).
+• --export <fmt> <path>: exports model geometry and/or computed results to disk (repeatable in a single command for multiple formats). Supported formats: json (serialized .omniframe project including displacements and stresses), csv (nodal displacements plus continuum shell/solid stress table), vtk (legacy VTK UNSTRUCTURED_GRID 1D/2D/3D with nodal displacement vectors and cell von_mises_kPa for ParaView), dxf (3D CAD interchange preserving surfaceMesh meshes), and ifc (IFC4 structural BIM interchange preserving surfaceMesh, supports, and real shell thickness).
 • --report <fmt> <path>: generates engineering calculation reports in md (Markdown), html (styled HTML5), or pdf (A4 technical calculation report). Repeatable in one call; automatically embeds static, modal, buckling, and nonlinear solver results plus ABNT NBR audit tables when available.
 • --output <path.json>: writes the full indented JSON analysis summary cleanly to disk (works with or without --json on stdout).
 • --json: prints the complete indented JSON summary object to stdout.
 • Primary JSON output keys: schemaVersion, inputFile, exampleName, analysisType, valid, nodes, elements, surfaceNodes, surfaceElements, validationErrors, validationWarnings, validationIssues, success, and error; plus solver-specific metrics (maxNodalDisplacement, totalStrainEnergy, relativeResidual, usedFallback, solverMessage, equilibriumBalanced, frequenciesHz, criticalLoadFactors, appliedImperfection, totalSteps, totalIterations, finalLoadFactor, fullNewtonTangent, enableLineSearch, anyYielded, scheme, dt, peakDispNorm, nbrAudit, and Windows integration diagnostics readyForCmdAndPowerShell / PATH / App Paths flags).
 • Process exit codes (Exit Codes):
 1. Code 0: clean success (query command succeeded, model passed validation, solver converged, and all requested exports/reports were written).
-2. Code 1: CLI syntax error, missing or unreadable input file, unsupported export/report format, disk write failure, or Windows registry write failure.
+2. Code 1: CLI syntax error, invalid or non-finite numeric argument (NaN/Inf flags are strictly rejected while still emitting valid JSON errors when --json or --output is active), missing/unreadable input file, unknown format, or disk/Windows registry write failure.
 3. Code 2: structural model validation failure (--validate) or numerical/physical solver failure (mechanism, singular stiffness, lack of positive buckling modes for --imperfection, or nonlinear non-convergence).
 
 10.8 Ready-to-Run Windows Command Prompt (CMD) Workflows

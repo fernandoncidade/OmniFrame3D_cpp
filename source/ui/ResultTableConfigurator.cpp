@@ -37,6 +37,7 @@
 #include <QStyle>
 #include <QStyleOptionViewItem>
 #include <QStyledItemDelegate>
+#include <QTableView>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QXmlStreamWriter>
@@ -44,6 +45,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace omniframe::ui {
@@ -54,10 +56,6 @@ constexpr int kHeaderPadding = 40;
 constexpr int kMinColumnWidth = 10;
 constexpr int kHeaderWidthWrapMargin = 10;
 constexpr int kHeaderHeightMargin = 10;
-
-QString tr(const char* text) {
-    return omniframe::locale::GerenciadorTraducao::trText(text);
-}
 
 QColor blendColors(const QColor& base, const QColor& overlay, double overlayRatio) {
     const double t = std::clamp(overlayRatio, 0.0, 1.0);
@@ -279,31 +277,86 @@ QPalette buildLinceuTablePalette(bool isLightTheme) {
 
 QString buildLinceuTableStyleSheet() {
     return QStringLiteral(
-        "QTableWidget::item:hover { background-color: palette(alternate-base); }"
-        "QTableWidget { selection-background-color: transparent; selection-color: palette(text); gridline-color: palette(mid); }"
-        "QTableWidget::item:selected { background-color: transparent; color: palette(text); border: 1px solid palette(highlight);"
+        "QTableView::item:hover { background-color: palette(alternate-base); }"
+        "QTableView { selection-background-color: transparent; selection-color: palette(text); gridline-color: palette(mid); }"
+        "QTableView::item:selected { background-color: transparent; color: palette(text); border: 1px solid palette(highlight);"
         "border-radius: 3px; padding: 1px; }"
         "QTableCornerButton::section { background-color: palette(button); border: 1px solid palette(mid); }"
         "QTableCornerButton::section:pressed { background-color: palette(highlight); }"
         "QHeaderView, QHeaderView::section { font-weight: bold; }");
 }
 
-void applyDefaultTextForeground(QTableWidget* table, bool isLightTheme) {
+int tableRowCount(const QTableView* table) {
+    return (table != nullptr && table->model() != nullptr) ? table->model()->rowCount() : 0;
+}
+
+int tableColumnCount(const QTableView* table) {
+    return (table != nullptr && table->model() != nullptr) ? table->model()->columnCount() : 0;
+}
+
+QVariant cellData(const QTableView* table, int row, int col, int role) {
+    if (table == nullptr || table->model() == nullptr) {
+        return {};
+    }
+    const QAbstractItemModel* model = table->model();
+    if (row < 0 || row >= model->rowCount() || col < 0 || col >= model->columnCount()) {
+        return {};
+    }
+    return model->data(model->index(row, col), role);
+}
+
+QString cellText(const QTableView* table, int row, int col) {
+    return cellData(table, row, col, Qt::DisplayRole).toString();
+}
+
+QString headerText(const QTableView* table, int col) {
+    if (table == nullptr || table->model() == nullptr) {
+        return {};
+    }
+    const QAbstractItemModel* model = table->model();
+    if (col < 0 || col >= model->columnCount()) {
+        return {};
+    }
+    return model->headerData(col, Qt::Horizontal, Qt::DisplayRole).toString();
+}
+
+ResultTableModel* resolveResultTableModel(QTableView* table) {
+    if (table == nullptr || table->model() == nullptr) {
+        return nullptr;
+    }
+    if (auto* direct = qobject_cast<ResultTableModel*>(table->model())) {
+        return direct;
+    }
+    if (auto* proxy = qobject_cast<ResultTableProxyModel*>(table->model())) {
+        return qobject_cast<ResultTableModel*>(proxy->sourceModel());
+    }
+    return nullptr;
+}
+
+void applyDefaultTextForeground(QTableView* table, bool isLightTheme) {
     if (table == nullptr) {
         return;
     }
     const bool nativeUi = ThemeManager::instance().isNativeUi();
+    if (ResultTableModel* sharedModel = resolveResultTableModel(table)) {
+        sharedModel->setThemeState(isLightTheme, nativeUi);
+        return;
+    }
+    auto* tw = qobject_cast<QTableWidget*>(table);
+    if (tw == nullptr) {
+        return;
+    }
     const QBrush fgBrush = nativeUi
                                ? QBrush()
                                : QBrush(isLightTheme ? QColor(20, 20, 20) : QColor(235, 235, 235));
-    const QSignalBlocker blocker(table);
-    for (int r = 0; r < table->rowCount(); ++r) {
-        if (const QTableWidgetItem* first = table->item(r, 0);
+    const QSignalBlocker blocker(tw);
+    for (int r = 0; r < tw->rowCount(); ++r) {
+        if (const QTableWidgetItem* first = tw->item(r, 0);
             first != nullptr && first->data(kResultTableSummaryRowRole).toBool()) {
             continue;
         }
-        for (int c = 0; c < table->columnCount(); ++c) {
-            if (QTableWidgetItem* item = table->item(r, c)) {
+        for (int c = 0; c < tw->columnCount(); ++c) {
+            if (QTableWidgetItem* item = tw->item(r, c)) {
                 item->setForeground(fgBrush);
             }
         }
@@ -314,6 +367,9 @@ void applyWidgetPaletteAndRepolish(QWidget* w, const QPalette& pal, bool clearCu
     if (w == nullptr) {
         return;
     }
+    if (QStyle* st = w->style()) {
+        st->unpolish(w);
+    }
     if (clearCustomPalette) {
         w->setPalette(QPalette());
         w->setAttribute(Qt::WA_SetPalette, false);
@@ -321,13 +377,12 @@ void applyWidgetPaletteAndRepolish(QWidget* w, const QPalette& pal, bool clearCu
         w->setPalette(pal);
     }
     if (QStyle* st = w->style()) {
-        st->unpolish(w);
         st->polish(w);
     }
     w->update();
 }
 
-QAbstractButton* findCornerButton(QTableWidget* table) {
+QAbstractButton* findCornerButton(QTableView* table) {
     if (table == nullptr) {
         return nullptr;
     }
@@ -459,10 +514,57 @@ QIcon createColorSwatchIcon(const QColor& color) {
     return QIcon(pix);
 }
 
-QString escapeCsvField(const QString& value) {
-    QString out = value;
+bool isLegitimateNumericLiteral(const QString& s) {
+    QString norm = s.trimmed();
+    if (norm.isEmpty()) {
+        return false;
+    }
+    norm.replace(QLatin1Char(','), QLatin1Char('.'));
+    bool ok = false;
+    const double val = QLocale::c().toDouble(norm, &ok);
+    return ok && std::isfinite(val);
+}
+
+QString stripIllegalXml10Chars(const QString& value) {
+    QString cleaned;
+    cleaned.reserve(value.size());
+    for (const QChar ch : value) {
+        const ushort u = ch.unicode();
+        const bool validXml10 = (u == 0x09u) ||
+                                (u == 0x0Au) ||
+                                (u == 0x0Du) ||
+                                (u >= 0x20u && u <= 0xD7FFu) ||
+                                (u >= 0xE000u && u <= 0xFFFDu) ||
+                                ch.isSurrogate();
+        if (validXml10) {
+            cleaned.append(ch);
+        }
+    }
+    return cleaned;
+}
+
+QString sanitizeTabularCell(const QString& value) {
+    const bool startsWithTab = !value.isEmpty() && value.front() == QLatin1Char('\t');
+    QString out = stripIllegalXml10Chars(value);
     out.replace(QLatin1Char('\r'), QLatin1Char(' '));
     out.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    out.replace(QLatin1Char('\t'), QLatin1Char(' '));
+    if (!out.isEmpty()) {
+        const QChar c0 = out.front();
+        const bool isFormulaTrigger = startsWithTab ||
+                                      c0 == QLatin1Char('=') ||
+                                      c0 == QLatin1Char('+') ||
+                                      c0 == QLatin1Char('-') ||
+                                      c0 == QLatin1Char('@');
+        if (isFormulaTrigger && !isLegitimateNumericLiteral(out)) {
+            out.prepend(QLatin1Char('\''));
+        }
+    }
+    return out;
+}
+
+QString escapeCsvField(const QString& value) {
+    QString out = sanitizeTabularCell(value);
     const bool needsQuotes = out.contains(QLatin1Char(',')) ||
                              out.contains(QLatin1Char('"')) ||
                              out.contains(QLatin1Char(';'));
@@ -473,7 +575,7 @@ QString escapeCsvField(const QString& value) {
 }
 
 QString escapeXmlText(const QString& value) {
-    QString out = value;
+    QString out = stripIllegalXml10Chars(value);
     out.replace(QLatin1Char('&'), QStringLiteral("&amp;"));
     out.replace(QLatin1Char('<'), QStringLiteral("&lt;"));
     out.replace(QLatin1Char('>'), QStringLiteral("&gt;"));
@@ -525,6 +627,9 @@ struct ZipEntryRecord {
 };
 
 QByteArray buildStoreZipArchive(const std::vector<std::pair<QString, QByteArray>>& files) {
+    if (files.size() > 0xFFFFu) {
+        return {};
+    }
     QByteArray archive;
     std::vector<ZipEntryRecord> records;
     records.reserve(files.size());
@@ -533,6 +638,16 @@ QByteArray buildStoreZipArchive(const std::vector<std::pair<QString, QByteArray>
         ZipEntryRecord rec;
         rec.utf8Name = path.toUtf8();
         rec.payload = data;
+        if (rec.utf8Name.size() < 0 || rec.utf8Name.size() > 0xFFFF ||
+            rec.payload.size() < 0 || static_cast<std::uint64_t>(rec.payload.size()) > 0xFFFFFFFFULL) {
+            return {};
+        }
+        const std::uint64_t entryBytes = 30ULL +
+                                         static_cast<std::uint64_t>(rec.utf8Name.size()) +
+                                         static_cast<std::uint64_t>(rec.payload.size());
+        if (static_cast<std::uint64_t>(archive.size()) + entryBytes > 0xFFFFFFFFULL) {
+            return {};
+        }
         rec.crc32 = crc32Bytes(data);
         rec.localOffset = static_cast<std::uint32_t>(archive.size());
 
@@ -554,8 +669,15 @@ QByteArray buildStoreZipArchive(const std::vector<std::pair<QString, QByteArray>
         records.push_back(std::move(rec));
     }
 
+    if (static_cast<std::uint64_t>(archive.size()) > 0xFFFFFFFFULL) {
+        return {};
+    }
     const std::uint32_t centralDirOffset = static_cast<std::uint32_t>(archive.size());
     for (const ZipEntryRecord& rec : records) {
+        const std::uint64_t cdEntryBytes = 46ULL + static_cast<std::uint64_t>(rec.utf8Name.size());
+        if (static_cast<std::uint64_t>(archive.size()) + cdEntryBytes > 0xFFFFFFFFULL) {
+            return {};
+        }
         appendLe32(archive, 0x02014B50u); // Central directory header
         appendLe16(archive, 20);
         appendLe16(archive, 20);
@@ -690,7 +812,7 @@ ResultTableConfigurator::ResultTableConfigurator(WindowZOrderManager* windowMana
     : QObject(parent),
       m_windowManager(windowManager) {}
 
-ResultTableConfigurator::TableState* ResultTableConfigurator::findState(QTableWidget* table) {
+ResultTableConfigurator::TableState* ResultTableConfigurator::findState(QTableView* table) {
     for (TableState& entry : m_tables) {
         if (entry.table == table) {
             return &entry;
@@ -699,7 +821,7 @@ ResultTableConfigurator::TableState* ResultTableConfigurator::findState(QTableWi
     return nullptr;
 }
 
-const ResultTableConfigurator::TableState* ResultTableConfigurator::findState(const QTableWidget* table) const {
+const ResultTableConfigurator::TableState* ResultTableConfigurator::findState(const QTableView* table) const {
     for (const TableState& entry : m_tables) {
         if (entry.table == table) {
             return &entry;
@@ -770,7 +892,7 @@ QColor ResultTableConfigurator::idealTextColorForBackground(const QColor& backgr
     return luminance > 0.179 ? QColor(Qt::black) : QColor(Qt::white);
 }
 
-void ResultTableConfigurator::configureTable(QTableWidget* table,
+void ResultTableConfigurator::configureTable(QTableView* table,
                                              ResultTableKind kind,
                                              const QStringList& headers,
                                              bool isLightTheme) {
@@ -806,56 +928,82 @@ void ResultTableConfigurator::configureTable(QTableWidget* table,
     updateHeaderWordWrap(table);
 
     if (isNew) {
+        connect(table, &QObject::destroyed, this, [this](QObject* obj) {
+            std::erase_if(m_tables, [obj](const TableState& st) {
+                return st.table.isNull() || static_cast<const QObject*>(st.table.data()) == obj;
+            });
+        });
         table->installEventFilter(this);
         if (table->viewport() != nullptr) {
             table->viewport()->installEventFilter(this);
         }
+        QPointer<QTableView> tablePtr(table);
         if (QHeaderView* hh = table->horizontalHeader()) {
             hh->installEventFilter(this);
-            connect(hh, &QHeaderView::sectionResized, this, [this, table](int, int, int) {
-                updateHeaderWordWrap(table);
-                if (TableState* st = findState(table); st != nullptr && !st->suspendHeaderWrap && !m_applyingSavedState) {
-                    emit configurationChanged(table);
+            connect(hh, &QHeaderView::sectionResized, this, [this, tablePtr](int, int, int) {
+                if (!tablePtr) return;
+                updateHeaderWordWrap(tablePtr.data());
+                if (TableState* st = findState(tablePtr.data()); st != nullptr && !st->suspendHeaderWrap && !m_applyingSavedState) {
+                    emit configurationChanged(tablePtr.data());
                 }
             });
-            connect(hh, &QHeaderView::sectionMoved, this, [this, table](int, int, int) {
-                if (TableState* st = findState(table); st != nullptr && !st->suspendHeaderWrap && !m_applyingSavedState) {
-                    emit configurationChanged(table);
+            connect(hh, &QHeaderView::sectionMoved, this, [this, tablePtr](int, int, int) {
+                if (!tablePtr) return;
+                if (TableState* st = findState(tablePtr.data()); st != nullptr && !st->suspendHeaderWrap && !m_applyingSavedState) {
+                    emit configurationChanged(tablePtr.data());
                 }
             });
-            connect(hh, &QHeaderView::sectionClicked, this, [this, table](int logicalColumn) {
-                if (TableState* st = findState(table)) {
+            connect(hh, &QHeaderView::sectionClicked, this, [this, tablePtr](int logicalColumn) {
+                if (!tablePtr) return;
+                if (TableState* st = findState(tablePtr.data())) {
                     handleHeaderSectionClicked(*st, logicalColumn);
                 }
             });
-            connect(hh, &QWidget::customContextMenuRequested, this, [this, table](const QPoint& pos) {
-                if (TableState* st = findState(table)) {
-                    showContextMenuAt(*st, table->horizontalHeader()->viewport()->mapToGlobal(pos), true);
+            connect(hh, &QWidget::customContextMenuRequested, this, [this, tablePtr](const QPoint& pos) {
+                if (!tablePtr || !tablePtr->horizontalHeader() || !tablePtr->horizontalHeader()->viewport()) return;
+                if (TableState* st = findState(tablePtr.data())) {
+                    showContextMenuAt(*st, tablePtr->horizontalHeader()->viewport()->mapToGlobal(pos), true);
                 }
             });
         }
 
-        connect(table, &QTableWidget::itemSelectionChanged, this, [table]() {
-            if (table->viewport() != nullptr) {
-                table->viewport()->update();
-            }
-            if (QHeaderView* hh = table->horizontalHeader(); hh != nullptr && hh->viewport() != nullptr) {
-                hh->viewport()->update();
-            }
-            if (QHeaderView* vh = table->verticalHeader(); vh != nullptr && vh->viewport() != nullptr) {
-                vh->viewport()->update();
-            }
-        });
-        connect(table, &QAbstractItemView::doubleClicked, this, [this, table](const QModelIndex& idx) {
-            if (TableState* st = findState(table)) {
+        if (QItemSelectionModel* sm = table->selectionModel()) {
+            connect(sm,
+                    &QItemSelectionModel::selectionChanged,
+                    this,
+                    [tablePtr](const QItemSelection&, const QItemSelection&) {
+                        if (!tablePtr) return;
+                        if (tablePtr->viewport() != nullptr) {
+                            tablePtr->viewport()->update();
+                        }
+                        if (QHeaderView* hh = tablePtr->horizontalHeader(); hh != nullptr && hh->viewport() != nullptr) {
+                            hh->viewport()->update();
+                        }
+                        if (QHeaderView* vh = tablePtr->verticalHeader(); vh != nullptr && vh->viewport() != nullptr) {
+                            vh->viewport()->update();
+                        }
+                    });
+        }
+        if (auto* proxy = qobject_cast<ResultTableProxyModel*>(table->model())) {
+            connect(proxy, &QAbstractItemModel::modelReset, this, [this, tablePtr]() {
+                if (!tablePtr) return;
+                if (TableState* st = findState(tablePtr.data())) {
+                    st->appliedRowOrderMode = TableRowOrderMode::AppendBottom;
+                }
+            });
+        }
+        connect(table, &QAbstractItemView::doubleClicked, this, [this, tablePtr](const QModelIndex& idx) {
+            if (!tablePtr) return;
+            if (TableState* st = findState(tablePtr.data())) {
                 handleCellDoubleClicked(*st, idx.row(), idx.column());
             }
         });
-        connect(table, &QWidget::customContextMenuRequested, this, [this, table](const QPoint& pos) {
-            if (TableState* st = findState(table)) {
-                const QPoint globalPos = table->viewport()
-                                             ? table->viewport()->mapToGlobal(pos)
-                                             : table->mapToGlobal(pos);
+        connect(table, &QWidget::customContextMenuRequested, this, [this, tablePtr](const QPoint& pos) {
+            if (!tablePtr) return;
+            if (TableState* st = findState(tablePtr.data())) {
+                const QPoint globalPos = tablePtr->viewport()
+                                             ? tablePtr->viewport()->mapToGlobal(pos)
+                                             : tablePtr->mapToGlobal(pos);
                 showContextMenuAt(*st, globalPos, false);
             }
         });
@@ -864,8 +1012,8 @@ void ResultTableConfigurator::configureTable(QTableWidget* table,
             if (!cornerBtn->property("_omni_corner_connected").toBool()) {
                 QObject::disconnect(cornerBtn, &QAbstractButton::clicked, nullptr, nullptr);
                 QObject::disconnect(cornerBtn, &QAbstractButton::pressed, nullptr, nullptr);
-                connect(cornerBtn, &QAbstractButton::clicked, this, [this, table]() {
-                    selectCornerAll(table);
+                connect(cornerBtn, &QAbstractButton::clicked, this, [this, tablePtr]() {
+                    if (tablePtr) selectCornerAll(tablePtr.data());
                 });
                 cornerBtn->setProperty("_omni_corner_connected", true);
             }
@@ -877,9 +1025,13 @@ void ResultTableConfigurator::configureTable(QTableWidget* table,
     }
 }
 
-void ResultTableConfigurator::applyStructuralConfig(QTableWidget* table, const QStringList& headers) {
-    table->setColumnCount(headers.size());
-    table->setHorizontalHeaderLabels(headers);
+void ResultTableConfigurator::applyStructuralConfig(QTableView* table, const QStringList& headers) {
+    if (auto* tw = qobject_cast<QTableWidget*>(table)) {
+        tw->setColumnCount(static_cast<int>(headers.size()));
+        tw->setHorizontalHeaderLabels(headers);
+    } else if (ResultTableModel* sharedModel = resolveResultTableModel(table)) {
+        sharedModel->setHeaders(headers);
+    }
     table->setAlternatingRowColors(true);
     table->setSortingEnabled(false); // Ordenação gerenciada pelo manipulador inteligente no cabeçalho.
     table->setSelectionBehavior(QAbstractItemView::SelectItems);
@@ -916,22 +1068,32 @@ void ResultTableConfigurator::applyStructuralConfig(QTableWidget* table, const Q
         boldFont.setBold(true);
         hh->setFont(boldFont);
 
-        for (int c = 0; c < table->columnCount(); ++c) {
+        const int colCount = tableColumnCount(table);
+        auto* tw = qobject_cast<QTableWidget*>(table);
+        auto* proxy = qobject_cast<ResultTableProxyModel*>(table->model());
+        for (int c = 0; c < colCount; ++c) {
             hh->setSectionResizeMode(c, QHeaderView::Interactive);
-            QTableWidgetItem* hItem = table->horizontalHeaderItem(c);
-            if (hItem == nullptr) {
-                hItem = new QTableWidgetItem(c < headers.size() ? headers[c] : QString());
-                table->setHorizontalHeaderItem(c, hItem);
-            }
-            hItem->setTextAlignment(Qt::AlignCenter);
-            if (c < headers.size()) {
-                hItem->setToolTip(headers[c]);
+            const QString hdr = (c < headers.size()) ? headers[c] : QString();
+            if (tw != nullptr) {
+                QTableWidgetItem* hItem = tw->horizontalHeaderItem(c);
+                if (hItem == nullptr) {
+                    hItem = new QTableWidgetItem(hdr);
+                    tw->setHorizontalHeaderItem(c, hItem);
+                }
+                hItem->setTextAlignment(Qt::AlignCenter);
+                if (c < headers.size()) {
+                    hItem->setToolTip(hdr);
+                }
+            } else if (proxy != nullptr && c < headers.size()) {
+                QString singleLine = hdr;
+                singleLine.replace(QLatin1Char('\n'), QLatin1Char(' '));
+                proxy->setWrappedHeader(c, hdr, singleLine.simplified());
             }
         }
     }
 }
 
-void ResultTableConfigurator::applyVisualThemeToTable(QTableWidget* table, bool isLightTheme) {
+void ResultTableConfigurator::applyVisualThemeToTable(QTableView* table, bool isLightTheme) {
     if (table == nullptr) {
         return;
     }
@@ -963,11 +1125,13 @@ void ResultTableConfigurator::applyVisualThemeToTable(QTableWidget* table, bool 
         QFont boldFont = hh->font();
         boldFont.setBold(true);
         hh->setFont(boldFont);
-        for (int c = 0; c < table->columnCount(); ++c) {
-            if (QTableWidgetItem* hItem = table->horizontalHeaderItem(c)) {
-                QFont itemFont = hItem->font();
-                itemFont.setBold(true);
-                hItem->setFont(itemFont);
+        if (auto* tw = qobject_cast<QTableWidget*>(table)) {
+            for (int c = 0; c < tw->columnCount(); ++c) {
+                if (QTableWidgetItem* hItem = tw->horizontalHeaderItem(c)) {
+                    QFont itemFont = hItem->font();
+                    itemFont.setBold(true);
+                    hItem->setFont(itemFont);
+                }
             }
         }
     }
@@ -977,7 +1141,7 @@ void ResultTableConfigurator::applyVisualThemeToTable(QTableWidget* table, bool 
 }
 
 void ResultTableConfigurator::applyIdealColumnWidths(TableState& state, bool forceResetWidths) {
-    QTableWidget* table = state.table;
+    QTableView* table = state.table;
     if (table == nullptr || table->horizontalHeader() == nullptr) {
         return;
     }
@@ -985,14 +1149,18 @@ void ResultTableConfigurator::applyIdealColumnWidths(TableState& state, bool for
     const QFontMetrics fm(hh->font());
 
     state.suspendHeaderWrap = true;
-    for (int c = 0; c < table->columnCount(); ++c) {
+    const int colCount = tableColumnCount(table);
+    auto* tw = qobject_cast<QTableWidget*>(table);
+    for (int c = 0; c < colCount; ++c) {
         QString orig = (c < state.originalHeaders.size()) ? state.originalHeaders[c] : QString();
         orig.replace(QLatin1Char('\n'), QLatin1Char(' '));
         orig = orig.simplified();
 
-        if (QTableWidgetItem* hItem = table->horizontalHeaderItem(c)) {
-            hItem->setToolTip(orig);
-            hItem->setTextAlignment(Qt::AlignCenter);
+        if (tw != nullptr) {
+            if (QTableWidgetItem* hItem = tw->horizontalHeaderItem(c)) {
+                hItem->setToolTip(orig);
+                hItem->setTextAlignment(Qt::AlignCenter);
+            }
         }
 
         if (forceResetWidths) {
@@ -1020,33 +1188,45 @@ void ResultTableConfigurator::syncColoredDelegateState(const TableState& state) 
     }
 }
 
-void ResultTableConfigurator::updateHeaders(QTableWidget* table, const QStringList& headers) {
+void ResultTableConfigurator::updateHeaders(QTableView* table, const QStringList& headers) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
     }
 
+    const int oldColCount = tableColumnCount(table);
     QList<bool> hiddenState;
-    hiddenState.reserve(table->columnCount());
-    for (int c = 0; c < table->columnCount(); ++c) {
+    hiddenState.reserve(oldColCount);
+    for (int c = 0; c < oldColCount; ++c) {
         hiddenState.append(table->isColumnHidden(c));
     }
 
     state->originalHeaders = headers;
     state->suspendHeaderWrap = true;
-    if (table->columnCount() != headers.size()) {
-        table->setColumnCount(headers.size());
-    }
-    for (int c = 0; c < headers.size(); ++c) {
-        QTableWidgetItem* hItem = table->horizontalHeaderItem(c);
-        if (hItem == nullptr) {
-            hItem = new QTableWidgetItem();
-            table->setHorizontalHeaderItem(c, hItem);
+    const int headerCount = static_cast<int>(headers.size());
+    if (auto* tw = qobject_cast<QTableWidget*>(table)) {
+        if (tw->columnCount() != headerCount) {
+            tw->setColumnCount(headerCount);
         }
-        hItem->setText(headers[c]);
-        hItem->setToolTip(headers[c]);
-        hItem->setTextAlignment(Qt::AlignCenter);
-        if (c < hiddenState.size()) {
+        for (int c = 0; c < headerCount; ++c) {
+            QTableWidgetItem* hItem = tw->horizontalHeaderItem(c);
+            if (hItem == nullptr) {
+                hItem = new QTableWidgetItem();
+                tw->setHorizontalHeaderItem(c, hItem);
+            }
+            hItem->setText(headers[c]);
+            hItem->setToolTip(headers[c]);
+            hItem->setTextAlignment(Qt::AlignCenter);
+            if (c < hiddenState.size()) {
+                tw->setColumnHidden(c, hiddenState[c]);
+            }
+        }
+    } else {
+        if (ResultTableModel* sharedModel = resolveResultTableModel(table)) {
+            sharedModel->setHeaders(headers);
+        }
+        const int newColCount = tableColumnCount(table);
+        for (int c = 0; c < newColCount && c < hiddenState.size(); ++c) {
             table->setColumnHidden(c, hiddenState[c]);
         }
     }
@@ -1054,7 +1234,7 @@ void ResultTableConfigurator::updateHeaders(QTableWidget* table, const QStringLi
     updateHeaderWordWrap(table);
 
     if (QHeaderView* hh = table->horizontalHeader()) {
-        if (state->sortingEnabled && state->sortColumn >= 0 && state->sortColumn < table->columnCount()) {
+        if (state->sortingEnabled && state->sortColumn >= 0 && state->sortColumn < tableColumnCount(table)) {
             hh->setSortIndicatorShown(true);
             hh->setSortIndicator(state->sortColumn, state->sortOrder);
         } else {
@@ -1063,7 +1243,7 @@ void ResultTableConfigurator::updateHeaders(QTableWidget* table, const QStringLi
     }
 }
 
-void ResultTableConfigurator::afterTablePopulated(QTableWidget* table) {
+void ResultTableConfigurator::afterTablePopulated(QTableView* table) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
@@ -1072,13 +1252,15 @@ void ResultTableConfigurator::afterTablePopulated(QTableWidget* table) {
     const bool prevApplying = m_applyingSavedState;
     m_applyingSavedState = true;
 
-    state->appliedRowOrderMode = TableRowOrderMode::AppendBottom;
-    if (state->rowOrderMode == TableRowOrderMode::PrependTop && table->rowCount() > 1) {
+    if (qobject_cast<QTableWidget*>(table) != nullptr) {
+        state->appliedRowOrderMode = TableRowOrderMode::AppendBottom;
+    }
+    if (state->appliedRowOrderMode != state->rowOrderMode && tableRowCount(table) > 1) {
         reverseTableRowsInPlace(table, state->kind == ResultTableKind::Reactions);
-        state->appliedRowOrderMode = TableRowOrderMode::PrependTop;
+        state->appliedRowOrderMode = state->rowOrderMode;
     }
 
-    if (state->sortingEnabled && state->sortColumn >= 0 && state->sortColumn < table->columnCount()) {
+    if (state->sortingEnabled && state->sortColumn >= 0 && state->sortColumn < tableColumnCount(table)) {
         sortTableByColumn(table, state->sortColumn, state->sortOrder);
     }
 
@@ -1114,7 +1296,7 @@ void ResultTableConfigurator::applyTheme(bool isLightTheme) {
     }
 }
 
-void ResultTableConfigurator::setSortingModeEnabled(QTableWidget* table, bool enabled) {
+void ResultTableConfigurator::setSortingModeEnabled(QTableView* table, bool enabled) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
@@ -1122,7 +1304,7 @@ void ResultTableConfigurator::setSortingModeEnabled(QTableWidget* table, bool en
     state->sortingEnabled = enabled;
     table->setSortingEnabled(false); // Sempre gerenciado por clique para manter multisseleção + resumo fixo.
     if (QHeaderView* hh = table->horizontalHeader()) {
-        if (enabled && state->sortColumn >= 0 && state->sortColumn < table->columnCount()) {
+        if (enabled && state->sortColumn >= 0 && state->sortColumn < tableColumnCount(table)) {
             hh->setSortIndicatorShown(true);
             hh->setSortIndicator(state->sortColumn, state->sortOrder);
         } else {
@@ -1134,27 +1316,26 @@ void ResultTableConfigurator::setSortingModeEnabled(QTableWidget* table, bool en
     }
 }
 
-bool ResultTableConfigurator::isSortingModeEnabled(const QTableWidget* table) const {
+bool ResultTableConfigurator::isSortingModeEnabled(const QTableView* table) const {
     const TableState* state = findState(table);
     return state != nullptr && state->sortingEnabled;
 }
 
-bool ResultTableConfigurator::isSummaryRow(const QTableWidget* table, int row) const {
-    if (table == nullptr || row < 0 || row >= table->rowCount()) {
+bool ResultTableConfigurator::isSummaryRow(const QTableView* table, int row) const {
+    if (table == nullptr || row < 0 || row >= tableRowCount(table)) {
         return false;
     }
-    const QTableWidgetItem* first = table->item(row, 0);
-    return first != nullptr && first->data(kResultTableSummaryRowRole).toBool();
+    return cellData(table, row, 0, kResultTableSummaryRowRole).toBool();
 }
 
-void ResultTableConfigurator::sortTableByColumn(QTableWidget* table, int column, Qt::SortOrder order) {
+void ResultTableConfigurator::sortTableByColumn(QTableView* table, int column, Qt::SortOrder order) {
     TableState* state = findState(table);
-    if (table == nullptr || column < 0 || column >= table->columnCount()) {
+    const int colCount = tableColumnCount(table);
+    if (table == nullptr || column < 0 || column >= colCount) {
         return;
     }
 
-    const int rowCount = table->rowCount();
-    const int colCount = table->columnCount();
+    const int rowCount = tableRowCount(table);
     if (rowCount <= 1 || colCount <= 0) {
         if (state != nullptr) {
             state->sortColumn = column;
@@ -1166,53 +1347,98 @@ void ResultTableConfigurator::sortTableByColumn(QTableWidget* table, int column,
         return;
     }
 
-    struct RowBucket {
-        int originalRow = 0;
-        bool isSummary = false;
-        ParsedSortKey key;
-        std::vector<QTableWidgetItem*> items;
-    };
+    if (auto* proxy = qobject_cast<ResultTableProxyModel*>(table->model())) {
+        struct ProxySortBucket {
+            int originalProxyRow = 0;
+            int sourceRow = 0;
+            bool isSummary = false;
+            ParsedSortKey key;
+        };
 
-    std::vector<RowBucket> buckets;
-    buckets.reserve(static_cast<std::size_t>(rowCount));
-
-    const QSignalBlocker blocker(table);
-    for (int r = 0; r < rowCount; ++r) {
-        RowBucket bucket;
-        bucket.originalRow = r;
-        bucket.isSummary = isSummaryRow(table, r);
-        const QTableWidgetItem* keyItem = table->item(r, column);
-        bucket.key = parseCellSortKey(keyItem != nullptr ? keyItem->text() : QString());
-        bucket.items.reserve(static_cast<std::size_t>(colCount));
-        for (int c = 0; c < colCount; ++c) {
-            bucket.items.push_back(table->takeItem(r, c));
+        std::vector<ProxySortBucket> buckets;
+        buckets.reserve(static_cast<std::size_t>(rowCount));
+        for (int r = 0; r < rowCount; ++r) {
+            ProxySortBucket bucket;
+            bucket.originalProxyRow = r;
+            bucket.sourceRow = proxy->sourceRowAt(r);
+            bucket.isSummary = isSummaryRow(table, r);
+            bucket.key = parseCellSortKey(cellText(table, r, column));
+            buckets.push_back(std::move(bucket));
         }
-        buckets.push_back(std::move(bucket));
-    }
 
-    QCollator collator;
-    collator.setNumericMode(true);
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
+        QCollator collator;
+        collator.setNumericMode(true);
+        collator.setCaseSensitivity(Qt::CaseInsensitive);
 
-    std::stable_sort(buckets.begin(), buckets.end(), [&](const RowBucket& lhs, const RowBucket& rhs) {
-        if (lhs.isSummary != rhs.isSummary) {
-            return !lhs.isSummary; // Linha de resumo permanece sempre ao final.
-        }
-        if (lhs.isSummary && rhs.isSummary) {
-            return lhs.originalRow < rhs.originalRow;
-        }
-        const int cmp = compareParsedKeys(lhs.key, rhs.key, collator);
-        if (cmp == 0) {
-            return lhs.originalRow < rhs.originalRow;
-        }
-        return (order == Qt::AscendingOrder) ? (cmp < 0) : (cmp > 0);
-    });
+        std::stable_sort(buckets.begin(), buckets.end(), [&](const ProxySortBucket& lhs, const ProxySortBucket& rhs) {
+            if (lhs.isSummary != rhs.isSummary) {
+                return !lhs.isSummary;
+            }
+            if (lhs.isSummary && rhs.isSummary) {
+                return lhs.originalProxyRow < rhs.originalProxyRow;
+            }
+            const int cmp = compareParsedKeys(lhs.key, rhs.key, collator);
+            if (cmp == 0) {
+                return lhs.originalProxyRow < rhs.originalProxyRow;
+            }
+            return (order == Qt::AscendingOrder) ? (cmp < 0) : (cmp > 0);
+        });
 
-    for (int r = 0; r < rowCount; ++r) {
-        RowBucket& bucket = buckets[static_cast<std::size_t>(r)];
-        for (int c = 0; c < colCount; ++c) {
-            if (bucket.items[static_cast<std::size_t>(c)] != nullptr) {
-                table->setItem(r, c, bucket.items[static_cast<std::size_t>(c)]);
+        std::vector<int> newOrder;
+        newOrder.reserve(buckets.size());
+        for (const ProxySortBucket& b : buckets) {
+            newOrder.push_back(b.sourceRow);
+        }
+        proxy->setRowOrder(std::move(newOrder));
+    } else if (auto* tw = qobject_cast<QTableWidget*>(table)) {
+        struct RowBucket {
+            int originalRow = 0;
+            bool isSummary = false;
+            ParsedSortKey key;
+            std::vector<QTableWidgetItem*> items;
+        };
+
+        std::vector<RowBucket> buckets;
+        buckets.reserve(static_cast<std::size_t>(rowCount));
+
+        const QSignalBlocker blocker(tw);
+        for (int r = 0; r < rowCount; ++r) {
+            RowBucket bucket;
+            bucket.originalRow = r;
+            bucket.isSummary = isSummaryRow(tw, r);
+            const QTableWidgetItem* keyItem = tw->item(r, column);
+            bucket.key = parseCellSortKey(keyItem != nullptr ? keyItem->text() : QString());
+            bucket.items.reserve(static_cast<std::size_t>(colCount));
+            for (int c = 0; c < colCount; ++c) {
+                bucket.items.push_back(tw->takeItem(r, c));
+            }
+            buckets.push_back(std::move(bucket));
+        }
+
+        QCollator collator;
+        collator.setNumericMode(true);
+        collator.setCaseSensitivity(Qt::CaseInsensitive);
+
+        std::stable_sort(buckets.begin(), buckets.end(), [&](const RowBucket& lhs, const RowBucket& rhs) {
+            if (lhs.isSummary != rhs.isSummary) {
+                return !lhs.isSummary; // Linha de resumo permanece sempre ao final.
+            }
+            if (lhs.isSummary && rhs.isSummary) {
+                return lhs.originalRow < rhs.originalRow;
+            }
+            const int cmp = compareParsedKeys(lhs.key, rhs.key, collator);
+            if (cmp == 0) {
+                return lhs.originalRow < rhs.originalRow;
+            }
+            return (order == Qt::AscendingOrder) ? (cmp < 0) : (cmp > 0);
+        });
+
+        for (int r = 0; r < rowCount; ++r) {
+            RowBucket& bucket = buckets[static_cast<std::size_t>(r)];
+            for (int c = 0; c < colCount; ++c) {
+                if (bucket.items[static_cast<std::size_t>(c)] != nullptr) {
+                    tw->setItem(r, c, bucket.items[static_cast<std::size_t>(c)]);
+                }
             }
         }
     }
@@ -1231,30 +1457,38 @@ void ResultTableConfigurator::sortTableByColumn(QTableWidget* table, int column,
     }
 }
 
-void ResultTableConfigurator::reverseTableRowsInPlace(QTableWidget* table, bool keepSummaryPinnedLast) {
+void ResultTableConfigurator::reverseTableRowsInPlace(QTableView* table, bool keepSummaryPinnedLast) {
     if (table == nullptr) {
         return;
     }
-    const int rowCount = table->rowCount();
-    const int colCount = table->columnCount();
+    if (auto* proxy = qobject_cast<ResultTableProxyModel*>(table->model())) {
+        proxy->reverseRows(keepSummaryPinnedLast);
+        return;
+    }
+    auto* tw = qobject_cast<QTableWidget*>(table);
+    if (tw == nullptr) {
+        return;
+    }
+    const int rowCount = tw->rowCount();
+    const int colCount = tw->columnCount();
     if (rowCount <= 1 || colCount <= 0) {
         return;
     }
 
     int sortableRows = rowCount;
-    if (keepSummaryPinnedLast && isSummaryRow(table, rowCount - 1)) {
+    if (keepSummaryPinnedLast && isSummaryRow(tw, rowCount - 1)) {
         sortableRows = rowCount - 1;
     }
     if (sortableRows <= 1) {
         return;
     }
 
-    const QSignalBlocker blocker(table);
+    const QSignalBlocker blocker(tw);
     std::vector<std::vector<QTableWidgetItem*>> taken(static_cast<std::size_t>(sortableRows));
     for (int r = 0; r < sortableRows; ++r) {
         taken[static_cast<std::size_t>(r)].reserve(static_cast<std::size_t>(colCount));
         for (int c = 0; c < colCount; ++c) {
-            taken[static_cast<std::size_t>(r)].push_back(table->takeItem(r, c));
+            taken[static_cast<std::size_t>(r)].push_back(tw->takeItem(r, c));
         }
     }
 
@@ -1263,19 +1497,19 @@ void ResultTableConfigurator::reverseTableRowsInPlace(QTableWidget* table, bool 
         auto& rowItems = taken[static_cast<std::size_t>(srcRow)];
         for (int c = 0; c < colCount; ++c) {
             if (rowItems[static_cast<std::size_t>(c)] != nullptr) {
-                table->setItem(r, c, rowItems[static_cast<std::size_t>(c)]);
+                tw->setItem(r, c, rowItems[static_cast<std::size_t>(c)]);
             }
         }
     }
 }
 
-void ResultTableConfigurator::setRowOrderMode(QTableWidget* table, TableRowOrderMode mode) {
+void ResultTableConfigurator::setRowOrderMode(QTableView* table, TableRowOrderMode mode) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
     }
     state->rowOrderMode = mode;
-    if (state->appliedRowOrderMode != mode && table->rowCount() > 1) {
+    if (state->appliedRowOrderMode != mode && tableRowCount(table) > 1) {
         reverseTableRowsInPlace(table, state->kind == ResultTableKind::Reactions);
         state->appliedRowOrderMode = mode;
     }
@@ -1285,18 +1519,19 @@ void ResultTableConfigurator::setRowOrderMode(QTableWidget* table, TableRowOrder
     }
 }
 
-TableRowOrderMode ResultTableConfigurator::rowOrderMode(const QTableWidget* table) const {
+TableRowOrderMode ResultTableConfigurator::rowOrderMode(const QTableView* table) const {
     const TableState* state = findState(table);
     return (state != nullptr) ? state->rowOrderMode : TableRowOrderMode::AppendBottom;
 }
 
-void ResultTableConfigurator::invertTableRows(QTableWidget* table) {
+void ResultTableConfigurator::invertTableRows(QTableView* table) {
     TableState* state = findState(table);
     if (table == nullptr) {
         return;
     }
+    const int rows = tableRowCount(table);
     const bool keepSummary = (state != nullptr && state->kind == ResultTableKind::Reactions) ||
-                             isSummaryRow(table, table->rowCount() - 1);
+                             isSummaryRow(table, rows - 1);
     reverseTableRowsInPlace(table, keepSummary);
     if (state != nullptr) {
         state->appliedRowOrderMode = (state->appliedRowOrderMode == TableRowOrderMode::AppendBottom)
@@ -1309,8 +1544,8 @@ void ResultTableConfigurator::invertTableRows(QTableWidget* table) {
     }
 }
 
-void ResultTableConfigurator::setColumnVisible(QTableWidget* table, int column, bool visible) {
-    if (table == nullptr || column < 0 || column >= table->columnCount()) {
+void ResultTableConfigurator::setColumnVisible(QTableView* table, int column, bool visible) {
+    if (table == nullptr || column < 0 || column >= tableColumnCount(table)) {
         return;
     }
     table->setColumnHidden(column, !visible);
@@ -1320,11 +1555,12 @@ void ResultTableConfigurator::setColumnVisible(QTableWidget* table, int column, 
     }
 }
 
-void ResultTableConfigurator::showAllColumns(QTableWidget* table) {
+void ResultTableConfigurator::showAllColumns(QTableView* table) {
     if (table == nullptr) {
         return;
     }
-    for (int c = 0; c < table->columnCount(); ++c) {
+    const int colCount = tableColumnCount(table);
+    for (int c = 0; c < colCount; ++c) {
         table->setColumnHidden(c, false);
     }
     updateHeaderWordWrap(table);
@@ -1333,14 +1569,15 @@ void ResultTableConfigurator::showAllColumns(QTableWidget* table) {
     }
 }
 
-void ResultTableConfigurator::resetColumns(QTableWidget* table) {
+void ResultTableConfigurator::resetColumns(QTableView* table) {
     TableState* state = findState(table);
     if (table == nullptr || state == nullptr) {
         return;
     }
     const bool prevApplying = m_applyingSavedState;
     m_applyingSavedState = true;
-    for (int c = 0; c < table->columnCount(); ++c) {
+    const int colCount = tableColumnCount(table);
+    for (int c = 0; c < colCount; ++c) {
         table->setColumnHidden(c, false);
         if (QHeaderView* hh = table->horizontalHeader()) {
             const int visual = hh->visualIndex(c);
@@ -1357,7 +1594,7 @@ void ResultTableConfigurator::resetColumns(QTableWidget* table) {
     }
 }
 
-void ResultTableConfigurator::setShowColumnColors(QTableWidget* table, bool enabled) {
+void ResultTableConfigurator::setShowColumnColors(QTableView* table, bool enabled) {
     TableState* state = findState(table);
     if (state == nullptr) {
         return;
@@ -1369,14 +1606,14 @@ void ResultTableConfigurator::setShowColumnColors(QTableWidget* table, bool enab
     }
 }
 
-bool ResultTableConfigurator::showColumnColors(const QTableWidget* table) const {
+bool ResultTableConfigurator::showColumnColors(const QTableView* table) const {
     const TableState* state = findState(table);
     return state == nullptr || state->showColumnColors;
 }
 
-void ResultTableConfigurator::setColumnColored(QTableWidget* table, int column, bool colored) {
+void ResultTableConfigurator::setColumnColored(QTableView* table, int column, bool colored) {
     TableState* state = findState(table);
-    if (state == nullptr || table == nullptr || column < 0 || column >= table->columnCount()) {
+    if (state == nullptr || table == nullptr || column < 0 || column >= tableColumnCount(table)) {
         return;
     }
     if (colored) {
@@ -1392,19 +1629,20 @@ void ResultTableConfigurator::setColumnColored(QTableWidget* table, int column, 
     }
 }
 
-bool ResultTableConfigurator::isColumnColored(const QTableWidget* table, int column) const {
+bool ResultTableConfigurator::isColumnColored(const QTableView* table, int column) const {
     const TableState* state = findState(table);
     return state != nullptr && state->coloredColumns.contains(column);
 }
 
-void ResultTableConfigurator::setAllColumnsColored(QTableWidget* table, bool colored) {
+void ResultTableConfigurator::setAllColumnsColored(QTableView* table, bool colored) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
     }
     state->coloredColumns.clear();
     if (colored) {
-        for (int c = 0; c < table->columnCount(); ++c) {
+        const int colCount = tableColumnCount(table);
+        for (int c = 0; c < colCount; ++c) {
             state->coloredColumns.append(c);
         }
     }
@@ -1414,11 +1652,11 @@ void ResultTableConfigurator::setAllColumnsColored(QTableWidget* table, bool col
     }
 }
 
-void ResultTableConfigurator::resetColumnColors(QTableWidget* table) {
+void ResultTableConfigurator::resetColumnColors(QTableView* table) {
     setAllColumnsColored(table, false);
 }
 
-void ResultTableConfigurator::setCategoryColor(QTableWidget* table, const QString& categoryKey, const QColor& color) {
+void ResultTableConfigurator::setCategoryColor(QTableView* table, const QString& categoryKey, const QColor& color) {
     TableState* state = findState(table);
     if (state == nullptr || !color.isValid()) {
         return;
@@ -1430,12 +1668,12 @@ void ResultTableConfigurator::setCategoryColor(QTableWidget* table, const QStrin
     }
 }
 
-QColor ResultTableConfigurator::categoryColor(const QTableWidget* table, const QString& categoryKey) const {
+QColor ResultTableConfigurator::categoryColor(const QTableView* table, const QString& categoryKey) const {
     const TableState* state = findState(table);
     return (state != nullptr) ? state->categoryColors.value(categoryKey) : QColor();
 }
 
-void ResultTableConfigurator::resetCategoryColors(QTableWidget* table) {
+void ResultTableConfigurator::resetCategoryColors(QTableView* table) {
     TableState* state = findState(table);
     if (state == nullptr) {
         return;
@@ -1447,7 +1685,7 @@ void ResultTableConfigurator::resetCategoryColors(QTableWidget* table) {
     }
 }
 
-void ResultTableConfigurator::setExportOnlyActiveColumns(QTableWidget* table, bool activeOnly) {
+void ResultTableConfigurator::setExportOnlyActiveColumns(QTableView* table, bool activeOnly) {
     if (TableState* state = findState(table)) {
         state->exportActiveColumnsOnly = activeOnly;
         if (!m_applyingSavedState) {
@@ -1456,12 +1694,12 @@ void ResultTableConfigurator::setExportOnlyActiveColumns(QTableWidget* table, bo
     }
 }
 
-bool ResultTableConfigurator::exportOnlyActiveColumns(const QTableWidget* table) const {
+bool ResultTableConfigurator::exportOnlyActiveColumns(const QTableView* table) const {
     const TableState* state = findState(table);
     return state != nullptr && state->exportActiveColumnsOnly;
 }
 
-void ResultTableConfigurator::setExportOnlySelectedCells(QTableWidget* table, bool selectedOnly) {
+void ResultTableConfigurator::setExportOnlySelectedCells(QTableView* table, bool selectedOnly) {
     if (TableState* state = findState(table)) {
         state->exportSelectedCellsOnly = selectedOnly;
         if (!m_applyingSavedState) {
@@ -1470,12 +1708,12 @@ void ResultTableConfigurator::setExportOnlySelectedCells(QTableWidget* table, bo
     }
 }
 
-bool ResultTableConfigurator::exportOnlySelectedCells(const QTableWidget* table) const {
+bool ResultTableConfigurator::exportOnlySelectedCells(const QTableView* table) const {
     const TableState* state = findState(table);
     return state != nullptr && state->exportSelectedCellsOnly;
 }
 
-void ResultTableConfigurator::resetExportOptions(QTableWidget* table) {
+void ResultTableConfigurator::resetExportOptions(QTableView* table) {
     if (TableState* state = findState(table)) {
         state->exportActiveColumnsOnly = false;
         state->exportSelectedCellsOnly = false;
@@ -1485,7 +1723,7 @@ void ResultTableConfigurator::resetExportOptions(QTableWidget* table) {
     }
 }
 
-void ResultTableConfigurator::updateHeaderWordWrap(QTableWidget* table) {
+void ResultTableConfigurator::updateHeaderWordWrap(QTableView* table) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr || state->suspendHeaderWrap) {
         return;
@@ -1498,30 +1736,39 @@ void ResultTableConfigurator::updateHeaderWordWrap(QTableWidget* table) {
     state->suspendHeaderWrap = true;
     const QFontMetrics fm(hh->font());
     int maxLines = 1;
+    const int colCount = tableColumnCount(table);
+    auto* tw = qobject_cast<QTableWidget*>(table);
+    auto* proxy = qobject_cast<ResultTableProxyModel*>(table->model());
 
-    for (int c = 0; c < table->columnCount(); ++c) {
+    for (int c = 0; c < colCount; ++c) {
         if (table->isColumnHidden(c)) {
             continue;
         }
         QString orig = (c < state->originalHeaders.size()) ? state->originalHeaders[c] : QString();
-        if (orig.isEmpty() && table->horizontalHeaderItem(c) != nullptr) {
-            orig = table->horizontalHeaderItem(c)->text();
+        if (orig.isEmpty()) {
+            orig = headerText(table, c);
         }
         const QString wrapped = wrapHeaderWords(orig, fm, hh->sectionSize(c));
         maxLines = std::max(maxLines, static_cast<int>(wrapped.count(QLatin1Char('\n'))) + 1);
 
-        QTableWidgetItem* hItem = table->horizontalHeaderItem(c);
-        if (hItem == nullptr) {
-            hItem = new QTableWidgetItem();
-            table->setHorizontalHeaderItem(c, hItem);
-        }
-        if (hItem->text() != wrapped) {
-            hItem->setText(wrapped);
-        }
         QString singleLine = orig;
         singleLine.replace(QLatin1Char('\n'), QLatin1Char(' '));
-        hItem->setToolTip(singleLine.simplified());
-        hItem->setTextAlignment(Qt::AlignCenter);
+        const QString tooltip = singleLine.simplified();
+
+        if (tw != nullptr) {
+            QTableWidgetItem* hItem = tw->horizontalHeaderItem(c);
+            if (hItem == nullptr) {
+                hItem = new QTableWidgetItem();
+                tw->setHorizontalHeaderItem(c, hItem);
+            }
+            if (hItem->text() != wrapped) {
+                hItem->setText(wrapped);
+            }
+            hItem->setToolTip(tooltip);
+            hItem->setTextAlignment(Qt::AlignCenter);
+        } else if (proxy != nullptr) {
+            proxy->setWrappedHeader(c, wrapped, tooltip);
+        }
     }
 
     const int targetHeight = maxLines * fm.height() + kHeaderHeightMargin;
@@ -1531,21 +1778,23 @@ void ResultTableConfigurator::updateHeaderWordWrap(QTableWidget* table) {
     state->suspendHeaderWrap = false;
 }
 
-void ResultTableConfigurator::selectCornerAll(QTableWidget* table) {
+void ResultTableConfigurator::selectCornerAll(QTableView* table) {
     if (table == nullptr) {
         return;
     }
 
     QItemSelectionModel* sm = table->selectionModel();
+    const int rows = tableRowCount(table);
+    const int cols = tableColumnCount(table);
     bool hasVisibleCells = false;
     bool allSelected = false;
     if (sm != nullptr && table->model() != nullptr) {
         allSelected = true;
-        for (int r = 0; r < table->rowCount() && allSelected; ++r) {
+        for (int r = 0; r < rows && allSelected; ++r) {
             if (table->isRowHidden(r)) {
                 continue;
             }
-            for (int c = 0; c < table->columnCount(); ++c) {
+            for (int c = 0; c < cols; ++c) {
                 if (table->isColumnHidden(c)) {
                     continue;
                 }
@@ -1575,7 +1824,7 @@ void ResultTableConfigurator::selectCornerAll(QTableWidget* table) {
     }
 }
 
-void ResultTableConfigurator::resetAllDefaults(QTableWidget* table) {
+void ResultTableConfigurator::resetAllDefaults(QTableView* table) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
@@ -1606,7 +1855,7 @@ void ResultTableConfigurator::resetAllDefaults(QTableWidget* table) {
     }
 }
 
-QJsonObject ResultTableConfigurator::saveTableStateToJson(const QTableWidget* table) const {
+QJsonObject ResultTableConfigurator::saveTableStateToJson(const QTableView* table) const {
     const TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return {};
@@ -1655,7 +1904,8 @@ QJsonObject ResultTableConfigurator::saveTableStateToJson(const QTableWidget* ta
     QJsonArray colWidthArr;
     QJsonArray colVisualOrderArr;
     const QHeaderView* hh = table->horizontalHeader();
-    for (int c = 0; c < table->columnCount(); ++c) {
+    const int colCount = tableColumnCount(table);
+    for (int c = 0; c < colCount; ++c) {
         colHiddenArr.append(table->isColumnHidden(c));
         colWidthArr.append(table->columnWidth(c));
         colVisualOrderArr.append(hh != nullptr ? hh->logicalIndex(c) : c);
@@ -1666,7 +1916,7 @@ QJsonObject ResultTableConfigurator::saveTableStateToJson(const QTableWidget* ta
     return obj;
 }
 
-void ResultTableConfigurator::loadTableStateFromJson(QTableWidget* table, const QJsonObject& obj) {
+void ResultTableConfigurator::loadTableStateFromJson(QTableView* table, const QJsonObject& obj) {
     TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
@@ -1675,7 +1925,7 @@ void ResultTableConfigurator::loadTableStateFromJson(QTableWidget* table, const 
     const bool prevApplying = m_applyingSavedState;
     m_applyingSavedState = true;
 
-    const int colCount = table->columnCount();
+    const int colCount = tableColumnCount(table);
     state->sortingEnabled = obj.value(QStringLiteral("sortingEnabled")).toBool(false);
     const int savedSortCol = obj.value(QStringLiteral("sortColumn")).toInt(-1);
     state->sortColumn = (savedSortCol >= 0 && savedSortCol < colCount) ? savedSortCol : -1;
@@ -1697,7 +1947,7 @@ void ResultTableConfigurator::loadTableStateFromJson(QTableWidget* table, const 
 
     state->coloredColumns.clear();
     const QJsonArray coloredArr = obj.value(QStringLiteral("coloredColumns")).toArray();
-    for (const QJsonValue& val : coloredArr) {
+    for (const auto val : coloredArr) {
         const int c = val.toInt(-1);
         if (c >= 0 && c < colCount && !state->coloredColumns.contains(c)) {
             state->coloredColumns.append(c);
@@ -1776,7 +2026,7 @@ void ResultTableConfigurator::loadTableStateFromJson(QTableWidget* table, const 
         }
     }
 
-    if (table->rowCount() > 1) {
+    if (tableRowCount(table) > 1) {
         if (state->appliedRowOrderMode != state->rowOrderMode) {
             reverseTableRowsInPlace(table, state->kind == ResultTableKind::Reactions);
             state->appliedRowOrderMode = state->rowOrderMode;
@@ -1823,8 +2073,10 @@ void ResultTableConfigurator::loadAllTablesFromJson(const QJsonObject& tablesObj
 }
 
 void ResultTableConfigurator::handleHeaderSectionClicked(TableState& state, int logicalColumn) {
-    QTableWidget* table = state.table;
-    if (table == nullptr || logicalColumn < 0 || logicalColumn >= table->columnCount()) {
+    QTableView* table = state.table;
+    const int colCount = tableColumnCount(table);
+    const int rowCount = tableRowCount(table);
+    if (table == nullptr || logicalColumn < 0 || logicalColumn >= colCount) {
         return;
     }
 
@@ -1845,13 +2097,13 @@ void ResultTableConfigurator::handleHeaderSectionClicked(TableState& state, int 
         return;
     }
 
-    if (table->rowCount() <= 0) {
+    if (rowCount <= 0) {
         state.headerAnchorColumn = logicalColumn;
         return;
     }
 
     if (shift) {
-        const int anchor = (state.headerAnchorColumn >= 0 && state.headerAnchorColumn < table->columnCount())
+        const int anchor = (state.headerAnchorColumn >= 0 && state.headerAnchorColumn < colCount)
                                ? state.headerAnchorColumn
                                : logicalColumn;
         const int startCol = std::min(anchor, logicalColumn);
@@ -1862,9 +2114,9 @@ void ResultTableConfigurator::handleHeaderSectionClicked(TableState& state, int 
         }
     } else if (ctrl) {
         QItemSelectionModel* sm = table->selectionModel();
-        if (sm != nullptr) {
+        if (sm != nullptr && table->model() != nullptr) {
             const QModelIndex top = table->model()->index(0, logicalColumn);
-            const QModelIndex bot = table->model()->index(table->rowCount() - 1, logicalColumn);
+            const QModelIndex bot = table->model()->index(rowCount - 1, logicalColumn);
             const QItemSelection colSel(top, bot);
             const auto flags = sm->isColumnSelected(logicalColumn, QModelIndex())
                                    ? (QItemSelectionModel::Deselect | QItemSelectionModel::Columns)
@@ -1889,8 +2141,10 @@ void ResultTableConfigurator::selectHeaderColumnRange(TableState& state,
                                                       int startCol,
                                                       int endCol,
                                                       bool preserveExisting) {
-    QTableWidget* table = state.table;
-    if (table == nullptr || table->rowCount() <= 0 || table->columnCount() <= 0) {
+    QTableView* table = state.table;
+    const int rowCount = tableRowCount(table);
+    const int colCount = tableColumnCount(table);
+    if (table == nullptr || table->model() == nullptr || rowCount <= 0 || colCount <= 0) {
         return;
     }
     QItemSelectionModel* sm = table->selectionModel();
@@ -1898,10 +2152,10 @@ void ResultTableConfigurator::selectHeaderColumnRange(TableState& state,
         return;
     }
 
-    const int lo = std::clamp(std::min(startCol, endCol), 0, table->columnCount() - 1);
-    const int hi = std::clamp(std::max(startCol, endCol), 0, table->columnCount() - 1);
+    const int lo = std::clamp(std::min(startCol, endCol), 0, colCount - 1);
+    const int hi = std::clamp(std::max(startCol, endCol), 0, colCount - 1);
     const QModelIndex topLeft = table->model()->index(0, lo);
-    const QModelIndex bottomRight = table->model()->index(table->rowCount() - 1, hi);
+    const QModelIndex bottomRight = table->model()->index(rowCount - 1, hi);
     const QItemSelection rangeSel(topLeft, bottomRight);
     const QItemSelectionModel::SelectionFlags flags =
         (preserveExisting ? QItemSelectionModel::Select : QItemSelectionModel::ClearAndSelect) |
@@ -1911,26 +2165,22 @@ void ResultTableConfigurator::selectHeaderColumnRange(TableState& state,
 }
 
 void ResultTableConfigurator::handleCellDoubleClicked(const TableState& state, int row, int) {
-    const QTableWidget* table = state.table;
-    if (table == nullptr || row < 0 || row >= table->rowCount()) {
+    const QTableView* table = state.table;
+    if (table == nullptr || row < 0 || row >= tableRowCount(table)) {
         return;
     }
     if (isSummaryRow(table, row)) {
         return;
     }
-    const QTableWidgetItem* first = table->item(row, 0);
-    if (first == nullptr) {
-        return;
-    }
 
     bool okId = false;
     unsigned int id = 0;
-    const QVariant idVar = first->data(kResultTableEntityIdRole);
+    const QVariant idVar = cellData(table, row, 0, kResultTableEntityIdRole);
     if (idVar.isValid()) {
         id = idVar.toUInt(&okId);
     }
     if (!okId) {
-        const QString txt = first->text().trimmed();
+        const QString txt = cellText(table, row, 0).trimmed();
         id = txt.toUInt(&okId);
     }
     if (!okId || id == 0) {
@@ -1946,8 +2196,7 @@ void ResultTableConfigurator::handleCellDoubleClicked(const TableState& state, i
         emit elementDoubleClicked(id);
         break;
     case ResultTableKind::ContinuumStress: {
-        const QTableWidgetItem* typeItem = (table->columnCount() > 1) ? table->item(row, 1) : nullptr;
-        const QString typeName = typeItem != nullptr ? typeItem->text() : QString();
+        const QString typeName = (tableColumnCount(table) > 1) ? cellText(table, row, 1) : QString();
         emit continuumElementDoubleClicked(id, typeName);
         emit statusMessageRequested(
             tr("Elemento %1 (%2) — inspeção na tabela de contínuos.").arg(id).arg(typeName),
@@ -1958,13 +2207,13 @@ void ResultTableConfigurator::handleCellDoubleClicked(const TableState& state, i
 }
 
 QList<int> ResultTableConfigurator::columnsToProcess(const TableState& state, bool applyExportFilter) const {
-    const QTableWidget* table = state.table;
+    const QTableView* table = state.table;
     QList<int> cols;
     if (table == nullptr) {
         return cols;
     }
 
-    const int colCount = table->columnCount();
+    const int colCount = tableColumnCount(table);
     const QHeaderView* hh = table->horizontalHeader();
 
     QList<int> visualOrder;
@@ -1977,8 +2226,15 @@ QList<int> ResultTableConfigurator::columnsToProcess(const TableState& state, bo
     }
 
     QList<int> selectedCols;
-    if (applyExportFilter && state.exportSelectedCellsOnly && table->selectionModel() != nullptr) {
-        for (const QModelIndex& idx : table->selectionModel()->selectedIndexes()) {
+    if (applyExportFilter && state.exportSelectedCellsOnly) {
+        if (table->selectionModel() == nullptr) {
+            return cols;
+        }
+        const QModelIndexList selected = table->selectionModel()->selectedIndexes();
+        if (selected.isEmpty()) {
+            return cols;
+        }
+        for (const QModelIndex& idx : selected) {
             if (!selectedCols.contains(idx.column())) {
                 selectedCols.append(idx.column());
             }
@@ -1989,8 +2245,7 @@ QList<int> ResultTableConfigurator::columnsToProcess(const TableState& state, bo
         if (applyExportFilter && state.exportActiveColumnsOnly && table->isColumnHidden(logical)) {
             continue;
         }
-        if (applyExportFilter && state.exportSelectedCellsOnly && !selectedCols.isEmpty() &&
-            !selectedCols.contains(logical)) {
+        if (applyExportFilter && state.exportSelectedCellsOnly && !selectedCols.contains(logical)) {
             continue;
         }
         cols.append(logical);
@@ -1999,27 +2254,32 @@ QList<int> ResultTableConfigurator::columnsToProcess(const TableState& state, bo
 }
 
 QList<int> ResultTableConfigurator::rowsToProcess(const TableState& state, bool applyExportFilter) const {
-    const QTableWidget* table = state.table;
+    const QTableView* table = state.table;
     QList<int> rows;
     if (table == nullptr) {
         return rows;
     }
 
-    if (applyExportFilter && state.exportSelectedCellsOnly && table->selectionModel() != nullptr) {
-        const QModelIndexList selected = table->selectionModel()->selectedIndexes();
-        if (!selected.isEmpty()) {
-            for (const QModelIndex& idx : selected) {
-                if (!rows.contains(idx.row())) {
-                    rows.append(idx.row());
-                }
-            }
-            std::sort(rows.begin(), rows.end());
+    if (applyExportFilter && state.exportSelectedCellsOnly) {
+        if (table->selectionModel() == nullptr) {
             return rows;
         }
+        const QModelIndexList selected = table->selectionModel()->selectedIndexes();
+        if (selected.isEmpty()) {
+            return rows;
+        }
+        for (const QModelIndex& idx : selected) {
+            if (!rows.contains(idx.row())) {
+                rows.append(idx.row());
+            }
+        }
+        std::sort(rows.begin(), rows.end());
+        return rows;
     }
 
-    rows.reserve(table->rowCount());
-    for (int r = 0; r < table->rowCount(); ++r) {
+    const int rowCount = tableRowCount(table);
+    rows.reserve(rowCount);
+    for (int r = 0; r < rowCount; ++r) {
         rows.append(r);
     }
     return rows;
@@ -2029,7 +2289,7 @@ QString ResultTableConfigurator::buildTsvText(const TableState& state,
                                               const QList<int>& rows,
                                               const QList<int>& cols,
                                               bool includeHeaders) const {
-    const QTableWidget* table = state.table;
+    const QTableView* table = state.table;
     if (table == nullptr || cols.isEmpty()) {
         return {};
     }
@@ -2040,7 +2300,7 @@ QString ResultTableConfigurator::buildTsvText(const TableState& state,
         for (int c : cols) {
             QString h = (c < state.originalHeaders.size()) ? state.originalHeaders[c] : QString();
             h.replace(QLatin1Char('\n'), QLatin1Char(' '));
-            hdrs.append(h.simplified());
+            hdrs.append(sanitizeTabularCell(h.simplified()));
         }
         lines.append(hdrs.join(QLatin1Char('\t')));
     }
@@ -2048,15 +2308,14 @@ QString ResultTableConfigurator::buildTsvText(const TableState& state,
     for (int r : rows) {
         QStringList cells;
         for (int c : cols) {
-            const QTableWidgetItem* it = table->item(r, c);
-            cells.append(it != nullptr ? it->text() : QString());
+            cells.append(sanitizeTabularCell(cellText(table, r, c)));
         }
         lines.append(cells.join(QLatin1Char('\t')));
     }
     return lines.join(QLatin1Char('\n'));
 }
 
-void ResultTableConfigurator::copySelectionToClipboard(QTableWidget* table, bool includeHeaders) const {
+void ResultTableConfigurator::copySelectionToClipboard(QTableView* table, bool includeHeaders) const {
     const TableState* state = findState(table);
     if (state == nullptr || table == nullptr || table->selectionModel() == nullptr) {
         return;
@@ -2077,9 +2336,8 @@ void ResultTableConfigurator::copySelectionToClipboard(QTableWidget* table, bool
         if (!selCols.contains(idx.column())) {
             selCols.append(idx.column());
         }
-        const QTableWidgetItem* it = table->item(idx.row(), idx.column());
         const qint64 key = (static_cast<qint64>(idx.row()) << 32) | static_cast<quint32>(idx.column());
-        selectedTextMap.insert(key, it != nullptr ? it->text() : QString());
+        selectedTextMap.insert(key, sanitizeTabularCell(cellText(table, idx.row(), idx.column())));
     }
     std::sort(selRows.begin(), selRows.end());
     std::sort(selCols.begin(), selCols.end());
@@ -2090,7 +2348,7 @@ void ResultTableConfigurator::copySelectionToClipboard(QTableWidget* table, bool
         for (int c : selCols) {
             QString h = (c < state->originalHeaders.size()) ? state->originalHeaders[c] : QString();
             h.replace(QLatin1Char('\n'), QLatin1Char(' '));
-            hdrs.append(h.simplified());
+            hdrs.append(sanitizeTabularCell(h.simplified()));
         }
         lines.append(hdrs.join(QLatin1Char('\t')));
     }
@@ -2109,7 +2367,7 @@ void ResultTableConfigurator::copySelectionToClipboard(QTableWidget* table, bool
     }
 }
 
-void ResultTableConfigurator::copyWholeTableToClipboard(QTableWidget* table) const {
+void ResultTableConfigurator::copyWholeTableToClipboard(QTableView* table) const {
     const TableState* state = findState(table);
     if (state == nullptr || table == nullptr) {
         return;
@@ -2122,7 +2380,7 @@ void ResultTableConfigurator::copyWholeTableToClipboard(QTableWidget* table) con
     }
 }
 
-bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
+bool ResultTableConfigurator::exportTableToFile(QTableView* table,
                                                 const QString& filePath,
                                                 QString* errorMessage) const {
     const TableState* state = findState(table);
@@ -2133,12 +2391,31 @@ bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
         return false;
     }
 
-    const QList<int> cols = columnsToProcess(*state, true);
+    QList<int> cols = columnsToProcess(*state, true);
     const QList<int> rows = rowsToProcess(*state, true);
+
+    QHash<qint64, bool> selectedKeys;
+    if (state->exportSelectedCellsOnly) {
+        if (table->selectionModel() != nullptr) {
+            const QModelIndexList selIndices = table->selectionModel()->selectedIndexes();
+            for (const QModelIndex& idx : selIndices) {
+                const qint64 key = (static_cast<qint64>(idx.row()) << 32) | static_cast<quint32>(idx.column());
+                selectedKeys.insert(key, true);
+            }
+        }
+        if (selectedKeys.isEmpty() && cols.isEmpty()) {
+            cols = columnsToProcess(*state, false);
+            if (state->exportActiveColumnsOnly) {
+                cols.erase(std::remove_if(cols.begin(), cols.end(), [table](int c) {
+                    return table->isColumnHidden(c);
+                }), cols.end());
+            }
+        }
+    }
 
     QStringList headers;
     headers.reserve(cols.size());
-    for (int c : cols) {
+    for (int c : std::as_const(cols)) {
         QString h = (c < state->originalHeaders.size()) ? state->originalHeaders[c] : QString();
         h.replace(QLatin1Char('\n'), QLatin1Char(' '));
         headers.append(h.simplified());
@@ -2149,9 +2426,15 @@ bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
     for (int r : rows) {
         QStringList rowVals;
         rowVals.reserve(cols.size());
-        for (int c : cols) {
-            const QTableWidgetItem* it = table->item(r, c);
-            rowVals.append(it != nullptr ? it->text() : QString());
+        for (int c : std::as_const(cols)) {
+            if (state->exportSelectedCellsOnly) {
+                const qint64 key = (static_cast<qint64>(r) << 32) | static_cast<quint32>(c);
+                if (!selectedKeys.contains(key)) {
+                    rowVals.append(QString());
+                    continue;
+                }
+            }
+            rowVals.append(cellText(table, r, c));
         }
         matrix.append(rowVals);
     }
@@ -2176,9 +2459,17 @@ bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
         payload = QByteArray("\xEF\xBB\xBF") + lines.join(QLatin1Char('\n')).toUtf8();
     } else if (ext == QStringLiteral("txt") || ext == QStringLiteral("tsv")) {
         QStringList lines;
-        lines.append(headers.join(QLatin1Char('\t')));
+        QStringList safeHeaders;
+        for (const QString& h : headers) {
+            safeHeaders.append(sanitizeTabularCell(h));
+        }
+        lines.append(safeHeaders.join(QLatin1Char('\t')));
         for (const QStringList& rowVals : matrix) {
-            lines.append(rowVals.join(QLatin1Char('\t')));
+            QStringList safeRow;
+            for (const QString& v : rowVals) {
+                safeRow.append(sanitizeTabularCell(v));
+            }
+            lines.append(safeRow.join(QLatin1Char('\t')));
         }
         payload = lines.join(QLatin1Char('\n')).toUtf8();
     } else if (ext == QStringLiteral("json")) {
@@ -2200,8 +2491,8 @@ bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
             xml.writeStartElement(QStringLiteral("Row"));
             for (int i = 0; i < headers.size() && i < rowVals.size(); ++i) {
                 xml.writeStartElement(QStringLiteral("Cell"));
-                xml.writeAttribute(QStringLiteral("column"), headers[i]);
-                xml.writeCharacters(rowVals[i]);
+                xml.writeAttribute(QStringLiteral("column"), stripIllegalXml10Chars(headers[i]));
+                xml.writeCharacters(stripIllegalXml10Chars(rowVals[i]));
                 xml.writeEndElement();
             }
             xml.writeEndElement();
@@ -2210,6 +2501,12 @@ bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
         xml.writeEndDocument();
     } else if (ext == QStringLiteral("xlsx")) {
         payload = buildXlsxPackage(headers, matrix);
+        if (payload.isEmpty()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = tr("Erro ao exportar tabela.");
+            }
+            return false;
+        }
     } else {
         if (errorMessage != nullptr) {
             *errorMessage = tr("Erro ao exportar tabela.");
@@ -2227,7 +2524,7 @@ bool ResultTableConfigurator::exportTableToFile(QTableWidget* table,
     return true;
 }
 
-void ResultTableConfigurator::showExportDialog(QTableWidget* table) {
+void ResultTableConfigurator::showExportDialog(QTableView* table) {
     if (table == nullptr) {
         return;
     }
@@ -2239,15 +2536,17 @@ void ResultTableConfigurator::showExportDialog(QTableWidget* table) {
     const QString filter = tr("Planilha Excel (*.xlsx);;CSV UTF-8 (*.csv);;Texto Tabulado (*.txt);;JSON (*.json);;XML (*.xml)");
     const QString title = tr("Exportar Dados da Tabela");
 
-    auto finishExport = [this, table](const QString& selectedPath) {
-        if (selectedPath.trimmed().isEmpty()) {
+    QPointer<ResultTableConfigurator> self(this);
+    QPointer<QTableView> tablePtr(table);
+    auto finishExport = [self, tablePtr](const QString& selectedPath) {
+        if (!self || !tablePtr || selectedPath.trimmed().isEmpty()) {
             return;
         }
         QString errMsg;
-        if (exportTableToFile(table, selectedPath, &errMsg)) {
-            emit statusMessageRequested(tr("Tabela exportada com sucesso."), 4000);
+        if (self->exportTableToFile(tablePtr.data(), selectedPath, &errMsg)) {
+            emit self->statusMessageRequested(tr("Tabela exportada com sucesso."), 4000);
         } else {
-            emit statusMessageRequested(errMsg.isEmpty() ? tr("Erro ao exportar tabela.") : errMsg, 5000);
+            emit self->statusMessageRequested(errMsg.isEmpty() ? tr("Erro ao exportar tabela.") : errMsg, 5000);
         }
     };
 
@@ -2270,8 +2569,11 @@ void ResultTableConfigurator::pickCategoryColor(TableState& state, const QString
     auto* dlg = new QColorDialog(current, state.table);
     dlg->setWindowTitle(tr("Selecionar Cor"));
     dlg->setAttribute(Qt::WA_DeleteOnClose, true);
-    connect(dlg, &QColorDialog::colorSelected, this, [this, table = state.table, categoryKey](const QColor& chosen) {
-        setCategoryColor(table, categoryKey, chosen);
+    QPointer<QTableView> tablePtr(state.table);
+    connect(dlg, &QColorDialog::colorSelected, this, [this, tablePtr, categoryKey](const QColor& chosen) {
+        if (tablePtr) {
+            setCategoryColor(tablePtr.data(), categoryKey, chosen);
+        }
     });
     if (m_windowManager != nullptr) {
         m_windowManager->prepareModelessDialog(dlg, false, true);
@@ -2282,7 +2584,7 @@ void ResultTableConfigurator::pickCategoryColor(TableState& state, const QString
     }
 }
 
-QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
+QMenu* ResultTableConfigurator::createTableContextMenu(QTableView* table,
                                                        QWidget* parent,
                                                        bool) {
     TableState* state = findState(table);
@@ -2293,10 +2595,11 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
     QMenu* menu = new PersistentTableMenu(parent != nullptr ? parent : table);
     const bool hasSelection = table->selectionModel() != nullptr &&
                               !table->selectionModel()->selectedIndexes().isEmpty();
+    const int colCount = tableColumnCount(table);
 
     // 1. Configurar colunas
     QMenu* colsMenu = new PersistentTableMenu(tr("Configurar colunas"), menu);
-    for (int c = 0; c < table->columnCount(); ++c) {
+    for (int c = 0; c < colCount; ++c) {
         QString colLabel = (c < state->originalHeaders.size()) ? state->originalHeaders[c] : QString();
         colLabel.replace(QLatin1Char('\n'), QLatin1Char(' '));
         QAction* actCol = colsMenu->addAction(colLabel.simplified());
@@ -2311,7 +2614,8 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
     connect(actShowAllCols, &QAction::triggered, this, [this, table, colsMenu]() {
         showAllColumns(table);
         const QList<QAction*> acts = colsMenu->actions();
-        for (int i = 0; i < table->columnCount() && i < acts.size(); ++i) {
+        const int cols = tableColumnCount(table);
+        for (int i = 0; i < cols && i < acts.size(); ++i) {
             const QSignalBlocker b(acts[i]);
             acts[i]->setChecked(true);
         }
@@ -2367,7 +2671,7 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
 
     // 5. Colorir colunas
     QMenu* colorColsMenu = new PersistentTableMenu(tr("Colorir colunas"), menu);
-    for (int c = 0; c < table->columnCount(); ++c) {
+    for (int c = 0; c < colCount; ++c) {
         QString colLabel = (c < state->originalHeaders.size()) ? state->originalHeaders[c] : QString();
         colLabel.replace(QLatin1Char('\n'), QLatin1Char(' '));
         QAction* actColColor = colorColsMenu->addAction(colLabel.simplified());
@@ -2382,7 +2686,8 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
     connect(actColorAll, &QAction::triggered, this, [this, table, colorColsMenu]() {
         setAllColumnsColored(table, true);
         const QList<QAction*> acts = colorColsMenu->actions();
-        for (int i = 0; i < table->columnCount() && i < acts.size(); ++i) {
+        const int cols = tableColumnCount(table);
+        for (int i = 0; i < cols && i < acts.size(); ++i) {
             const QSignalBlocker b(acts[i]);
             acts[i]->setChecked(true);
         }
@@ -2391,7 +2696,8 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
     connect(actResetColColors, &QAction::triggered, this, [this, table, colorColsMenu]() {
         resetColumnColors(table);
         const QList<QAction*> acts = colorColsMenu->actions();
-        for (int i = 0; i < table->columnCount() && i < acts.size(); ++i) {
+        const int cols = tableColumnCount(table);
+        for (int i = 0; i < cols && i < acts.size(); ++i) {
             const QSignalBlocker b(acts[i]);
             acts[i]->setChecked(false);
         }
@@ -2432,7 +2738,7 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
     });
 
     QAction* actCopyAll = menu->addAction(tr("Copiar Tabela Inteira"));
-    actCopyAll->setEnabled(table->rowCount() > 0 && table->columnCount() > 0);
+    actCopyAll->setEnabled(tableRowCount(table) > 0 && colCount > 0);
     connect(actCopyAll, &QAction::triggered, this, [this, table]() {
         copyWholeTableToClipboard(table);
     });
@@ -2468,7 +2774,7 @@ QMenu* ResultTableConfigurator::createTableContextMenu(QTableWidget* table,
 
     // 9. Exportar Tabela
     QAction* actExport = menu->addAction(tr("Exportar Tabela"));
-    actExport->setEnabled(table->columnCount() > 0);
+    actExport->setEnabled(colCount > 0);
     connect(actExport, &QAction::triggered, this, [this, table]() {
         showExportDialog(table);
     });
@@ -2487,7 +2793,7 @@ void ResultTableConfigurator::showContextMenuAt(TableState& state, const QPoint&
 
 bool ResultTableConfigurator::eventFilter(QObject* watched, QEvent* event) {
     if (event != nullptr && event->type() == QEvent::KeyPress) {
-        QTableWidget* targetTable = nullptr;
+        QTableView* targetTable = nullptr;
         for (const TableState& st : m_tables) {
             if (st.table == watched || (st.table != nullptr && st.table->viewport() == watched)) {
                 targetTable = st.table;

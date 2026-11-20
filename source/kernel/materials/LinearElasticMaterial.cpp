@@ -1,5 +1,8 @@
 #include "LinearElasticMaterial.hpp"
 #include <Eigen/Cholesky>
+#include <Eigen/LU>
+#include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace omniframe::kernel {
@@ -166,15 +169,42 @@ LinearElasticAnisotropic::LinearElasticAnisotropic(MaterialId id,
     , m_alpha(thermalAlpha) {}
 
 Eigen::Matrix3d LinearElasticAnisotropic::constitutiveMatrixPlaneStress() const {
-    Eigen::Matrix3d D;
-    D(0, 0) = m_D(0, 0); D(0, 1) = m_D(0, 1); D(0, 2) = m_D(0, 3);
-    D(1, 0) = m_D(1, 0); D(1, 1) = m_D(1, 1); D(1, 2) = m_D(1, 3);
-    D(2, 0) = m_D(3, 0); D(2, 1) = m_D(3, 1); D(2, 2) = m_D(3, 3);
-    return D;
+    // [AUD-012] Condensação estática de Schur para tensão plana (sigma_zz = tau_yz = tau_xz = 0):
+    // C_ps = C_pp - C_po * C_oo^-1 * C_op
+    static constexpr std::array<int, 3> pIdx{0, 1, 3}; // xx, yy, xy
+    static constexpr std::array<int, 3> oIdx{2, 4, 5}; // zz, yz, xz
+
+    Eigen::Matrix3d Cpp, Cpo, Coo;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            Cpp(r, c) = m_D(pIdx[static_cast<std::size_t>(r)], pIdx[static_cast<std::size_t>(c)]);
+            Cpo(r, c) = m_D(pIdx[static_cast<std::size_t>(r)], oIdx[static_cast<std::size_t>(c)]);
+            Coo(r, c) = m_D(oIdx[static_cast<std::size_t>(r)], oIdx[static_cast<std::size_t>(c)]);
+        }
+    }
+
+    const Eigen::Matrix3d Cop = Cpo.transpose();
+    Eigen::LDLT<Eigen::Matrix3d> ldlt(Coo);
+    const double maxDiag = std::max(1.0, Coo.diagonal().cwiseAbs().maxCoeff());
+    Eigen::Matrix3d X;
+    if (ldlt.info() == Eigen::Success && ldlt.vectorD().cwiseAbs().minCoeff() > 1e-16 * maxDiag) {
+        X = ldlt.solve(Cop);
+    } else {
+        X = Coo.fullPivLu().solve(Cop);
+    }
+    const Eigen::Matrix3d Cps = Cpp - Cpo * X;
+    return 0.5 * (Cps + Cps.transpose());
 }
 
 Eigen::Matrix3d LinearElasticAnisotropic::constitutiveMatrixPlaneStrain() const {
-    return constitutiveMatrixPlaneStress();
+    static constexpr std::array<int, 3> pIdx{0, 1, 3};
+    Eigen::Matrix3d Cpp;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            Cpp(r, c) = m_D(pIdx[static_cast<std::size_t>(r)], pIdx[static_cast<std::size_t>(c)]);
+        }
+    }
+    return 0.5 * (Cpp + Cpp.transpose());
 }
 
 Eigen::Matrix<double, 6, 1> LinearElasticAnisotropic::thermalStrain3D(double deltaT) const {

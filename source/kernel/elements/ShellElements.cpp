@@ -859,8 +859,7 @@ MatX ShellElement::computeGlobalGeometricStiffness(const VecX& elementGlobalDisp
 VecX ShellElement::computeGlobalLoadVector(const ElementLoadInput& load) const {
     const int nNodes = static_cast<int>(m_nodeIds.size());
     const int ndof = 6 * nNodes;
-    VecX Fglob = VecX::Zero(ndof);
-    VecX FlocThermal = VecX::Zero(ndof);
+    VecX Floc = VecX::Zero(ndof);
 
     const Mat3 Dps = m_material->constitutiveMatrixPlaneStress();
     const double gamma = m_material->specificWeightKNM3();
@@ -870,30 +869,33 @@ VecX ShellElement::computeGlobalLoadVector(const ElementLoadInput& load) const {
         epsTh = {eps3(0), eps3(1), 0.0};
     }
 
-    const Vec3 e3 = m_localTriad.col(2);
+    // [AUD-012] Acumula TODOS os carregamentos em coordenadas locais planas e transforma
+    // pelo adjunto completo T^T = R6^T * W^T, garantindo equilíbrio de momentos exato sob empenamento.
+    const Mat3 R = m_localTriad.transpose(); // R * v_global = v_local
+    const Vec3 gLoc = (load.hasBodyGravity && gamma > 0.0) ? (R * load.gravityAccel).eval() : Vec3::Zero();
+    const bool hasDist = (load.hasDistributed && load.distributedForce.squaredNorm() > 0.0);
+    const Vec3 qDistLoc = hasDist
+        ? ((load.coordSystem == 1) ? load.distributedForce : (R * load.distributedForce).eval())
+        : Vec3::Zero();
+
     auto accum = [&](const ShapeEval& sh, double dA) {
         const double t = thicknessAtWeights(sh.N);
         for (int i = 0; i < nNodes; ++i) {
             const int off = 6 * i;
             if (std::abs(load.normalPressure) > 0.0) {
-                Fglob.segment<3>(off) += (sh.N(i) * load.normalPressure * dA) * e3;
+                Floc(off + 2) += sh.N(i) * load.normalPressure * dA;
             }
             if (load.hasBodyGravity && gamma > 0.0) {
-                Fglob.segment<3>(off) += (sh.N(i) * gamma * t * dA) * load.gravityAccel;
+                Floc.segment<3>(off) += (sh.N(i) * gamma * t * dA) * gLoc;
             }
-            if (load.hasDistributed && load.distributedForce.squaredNorm() > 0.0) {
-                if (load.coordSystem == 1) {
-                    const Vec3 fGlob = m_localTriad * load.distributedForce;
-                    Fglob.segment<3>(off) += (sh.N(i) * dA) * fGlob;
-                } else {
-                    Fglob.segment<3>(off) += (sh.N(i) * dA) * load.distributedForce;
-                }
+            if (hasDist) {
+                Floc.segment<3>(off) += (sh.N(i) * dA) * qDistLoc;
             }
         }
         if (load.hasThermal && std::abs(load.deltaT) > 0.0) {
             const MatX Bm = buildMembraneB(nNodes, sh.dNdx, sh.dNdy);
             const Mat3 Cm = t * Dps;
-            FlocThermal.noalias() += dA * (Bm.transpose() * (Cm * epsTh));
+            Floc.noalias() += dA * (Bm.transpose() * (Cm * epsTh));
         }
     };
 
@@ -913,11 +915,8 @@ VecX ShellElement::computeGlobalLoadVector(const ElementLoadInput& load) const {
         }
     }
 
-    if (load.hasThermal && std::abs(load.deltaT) > 0.0) {
-        const MatX T = buildLocalToGlobalBlock();
-        Fglob.noalias() += T.transpose() * FlocThermal;
-    }
-    return Fglob;
+    const MatX T = buildLocalToGlobalBlock();
+    return T.transpose() * Floc;
 }
 
 ShellStressResultant ShellElement::evaluateCenterStress(const VecX& elementGlobalDisp, double deltaT) const {
@@ -936,7 +935,7 @@ ShellStressResultant ShellElement::evaluateCenterStress(const VecX& elementGloba
     MatX Bm;
     MatX Bb;
     MatX Bs;
-    double t = m_thickness;
+    double t;
     if (m_type == ShellElementType::Tri3MITC3) {
         tri3Shape(1.0 / 3.0, 1.0 / 3.0, m_localXY, cSh);
         t = thicknessAtWeights(cSh.N);

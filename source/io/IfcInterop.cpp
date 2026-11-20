@@ -4,6 +4,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -94,15 +95,46 @@ std::vector<std::string> parseListTokens(const std::string& rawList) {
     return {};
 }
 
-double parseDoubleSafe(const std::string& s, double def = 0.0) {
+bool tryParseFiniteDouble(const std::string& s, double& outVal) {
     const std::string t = trimStep(s);
-    if (t.empty() || t == "$" || t == "*") return def;
-    try { return std::stod(t); } catch (...) { return def; }
+    if (t.empty() || t == "$" || t == "*") return false;
+    try {
+        std::size_t idx = 0;
+        const double v = std::stod(t, &idx);
+        if (idx != t.size() || !std::isfinite(v)) return false;
+        outVal = v;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+std::string unwrapStepTypedToken(const std::string& raw, std::string* outTypeUpper = nullptr) {
+    std::string t = trimStep(raw);
+    const size_t lp = t.find('(');
+    const size_t rp = t.rfind(')');
+    if (lp != std::string::npos && rp != std::string::npos && rp > lp && rp + 1 == t.size()) {
+        bool validPrefix = (lp > 0);
+        for (size_t i = 0; i < lp; ++i) {
+            const unsigned char ch = static_cast<unsigned char>(t[i]);
+            if (!std::isalnum(ch) && ch != '_') {
+                validPrefix = false;
+                break;
+            }
+        }
+        if (validPrefix) {
+            if (outTypeUpper) *outTypeUpper = toUpperStep(t.substr(0, lp));
+            return trimStep(t.substr(lp + 1, rp - lp - 1));
+        }
+    }
+    if (outTypeUpper) outTypeUpper->clear();
+    return t;
 }
 
 bool parseBoolOrStepBool(const std::string& s) {
-    const std::string u = toUpperStep(trimStep(s));
-    return (u == ".T." || u == ".TRUE." || u == "TRUE");
+    const std::string inner = unwrapStepTypedToken(s);
+    const std::string u = toUpperStep(inner);
+    return (u == ".T." || u == ".TRUE." || u == "TRUE" || u == "T");
 }
 
 struct StepEntity {
@@ -333,8 +365,11 @@ std::string IfcInterop::exportToString(const StructuralModel& model,
             data << "#" << idBound << "=IFCFACEOUTERBOUND(#" << idLoop << ",.T.);\n";
             data << "#" << idFace << "=IFCFACE((#" << idBound << "));\n";
             const std::string sGuid = makeDeterministicGuid("shell_" + std::to_string(cell.id));
+            const double shellThickness =
+                (std::isfinite(cell.thickness) && cell.thickness > 1e-6) ? cell.thickness : 0.15;
             data << "#" << idSurf << "=IFCSTRUCTURALSURFACEMEMBER('" << sGuid << "',#" << idOH
-                 << ",'Shell_" << cell.id << "',$,$,#" << idPlaceWorld << ",#" << idFace << ",.SHELL.,0.15);\n";
+                 << ",'Shell_" << cell.id << "',$,$,#" << idPlaceWorld << ",#" << idFace << ",.SHELL.,"
+                 << std::setprecision(12) << shellThickness << ");\n";
             samMemberIds.push_back(idSurf);
         }
     }
@@ -392,12 +427,21 @@ bool IfcInterop::importFromString(const std::string& stepText,
                                   StructuralModel& outModel,
                                   kernel::MeshContainer* outShellMesh,
                                   IfcGuidMap* outGuidMap,
-                                  IfcInteropReport* report)
+                                  IfcInteropReport* report,
+                                  std::size_t maxFileSizeBytes)
 {
     IfcInteropReport rep;
     outModel.clear();
     if (outShellMesh) *outShellMesh = kernel::MeshContainer{};
     if (outGuidMap) *outGuidMap = IfcGuidMap{};
+
+    if (maxFileSizeBytes == 0 || stepText.size() > maxFileSizeBytes) {
+        rep.success = false;
+        rep.errorMessage = "Conteúdo IFC excede o limite máximo permitido de tamanho (" +
+                           std::to_string(maxFileSizeBytes) + " bytes).";
+        if (report) *report = rep;
+        return false;
+    }
 
     // Remove comentários /* ... */ de estilo STEP
     std::string cleaned;
@@ -467,37 +511,60 @@ bool IfcInterop::importFromString(const std::string& stepText,
         return false;
     }
 
-    auto getPointCoords = [&](int ptId) -> Vec3 {
+    auto failInvalidNumeric = [&](const std::string& msg) -> bool {
+        outModel.clear();
+        if (outShellMesh) *outShellMesh = kernel::MeshContainer{};
+        if (outGuidMap) *outGuidMap = IfcGuidMap{};
+        rep.success = false;
+        rep.errorMessage = msg;
+        if (report) *report = rep;
+        return false;
+    };
+
+    auto getPointCoords = [&](int ptId, Vec3& outPt) -> bool {
         auto it = entities.find(ptId);
-        if (it == entities.end() || it->second.args.empty()) return {0, 0, 0};
+        if (it == entities.end() || it->second.args.empty()) return false;
         const auto toks = parseListTokens(it->second.args[0]);
-        const double x = toks.size() > 0 ? parseDoubleSafe(toks[0]) : 0.0;
-        const double y = toks.size() > 1 ? parseDoubleSafe(toks[1]) : 0.0;
-        const double z = toks.size() > 2 ? parseDoubleSafe(toks[2]) : 0.0;
-        return {x, y, z};
-    };
-
-    auto getVertexPointCoords = [&](int vtxId) -> Vec3 {
-        auto it = entities.find(vtxId);
-        if (it == entities.end()) return {0, 0, 0};
-        if (it->second.typeName == "IFCCARTESIANPOINT") return getPointCoords(vtxId);
-        if (it->second.typeName == "IFCVERTEXPOINT" && !it->second.args.empty()) {
-            return getPointCoords(parseEntityRef(it->second.args[0]));
+        if (toks.size() < 2) return false;
+        double x = 0.0, y = 0.0, z = 0.0;
+        if (!tryParseFiniteDouble(toks[0], x) || !tryParseFiniteDouble(toks[1], y)) return false;
+        if (toks.size() > 2 && !tryParseFiniteDouble(toks[2], z)) return false;
+        constexpr double kMaxPhysCoordM = 1e9;
+        if (std::abs(x) > kMaxPhysCoordM || std::abs(y) > kMaxPhysCoordM || std::abs(z) > kMaxPhysCoordM) {
+            return false;
         }
-        return {0, 0, 0};
+        outPt = {x, y, z};
+        return true;
     };
 
-    // Mapa espacial de vértices/pontos para nós do StructuralModel
+    auto getVertexPointCoords = [&](int vtxId, Vec3& outPt) -> bool {
+        auto it = entities.find(vtxId);
+        if (it == entities.end()) return false;
+        if (it->second.typeName == "IFCCARTESIANPOINT") return getPointCoords(vtxId, outPt);
+        if (it->second.typeName == "IFCVERTEXPOINT" && !it->second.args.empty()) {
+            return getPointCoords(parseEntityRef(it->second.args[0]), outPt);
+        }
+        return false;
+    };
+
+    // Mapa espacial O(1) esperado de vértices/pontos para nós do StructuralModel
+    StructuralModel::ScopedUndoSuppression batchGuard(outModel, false);
     std::unordered_map<int, NodeId> stepVertexToNode;
+    SpatialPointHash modelPointHash(1e-4);
     auto ensureNodeAt = [&](const Vec3& p, int stepRefId = -1) -> NodeId {
-        if (stepRefId > 0 && stepVertexToNode.count(stepRefId)) return stepVertexToNode[stepRefId];
-        for (const auto& existing : outModel.getNodes()) {
-            if ((existing.position - p).norm() <= 1e-6) {
-                if (stepRefId > 0) stepVertexToNode[stepRefId] = existing.id;
-                return existing.id;
+        if (stepRefId > 0) {
+            if (const auto it = stepVertexToNode.find(stepRefId); it != stepVertexToNode.end()) {
+                return it->second;
             }
         }
+        std::size_t existingIdx = 0;
+        if (modelPointHash.findNearestWithinSq(p.x, p.y, p.z, 1e-12, &existingIdx)) {
+            const NodeId nid = outModel.getNodes()[existingIdx].id;
+            if (stepRefId > 0) stepVertexToNode[stepRefId] = nid;
+            return nid;
+        }
         const NodeId nid = outModel.addNode(p.x, p.y, p.z);
+        modelPointHash.insert(p.x, p.y, p.z, outModel.getNodes().size() - 1);
         if (stepRefId > 0) stepVertexToNode[stepRefId] = nid;
         return nid;
     };
@@ -508,7 +575,10 @@ bool IfcInterop::importFromString(const std::string& stepText,
         if (ent.typeName == "IFCSTRUCTURALPOINTCONNECTION" && ent.args.size() >= 7) {
             const std::string guid = unquoteStep(ent.args[0]);
             const int vtxRef = parseEntityRef(ent.args[6]);
-            const Vec3 p = getVertexPointCoords(vtxRef);
+            Vec3 p{0, 0, 0};
+            if (!getVertexPointCoords(vtxRef, p)) {
+                return failInvalidNumeric("Coordenadas inválidas ou não finitas (NaN/Inf) em ponto estrutural IFC.");
+            }
             const NodeId nid = ensureNodeAt(p, vtxRef);
             if (outGuidMap && !guid.empty()) outGuidMap->nodeGuids[nid] = guid;
 
@@ -519,14 +589,20 @@ bool IfcInterop::importFromString(const std::string& stepText,
                     Node* nd = outModel.findNode(nid);
                     if (nd && bc.typeName == "IFCBOUNDARYNODECONDITION") {
                         for (int d = 0; d < 6 && (1 + d) < static_cast<int>(bc.args.size()); ++d) {
-                            const std::string tok = trimStep(bc.args[1 + d]);
-                            if (toUpperStep(tok).find("BOOLEAN") != std::string::npos || tok == ".T.") {
-                                if (parseBoolOrStepBool(tok)) nd->support.fixed[d] = true;
-                            } else if (toUpperStep(tok).find("STIFFNESSMEASURE") != std::string::npos) {
-                                const size_t lp = tok.find('('), rp = tok.rfind(')');
-                                if (lp != std::string::npos && rp != std::string::npos && rp > lp) {
-                                    nd->support.springStiffness[d] = parseDoubleSafe(tok.substr(lp + 1, rp - lp - 1), 0.0);
+                            std::string typeTag;
+                            const std::string inner = unwrapStepTypedToken(bc.args[1 + d], &typeTag);
+                            if (inner.empty() || inner == "$" || inner == "*") continue;
+                            const std::string innerUpper = toUpperStep(inner);
+                            if (typeTag.find("BOOLEAN") != std::string::npos ||
+                                innerUpper == ".T." || innerUpper == ".TRUE." || innerUpper == "TRUE" ||
+                                innerUpper == ".F." || innerUpper == ".FALSE." || innerUpper == "FALSE") {
+                                nd->support.fixed[d] = parseBoolOrStepBool(inner);
+                            } else if (typeTag.find("STIFFNESSMEASURE") != std::string::npos) {
+                                double stiff = 0.0;
+                                if (!tryParseFiniteDouble(inner, stiff) || stiff < 0.0) {
+                                    return failInvalidNumeric("Rigidez de mola inválida ou não finita em IFCBOUNDARYNODECONDITION.");
                                 }
+                                nd->support.springStiffness[d] = stiff;
                             }
                         }
                     }
@@ -547,8 +623,12 @@ bool IfcInterop::importFromString(const std::string& stepText,
             if (edgeEnt.typeName == "IFCEDGE" && edgeEnt.args.size() >= 2) {
                 const int v1Ref = parseEntityRef(edgeEnt.args[0]);
                 const int v2Ref = parseEntityRef(edgeEnt.args[1]);
-                const NodeId n1 = ensureNodeAt(getVertexPointCoords(v1Ref), v1Ref);
-                const NodeId n2 = ensureNodeAt(getVertexPointCoords(v2Ref), v2Ref);
+                Vec3 p1{0, 0, 0}, p2{0, 0, 0};
+                if (!getVertexPointCoords(v1Ref, p1) || !getVertexPointCoords(v2Ref, p2)) {
+                    return failInvalidNumeric("Coordenadas inválidas ou não finitas (NaN/Inf) em IFCSTRUCTURALCURVEMEMBER.");
+                }
+                const NodeId n1 = ensureNodeAt(p1, v1Ref);
+                const NodeId n2 = ensureNodeAt(p2, v2Ref);
                 if (n1 != n2) {
                     const ElementId eid = outModel.addElement(n1, n2, 1, 1);
                     Element* el = outModel.findElement(eid);
@@ -565,13 +645,15 @@ bool IfcInterop::importFromString(const std::string& stepText,
 
     // Lê membros superficiais estruturais (IFCSTRUCTURALSURFACEMEMBER) -> MeshContainer
     if (outShellMesh) {
+        SpatialPointHash shellPointHash(1e-4);
         auto toMeshNode = [&](const Vec3& p) -> kernel::NodeId {
-            const kernel::Vec3 kp(p.x, p.y, p.z);
-            for (const auto& existing : outShellMesh->nodes) {
-                if ((existing.position - kp).norm() <= 1e-6) return existing.id;
+            std::size_t existingIdx = 0;
+            if (shellPointHash.findNearestWithinSq(p.x, p.y, p.z, 1e-12, &existingIdx)) {
+                return outShellMesh->nodes[existingIdx].id;
             }
             const kernel::NodeId kid = static_cast<kernel::NodeId>(outShellMesh->nodes.size() + 1);
-            outShellMesh->nodes.push_back({kid, kp, false, "IFC_SHELL"});
+            outShellMesh->nodes.push_back({kid, kernel::Vec3(p.x, p.y, p.z), false, "IFC_SHELL"});
+            shellPointHash.insert(p.x, p.y, p.z, outShellMesh->nodes.size() - 1);
             return kid;
         };
 
@@ -596,14 +678,37 @@ bool IfcInterop::importFromString(const std::string& stepText,
                     std::vector<kernel::NodeId> nids;
                     for (const auto& ptTok : ptToks) {
                         const int ptRef = parseEntityRef(ptTok);
-                        if (ptRef > 0) nids.push_back(toMeshNode(getPointCoords(ptRef)));
+                        if (ptRef > 0) {
+                            Vec3 pt{0, 0, 0};
+                            if (!getPointCoords(ptRef, pt)) {
+                                return failInvalidNumeric("Coordenadas inválidas ou não finitas em IFCSTRUCTURALSURFACEMEMBER.");
+                            }
+                            nids.push_back(toMeshNode(pt));
+                        }
                     }
                     if (nids.size() == 3 || nids.size() == 4) {
                         const kernel::ElementId keid = static_cast<kernel::ElementId>(outShellMesh->elements.size() + 1);
                         const kernel::MeshCellType ct = (nids.size() == 3)
                             ? kernel::MeshCellType::Tri3
                             : kernel::MeshCellType::Quad4;
-                        outShellMesh->elements.push_back({keid, ct, std::move(nids), "IFC_SHELL"});
+                        double importedThickness = 0.15;
+                        if (ent.args.size() >= 9) {
+                            const std::string thkTok = unwrapStepTypedToken(ent.args[8]);
+                            if (!thkTok.empty() && thkTok != "$" && thkTok != "*") {
+                                double parsedThk = 0.0;
+                                if (!tryParseFiniteDouble(thkTok, parsedThk) || parsedThk <= 1e-6) {
+                                    return failInvalidNumeric("Espessura inválida ou não finita em IFCSTRUCTURALSURFACEMEMBER.");
+                                }
+                                importedThickness = parsedThk;
+                            }
+                        }
+                        kernel::MeshElement me;
+                        me.id = keid;
+                        me.type = ct;
+                        me.nodeIds = std::move(nids);
+                        me.groupTag = "IFC_SHELL";
+                        me.thickness = importedThickness;
+                        outShellMesh->elements.push_back(std::move(me));
                         rep.surfaceMembersImported++;
                     }
                 }
@@ -615,6 +720,11 @@ bool IfcInterop::importFromString(const std::string& stepText,
     if (!rep.success) {
         rep.errorMessage = "Nenhum membro estrutural IFC reconhecido no arquivo.";
     }
+    outModel.endBatchUpdate(false);
+    if (rep.success) {
+        outModel.clearUndoHistory();
+        outModel.pushUndo();
+    }
     if (report) *report = rep;
     return rep.success;
 }
@@ -623,9 +733,29 @@ bool IfcInterop::importFromFile(const std::string& filePath,
                                 StructuralModel& outModel,
                                 kernel::MeshContainer* outShellMesh,
                                 IfcGuidMap* outGuidMap,
-                                IfcInteropReport* report)
+                                IfcInteropReport* report,
+                                std::size_t maxFileSizeBytes)
 {
-    std::ifstream ifs(pathFromUtf8(filePath), std::ios::binary);
+    std::error_code ec;
+    const auto fsPath = pathFromUtf8(filePath);
+    if (!std::filesystem::exists(fsPath, ec) || !std::filesystem::is_regular_file(fsPath, ec)) {
+        if (report) {
+            report->success = false;
+            report->errorMessage = "Arquivo IFC inexistente ou não é um arquivo regular: " + filePath;
+        }
+        return false;
+    }
+    const auto fileSize = std::filesystem::file_size(fsPath, ec);
+    if (ec || maxFileSizeBytes == 0 || fileSize > maxFileSizeBytes) {
+        if (report) {
+            report->success = false;
+            report->errorMessage = "Arquivo IFC excede o limite máximo permitido de tamanho (" +
+                                   std::to_string(maxFileSizeBytes) + " bytes).";
+        }
+        return false;
+    }
+
+    std::ifstream ifs(fsPath, std::ios::binary);
     if (!ifs.is_open()) {
         if (report) {
             report->success = false;
@@ -633,9 +763,21 @@ bool IfcInterop::importFromFile(const std::string& filePath,
         }
         return false;
     }
-    std::ostringstream ss;
-    ss << ifs.rdbuf();
-    return importFromString(ss.str(), outModel, outShellMesh, outGuidMap, report);
+    std::string buf;
+    buf.resize(static_cast<std::size_t>(fileSize));
+    if (fileSize > 0) {
+        ifs.read(buf.data(), static_cast<std::streamsize>(fileSize));
+        buf.resize(static_cast<std::size_t>(ifs.gcount()));
+    }
+    char extra = 0;
+    if (ifs.read(&extra, 1) && ifs.gcount() > 0 && buf.size() >= maxFileSizeBytes) {
+        if (report) {
+            report->success = false;
+            report->errorMessage = "Arquivo IFC excede o limite máximo permitido de tamanho.";
+        }
+        return false;
+    }
+    return importFromString(buf, outModel, outShellMesh, outGuidMap, report, maxFileSizeBytes);
 }
 
 } // namespace omniframe::io

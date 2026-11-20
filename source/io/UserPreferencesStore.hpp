@@ -56,6 +56,9 @@ public:
     static bool hasAllSections(const QStringList& sectionKeys);
 
     static bool migrateLegacyFilesIfNeeded();
+
+    static int diskWriteCount();
+    static void resetDiskWriteCount();
 };
 
 } // namespace omniframe::io

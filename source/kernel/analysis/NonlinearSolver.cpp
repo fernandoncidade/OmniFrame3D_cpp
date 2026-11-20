@@ -1,6 +1,7 @@
 #include "NonlinearSolver.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace omniframe::kernel {
@@ -115,11 +116,21 @@ void FrameNonlinearModel::commitStep() {
 
 void FrameNonlinearModel::revertStepToCommitted() {
     m_trialStates = m_committedStates;
+    m_savedIterTrialStates = m_committedStates;
+}
+
+void FrameNonlinearModel::saveIterationTrialState() {
+    m_savedIterTrialStates = m_trialStates;
+}
+
+void FrameNonlinearModel::restoreIterationTrialState() {
+    m_trialStates = m_savedIterTrialStates;
 }
 
 void FrameNonlinearModel::resetAll() {
     m_committedStates.assign(m_elements.size(), Corotational1DState{});
     m_trialStates = m_committedStates;
+    m_savedIterTrialStates = m_committedStates;
     m_lastEval.resize(m_elements.size());
 }
 
@@ -225,9 +236,23 @@ bool FrameNonlinearModel::evaluateTrial(const VecX& U_full_total,
     return true;
 }
 
-NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOptions& opts) {
+NonlinearResult NonlinearSolver::solve(INonlinearModel& model,
+                                       const NonlinearOptions& opts,
+                                       std::stop_token stopToken) {
     NonlinearResult out;
     model.resetAll();
+
+    auto returnCancelled = [&](const char* msg) -> NonlinearResult {
+        model.revertStepToCommitted();
+        out.success = false;
+        out.errorMessage = msg;
+        out.convergenceDiagnostic = msg;
+        return out;
+    };
+
+    if (stopToken.stop_requested()) {
+        return returnCancelled("Analise nao linear cancelada.");
+    }
 
     const ReducedLinearSystem& baseSys = model.baseReducedSystem();
     const int nFull = baseSys.fullDofs;
@@ -243,37 +268,66 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
     const VecX Fref_f = Pt * Fref_full;
     const double refForceNorm = std::max(1.0, Fref_f.norm());
 
-    // Deslocamento imposto em apoios (se existir U_offset != 0), escalado por lambda
+    // [AUD-012] Deslocamento unitário imposto em apoios e vínculos (recalques em U_fixed_red + offsets U_offset)
     VecX U_prescribed_unit = VecX::Zero(nFull);
+    if (baseSys.reducedDofs > 0 && baseSys.U_fixed_red.size() == baseSys.reducedDofs) {
+        VecX uRedUnit = baseSys.U_fixed_red;
+        for (int j = 0; j < nFree && j < static_cast<int>(baseSys.freeReducedIndices.size()); ++j) {
+            const int rd = baseSys.freeReducedIndices[static_cast<std::size_t>(j)];
+            if (rd >= 0 && rd < baseSys.reducedDofs) {
+                uRedUnit(rd) = 0.0;
+            }
+        }
+        if (baseSys.hasMpc && baseSys.T_mpc.rows() == nFull && baseSys.T_mpc.cols() == baseSys.reducedDofs) {
+            U_prescribed_unit += baseSys.T_mpc * uRedUnit;
+        } else if (uRedUnit.size() == nFull) {
+            U_prescribed_unit += uRedUnit;
+        }
+    }
     if (baseSys.U_offset.size() == nFull && baseSys.U_offset.norm() > 0.0) {
-        U_prescribed_unit = baseSys.U_offset;
+        U_prescribed_unit += baseSys.U_offset;
     }
 
     auto solveLinearTangent = [&](const SpMat& K_ff, const VecX& rhs, LinearSolverStats& st) -> VecX {
-        return LinearSolverSuite::solve(K_ff, rhs, opts.linearSolver, st, nullptr);
+        return LinearSolverSuite::solve(K_ff, rhs, opts.linearSolver, st, nullptr, stopToken);
     };
 
     if (opts.method == NonlinearMethod::PDelta) {
         // Método iterativo direto de 2ª ordem P-Delta em carga alvo total
         const double lambda = opts.targetLoadFactor;
         VecX U_free = VecX::Zero(nFree);
-        VecX U_full = lambda * U_prescribed_unit;
-        VecX dU_zero = VecX::Zero(nFull);
+        VecX deltaU_iter = lambda * U_prescribed_unit;
+        VecX U_full = deltaU_iter;
 
         model.beginStepTrial();
-        SpMat Kt_full;
-        VecX Fint_full;
+        SpMat Kt_pre;
+        VecX Fint_pre;
+        bool hasPreEval = false;
+        bool yielded_pre = false;
         bool yielded = false;
         double refEnergy = -1.0;
         VecX prevDU_free = VecX::Zero(nFree);
         double lastEnergyRatio = 0.0;
         double lastRelRes = 0.0;
 
-        for (int iter = 1; iter <= std::max(5, opts.maxIterationsPerStep); ++iter) {
+        const int maxIters = std::max(5, opts.maxIterationsPerStep);
+        for (int iter = 1; iter <= maxIters; ++iter) {
+            if (stopToken.stop_requested()) {
+                return returnCancelled("Analise P-Delta cancelada.");
+            }
             out.totalIterations = iter;
-            if (!model.evaluateTrial(U_full, dU_zero, Kt_full, Fint_full, yielded, &out.errorMessage)) {
-                out.convergenceDiagnostic = "P-Delta falhou na avaliacao do elemento: " + out.errorMessage;
-                return out;
+            SpMat Kt_full;
+            VecX Fint_full;
+            if (hasPreEval) {
+                Kt_full.swap(Kt_pre);
+                Fint_full.swap(Fint_pre);
+                yielded = yielded_pre;
+                hasPreEval = false;
+            } else {
+                if (!model.evaluateTrial(U_full, deltaU_iter, Kt_full, Fint_full, yielded, &out.errorMessage)) {
+                    out.convergenceDiagnostic = "P-Delta falhou na avaliacao do elemento: " + out.errorMessage;
+                    return out;
+                }
             }
             const VecX R_f = Pt * (lambda * Fref_full - Fint_full);
             const SpMat Kt_ff = Pt * Kt_full * P_free;
@@ -298,6 +352,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
 
             LinearSolverStats st;
             VecX dU_free = solveLinearTangent(Kt_ff, R_f, st);
+            if (stopToken.stop_requested()) {
+                return returnCancelled("Analise P-Delta cancelada.");
+            }
             if (!st.success || !dU_free.allFinite()) {
                 out.errorMessage = "Falha ou instabilidade (flambagem/singularidade) na análise P-Delta: " + st.message;
                 out.convergenceDiagnostic = out.errorMessage;
@@ -309,30 +366,36 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
             }
             prevDU_free = dU_free;
 
+            // [AUD-010] Atualiza deltaU_iter com incremento real P_free * dU_free para que
+            // P-Delta combinado com Corotational3D atualize rotações nodais em SO(3).
             const double relDisp = dU_free.norm() / std::max(1.0, U_free.norm());
             U_free += dU_free;
+            deltaU_iter = P_free * dU_free;
             U_full = P_free * U_free + lambda * U_prescribed_unit;
 
-            if (relDisp <= opts.dispTol && relR <= std::sqrt(opts.forceTol)) {
-                if (!model.evaluateTrial(U_full, dU_zero, Kt_full, Fint_full, yielded, &out.errorMessage)) {
+            if (relDisp <= opts.dispTol || iter == maxIters) {
+                if (!model.evaluateTrial(U_full, deltaU_iter, Kt_pre, Fint_pre, yielded_pre, &out.errorMessage)) {
                     out.convergenceDiagnostic = out.errorMessage;
                     return out;
                 }
-                const VecX R2 = Pt * (lambda * Fref_full - Fint_full);
+                const VecX R2 = Pt * (lambda * Fref_full - Fint_pre);
                 const double relR2 = R2.norm() / refForceNorm;
                 const double relE2 = (refEnergy > 0.0) ? (std::abs(dU_free.dot(R2)) / refEnergy) : 0.0;
-                if (relR2 <= opts.forceTol * 10.0 && (opts.energyTol <= 0.0 || relE2 <= opts.energyTol * 10.0)) {
+                lastRelRes = relR2;
+                lastEnergyRatio = relE2;
+                if (relR2 <= opts.forceTol && (opts.energyTol <= 0.0 || relE2 <= opts.energyTol)) {
                     model.commitStep();
                     out.success = true;
                     out.achievedLoadFactor = lambda;
                     out.totalSteps = 1;
                     out.finalU_full = U_full;
-                    out.finalReactionsFull = computeReactionsFull(baseSys, Fint_full, lambda, Fref_full);
-                    out.history.push_back({1, lambda, iter, R2.norm(), U_full, out.finalReactionsFull, yielded, relE2});
+                    out.finalReactionsFull = computeReactionsFull(baseSys, Fint_pre, lambda, Fref_full);
+                    out.history.push_back({1, lambda, iter, R2.norm(), U_full, out.finalReactionsFull, yielded_pre, relE2});
                     out.convergenceDiagnostic = "P-Delta convergiu (relDisp=" + std::to_string(relDisp)
                         + ", relR=" + std::to_string(relR2) + ", relE=" + std::to_string(relE2) + ").";
                     return out;
                 }
+                hasPreEval = true;
             }
         }
         out.errorMessage = "Análise P-Delta não convergiu no número máximo de iterações (possível carga próxima à crítica).";
@@ -367,14 +430,17 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
         while (std::abs(opts.targetLoadFactor - lambdaConv) > 1e-12 * std::max(1.0, std::abs(opts.targetLoadFactor))
                && stepIdx < opts.maxSteps)
         {
+            if (stopToken.stop_requested()) {
+                return returnCancelled("Analise Newton-Raphson cancelada.");
+            }
             const double remaining = opts.targetLoadFactor - lambdaConv;
             const double dLam = (std::abs(dLambdaCurr) > std::abs(remaining)) ? remaining : dLambdaCurr;
             const double lambdaTarget = lambdaConv + dLam;
 
             model.beginStepTrial();
             VecX U_free = U_free_conv;
-            VecX U_full = U_full_conv + (lambdaTarget - lambdaConv) * U_prescribed_unit;
             VecX deltaU_iter = (lambdaTarget - lambdaConv) * U_prescribed_unit;
+            VecX U_full = U_full_conv + deltaU_iter;
 
             bool stepConverged = false;
             int stepIters = 0;
@@ -385,14 +451,30 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
             bool stepYielded = false;
             VecX Fint_final;
 
-            for (int iter = 1; iter <= opts.maxIterationsPerStep; ++iter) {
+            bool hasPreEval = false;
+            SpMat Kt_pre;
+            VecX Fint_pre;
+            bool yielded_pre = false;
+
+            const int maxStepIters = std::max(1, opts.maxIterationsPerStep);
+            for (int iter = 1; iter <= maxStepIters; ++iter) {
+                if (stopToken.stop_requested()) {
+                    return returnCancelled("Analise Newton-Raphson cancelada.");
+                }
                 stepIters = iter;
                 ++out.totalIterations;
 
                 SpMat Kt_full;
                 VecX Fint_full;
-                if (!model.evaluateTrial(U_full, deltaU_iter, Kt_full, Fint_full, stepYielded, &out.errorMessage)) {
-                    break;
+                if (hasPreEval) {
+                    Kt_full.swap(Kt_pre);
+                    Fint_full.swap(Fint_pre);
+                    stepYielded = yielded_pre;
+                    hasPreEval = false;
+                } else {
+                    if (!model.evaluateTrial(U_full, deltaU_iter, Kt_full, Fint_full, stepYielded, &out.errorMessage)) {
+                        break;
+                    }
                 }
                 Fint_final = Fint_full;
                 const VecX R_f = Pt * (lambdaTarget * Fref_full - Fint_full);
@@ -413,6 +495,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
 
                 LinearSolverStats st;
                 VecX dU_free = solveLinearTangent(Kt_ff_cached, R_f, st);
+                if (stopToken.stop_requested()) {
+                    return returnCancelled("Analise Newton-Raphson cancelada.");
+                }
                 if (!st.success || !dU_free.allFinite()) {
                     break;
                 }
@@ -423,34 +508,129 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
                 prevDU_free = dU_free;
 
                 double alpha = 1.0;
-                const double rNormBefore = R_f.norm();
-                VecX dU_full_step = P_free * dU_free;
+                const VecX dU_full_step = P_free * dU_free;
 
-                // Line search suave com preservação do manifold SO(3) por rollback se necessário
-                if (opts.enableLineSearch && iter > 1 && dU_free.norm() > 0.0) {
-                    // Checagem simples apenas quando passo completo pode divergir: testado na próxima iteração;
-                    // aqui limitamos crescimento abrupto se R aumentar > 4x em sistema elástico
-                    (void)rNormBefore;
-                }
+                if (opts.enableLineSearch && dU_free.norm() > 0.0) {
+                    // [AUD-010] Backtracking line search real (Armijo + resíduo de energia direcional)
+                    // com snapshot/rollback do estado SO(3) por iteração.
+                    model.saveIterationTrialState();
+                    const double rNormBefore = R_f.norm();
+                    const double g0 = dU_free.dot(R_f);
 
-                VecX dU_applied = alpha * dU_full_step;
-                U_free += alpha * dU_free;
-                U_full += dU_applied;
-                deltaU_iter = dU_applied;
+                    bool hasBest = false;
+                    double bestAlpha = 1.0;
+                    double bestRNorm = std::numeric_limits<double>::infinity();
+                    SpMat Kt_best;
+                    VecX Fint_best;
+                    bool yielded_best = false;
+                    bool acceptedEarly = false;
+                    int lastEvaluatedLs = -1;
+                    int bestLs = -1;
 
-                const double relDisp = (alpha * dU_free.norm()) / std::max(1.0, U_free.norm());
-                if (relDisp <= opts.dispTol && relRes <= std::sqrt(opts.forceTol) * 0.1) {
-                    // Confirma equilíbrio no ponto atualizado
-                    SpMat Kt_chk;
-                    VecX Fint_chk;
-                    if (model.evaluateTrial(U_full, deltaU_iter, Kt_chk, Fint_chk, stepYielded, &out.errorMessage)) {
-                        Fint_final = Fint_chk;
-                        const VecX R_chk = Pt * (lambdaTarget * Fref_full - Fint_chk);
+                    constexpr int kMaxLineSearchSteps = 7;
+                    for (int ls = 0; ls < kMaxLineSearchSteps; ++ls) {
+                        if (stopToken.stop_requested()) {
+                            return returnCancelled("Analise Newton-Raphson cancelada.");
+                        }
+                        if (ls > 0) {
+                            model.restoreIterationTrialState();
+                        }
+                        lastEvaluatedLs = ls;
+                        const VecX dU_cand = alpha * dU_full_step;
+                        SpMat Kt_cand;
+                        VecX Fint_cand;
+                        bool yielded_cand = false;
+                        std::string lsErr;
+                        if (!model.evaluateTrial(U_full + dU_cand, dU_cand, Kt_cand, Fint_cand, yielded_cand, &lsErr)) {
+                            alpha *= 0.5;
+                            continue;
+                        }
+                        const VecX R_cand = Pt * (lambdaTarget * Fref_full - Fint_cand);
+                        const double rNormCand = R_cand.norm();
+                        const double gCand = dU_free.dot(R_cand);
+                        if (!hasBest || rNormCand < bestRNorm) {
+                            hasBest = true;
+                            bestAlpha = alpha;
+                            bestRNorm = rNormCand;
+                            Kt_best.swap(Kt_cand);
+                            Fint_best.swap(Fint_cand);
+                            yielded_best = yielded_cand;
+                            bestLs = ls;
+                        }
+
+                        const bool convergedTol = (rNormCand / refForceNorm <= opts.forceTol);
+                        const bool armijoDecrease = (rNormCand <= (1.0 - 1e-4 * alpha) * rNormBefore);
+                        const bool slackEnergy = (std::abs(g0) > 1e-18 &&
+                                                  std::abs(gCand) <= 0.5 * std::abs(g0) &&
+                                                  rNormCand <= 1.25 * rNormBefore);
+                        if (convergedTol || armijoDecrease || slackEnergy) {
+                            acceptedEarly = true;
+                            break;
+                        }
+                        alpha *= 0.5;
+                    }
+
+                    if (!hasBest) {
+                        model.restoreIterationTrialState();
+                        break;
+                    }
+                    if (bestLs != lastEvaluatedLs) {
+                        model.restoreIterationTrialState();
+                        const VecX dU_best = bestAlpha * dU_full_step;
+                        if (!model.evaluateTrial(U_full + dU_best, dU_best, Kt_best, Fint_best, yielded_best, &out.errorMessage)) {
+                            break;
+                        }
+                    }
+                    (void)acceptedEarly;
+                    alpha = bestAlpha;
+                    if (alpha < 1.0 - 1e-12) {
+                        ++out.lineSearchBacktrackCount;
+                        out.minLineSearchAlpha = std::min(out.minLineSearchAlpha, alpha);
+                    }
+                    const VecX dU_applied = alpha * dU_full_step;
+                    U_free += alpha * dU_free;
+                    U_full += dU_applied;
+                    deltaU_iter = dU_applied;
+
+                    Fint_final = Fint_best;
+                    const VecX R_chk = Pt * (lambdaTarget * Fref_full - Fint_best);
+                    lastResNorm = R_chk.norm();
+                    lastEnergyRatio = (refEnergy > 0.0) ? (std::abs(alpha * dU_free.dot(R_chk)) / refEnergy) : 0.0;
+                    stepYielded = yielded_best;
+
+                    if ((lastResNorm / refForceNorm <= opts.forceTol) &&
+                        (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol)) {
+                        stepConverged = true;
+                        break;
+                    }
+
+                    Kt_pre.swap(Kt_best);
+                    Fint_pre.swap(Fint_best);
+                    yielded_pre = yielded_best;
+                    hasPreEval = true;
+                } else {
+                    const VecX& dU_applied = dU_full_step;
+                    U_free += dU_free;
+                    U_full += dU_applied;
+                    deltaU_iter = dU_applied;
+
+                    const double relDisp = dU_free.norm() / std::max(1.0, U_free.norm());
+                    if (relDisp <= opts.dispTol || iter == maxStepIters) {
+                        // Confirma equilíbrio real de forças no ponto atualizado (sem aceitar apenas relDisp)
+                        if (!model.evaluateTrial(U_full, deltaU_iter, Kt_pre, Fint_pre, yielded_pre, &out.errorMessage)) {
+                            break;
+                        }
+                        Fint_final = Fint_pre;
+                        stepYielded = yielded_pre;
+                        const VecX R_chk = Pt * (lambdaTarget * Fref_full - Fint_pre);
                         lastResNorm = R_chk.norm();
                         lastEnergyRatio = (refEnergy > 0.0) ? (std::abs(dU_free.dot(R_chk)) / refEnergy) : 0.0;
-                        stepConverged = (lastResNorm / refForceNorm <= opts.forceTol * 10.0)
-                                     && (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol * 10.0);
-                        break;
+                        if ((lastResNorm / refForceNorm <= opts.forceTol) &&
+                            (opts.energyTol <= 0.0 || lastEnergyRatio <= opts.energyTol)) {
+                            stepConverged = true;
+                            break;
+                        }
+                        hasPreEval = true;
                     }
                 }
             }
@@ -543,6 +723,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
         int cutbacks = 0;
 
         while (stepIdx < opts.maxSteps) {
+            if (stopToken.stop_requested()) {
+                return returnCancelled("Analise Arc-Length cancelada.");
+            }
             // Verifica se atingimos ou ultrapassamos targetLoadFactor na mesma direção inicial
             if (stepIdx > 0 && ((opts.targetLoadFactor >= 0.0 && lambdaConv >= opts.targetLoadFactor - 1e-10)
                                 || (opts.targetLoadFactor < 0.0 && lambdaConv <= opts.targetLoadFactor + 1e-10))) {
@@ -596,6 +779,9 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
             VecX Fint_final;
 
             for (int iter = 1; iter <= opts.maxIterationsPerStep; ++iter) {
+                if (stopToken.stop_requested()) {
+                    return returnCancelled("Analise Arc-Length cancelada.");
+                }
                 stepIters = iter;
                 ++out.totalIterations;
 
@@ -619,8 +805,11 @@ NonlinearResult NonlinearSolver::solve(INonlinearModel& model, const NonlinearOp
 
                 LinearSolverStats stR, stF;
                 FactorizationCache cache;
-                VecX dU_I = LinearSolverSuite::solve(Kt_ff, R_f, opts.linearSolver, stR, &cache);
-                VecX dU_F = LinearSolverSuite::solve(Kt_ff, Fref_f, opts.linearSolver, stF, &cache);
+                VecX dU_I = LinearSolverSuite::solve(Kt_ff, R_f, opts.linearSolver, stR, &cache, stopToken);
+                VecX dU_F = LinearSolverSuite::solve(Kt_ff, Fref_f, opts.linearSolver, stF, &cache, stopToken);
+                if (stopToken.stop_requested()) {
+                    return returnCancelled("Analise Arc-Length cancelada.");
+                }
                 if (!stR.success || !stF.success || !dU_I.allFinite() || !dU_F.allFinite()) {
                     break;
                 }

@@ -236,10 +236,13 @@ MeshContainer MeshGenerator::triangulatePolygonDelaunay(const std::vector<Eigen:
     // Gera sementes interiores em rede hexagonal com afastamento seguro do contorno
     const double dy = targetEdgeSize * std::sqrt(3.0) * 0.5;
     const double clearance = 0.52 * targetEdgeSize;
-    int row = 0;
-    for (double y = minXY.y() + clearance; y <= maxXY.y() - clearance; y += dy, ++row) {
-        const double xOffset = (row % 2 == 1) ? 0.5 * targetEdgeSize : 0.0;
-        for (double x = minXY.x() + clearance + xOffset; x <= maxXY.x() - clearance; x += targetEdgeSize) {
+    for (int iy = 0; ; ++iy) {
+        const double y = minXY.y() + clearance + static_cast<double>(iy) * dy;
+        if (y > maxXY.y() - clearance) break;
+        const double xOffset = (iy % 2 == 1) ? 0.5 * targetEdgeSize : 0.0;
+        for (int ix = 0; ; ++ix) {
+            const double x = minXY.x() + clearance + xOffset + static_cast<double>(ix) * targetEdgeSize;
+            if (x > maxXY.x() - clearance) break;
             const Eigen::Vector2d cand(x, y);
             if (!pointInPolygon2D(cand, poly)) continue;
             double minDist = std::numeric_limits<double>::max();
@@ -613,64 +616,125 @@ MeshQualityMetrics MeshGenerator::evaluateQuality(const MeshContainer& mesh) {
     qm.minAspectRatio = std::numeric_limits<double>::max();
     qm.maxAspectRatio = 0.0;
     qm.maxSkewness = 0.0;
+    bool anyMetric = false;
+
+    auto requiredCornerCount = [](MeshCellType t) -> std::size_t {
+        switch (t) {
+            case MeshCellType::Line2: return 2;
+            case MeshCellType::Tri3:  return 3;
+            case MeshCellType::Quad4: return 4;
+            case MeshCellType::Quad8: return 8;
+            case MeshCellType::Tet4:  return 4;
+            case MeshCellType::Tet10: return 10;
+            case MeshCellType::Hex8:  return 8;
+            case MeshCellType::Hex20: return 20;
+        }
+        return 0;
+    };
+
+    auto isFinitePos = [](const Vec3& p) -> bool {
+        return std::isfinite(p.x()) && std::isfinite(p.y()) && std::isfinite(p.z());
+    };
 
     for (const auto& el : mesh.elements) {
+        const std::size_t reqNodes = requiredCornerCount(el.type);
+        if (reqNodes == 0 || el.nodeIds.size() < reqNodes) {
+            qm.invertedOrDegenerateCount++;
+            continue;
+        }
+
+        // Busca segura via find(): nunca lança std::out_of_range se houver nó ausente ou não finito ([AUD-007])
+        bool allNodesValid = true;
+        std::array<Vec3, 8> corners{};
+        for (std::size_t i = 0; i < el.nodeIds.size(); ++i) {
+            const auto it = posMap.find(el.nodeIds[i]);
+            if (it == posMap.end() || !isFinitePos(it->second)) {
+                allNodesValid = false;
+                break;
+            }
+            if (i < corners.size()) {
+                corners[i] = it->second;
+            }
+        }
+        if (!allNodesValid) {
+            qm.invertedOrDegenerateCount++;
+            continue;
+        }
+
         double jac = 0.0;
         double minEdge = std::numeric_limits<double>::max();
         double maxEdge = 0.0;
         double skew = 0.0;
 
         auto edgeUpdate = [&](int a, int b) {
-            const double d = (posMap.at(el.nodeIds[a]) - posMap.at(el.nodeIds[b])).norm();
+            const double d = (corners[static_cast<std::size_t>(a)] - corners[static_cast<std::size_t>(b)]).norm();
             minEdge = std::min(minEdge, d);
             maxEdge = std::max(maxEdge, d);
         };
 
-        if (el.type == MeshCellType::Line2 && el.nodeIds.size() == 2) {
-            jac = (posMap.at(el.nodeIds[1]) - posMap.at(el.nodeIds[0])).norm();
+        if (el.type == MeshCellType::Line2) {
+            jac = (corners[1] - corners[0]).norm();
             minEdge = maxEdge = jac;
-        } else if (el.type == MeshCellType::Tri3 && el.nodeIds.size() == 3) {
-            const Vec3& a = posMap.at(el.nodeIds[0]);
-            const Vec3& b = posMap.at(el.nodeIds[1]);
-            const Vec3& c = posMap.at(el.nodeIds[2]);
+        } else if (el.type == MeshCellType::Tri3) {
+            const Vec3& a = corners[0];
+            const Vec3& b = corners[1];
+            const Vec3& c = corners[2];
             jac = (b - a).cross(c - a).norm();
             edgeUpdate(0, 1); edgeUpdate(1, 2); edgeUpdate(2, 0);
             const double ab = (b - a).norm(), bc = (c - b).norm(), ca = (a - c).norm();
             const double area = 0.5 * jac;
             const double eqArea = (std::sqrt(3.0) / 4.0) * std::pow((ab + bc + ca) / 3.0, 2);
             skew = (eqArea > 1e-18) ? std::clamp(1.0 - area / eqArea, 0.0, 1.0) : 1.0;
-        } else if ((el.type == MeshCellType::Quad4 || el.type == MeshCellType::Quad8) && el.nodeIds.size() >= 4) {
-            const Vec3& a = posMap.at(el.nodeIds[0]);
-            const Vec3& b = posMap.at(el.nodeIds[1]);
-            const Vec3& c = posMap.at(el.nodeIds[2]);
-            const Vec3& d = posMap.at(el.nodeIds[3]);
-            const Vec3 n1 = (b - a).cross(d - a);
-            const Vec3 n2 = (b - c).cross(d - c);
-            jac = 0.5 * (n1.norm() + n2.norm()) * 0.25;
+        } else if (el.type == MeshCellType::Quad4 || el.type == MeshCellType::Quad8) {
+            const Vec3& a = corners[0];
+            const Vec3& b = corners[1];
+            const Vec3& c = corners[2];
+            const Vec3& d = corners[3];
+            const Vec3 c0 = (b - a).cross(d - a);
+            const Vec3 c1 = (c - b).cross(a - b);
+            const Vec3 c2 = (d - c).cross(b - c);
+            const Vec3 c3 = (a - d).cross(c - d);
+            const Vec3 nRef = (c - a).cross(d - b);
+            const double nRefNorm = nRef.norm();
+            if (nRefNorm <= 1e-15 || c0.dot(c2) <= 0.0 || c1.dot(c3) <= 0.0) {
+                jac = -1.0;
+            } else {
+                const Vec3 nUnit = nRef / nRefNorm;
+                jac = 0.25 * std::min({c0.dot(nUnit), c1.dot(nUnit), c2.dot(nUnit), c3.dot(nUnit)});
+            }
             edgeUpdate(0, 1); edgeUpdate(1, 2); edgeUpdate(2, 3); edgeUpdate(3, 0);
-            const double cosA = std::abs((b - a).normalized().dot((d - a).normalized()));
+            const Vec3 e1 = b - a;
+            const Vec3 e2 = d - a;
+            const double e1n = e1.norm();
+            const double e2n = e2.norm();
+            const double cosA = (e1n > 1e-14 && e2n > 1e-14) ? std::abs((e1 / e1n).dot(e2 / e2n)) : 1.0;
             skew = std::clamp(cosA, 0.0, 1.0);
-        } else if ((el.type == MeshCellType::Tet4 || el.type == MeshCellType::Tet10) && el.nodeIds.size() >= 4) {
-            jac = tetSignedDet(posMap.at(el.nodeIds[0]), posMap.at(el.nodeIds[1]),
-                               posMap.at(el.nodeIds[2]), posMap.at(el.nodeIds[3]));
+        } else if (el.type == MeshCellType::Tet4 || el.type == MeshCellType::Tet10) {
+            jac = tetSignedDet(corners[0], corners[1], corners[2], corners[3]);
             static constexpr int edges[6][2] = {{0,1},{1,2},{2,0},{0,3},{1,3},{2,3}};
             for (const auto& ed : edges) edgeUpdate(ed[0], ed[1]);
             const double vol = jac / 6.0;
             const double avgE = 0.5 * (minEdge + maxEdge);
             const double regVol = (avgE * avgE * avgE) / (6.0 * std::sqrt(2.0));
             skew = (regVol > 1e-18) ? std::clamp(1.0 - vol / regVol, 0.0, 1.0) : 1.0;
-        } else if ((el.type == MeshCellType::Hex8 || el.type == MeshCellType::Hex20) && el.nodeIds.size() >= 8) {
-            const Vec3& p0 = posMap.at(el.nodeIds[0]);
-            const Vec3& p1 = posMap.at(el.nodeIds[1]);
-            const Vec3& p3 = posMap.at(el.nodeIds[3]);
-            const Vec3& p4 = posMap.at(el.nodeIds[4]);
-            const Vec3& p6 = posMap.at(el.nodeIds[6]);
-            const Vec3& p5 = posMap.at(el.nodeIds[5]);
-            const Vec3& p7 = posMap.at(el.nodeIds[7]);
-            const Vec3& p2 = posMap.at(el.nodeIds[2]);
+        } else if (el.type == MeshCellType::Hex8 || el.type == MeshCellType::Hex20) {
+            const Vec3& p0 = corners[0];
+            const Vec3& p1 = corners[1];
+            const Vec3& p2 = corners[2];
+            const Vec3& p3 = corners[3];
+            const Vec3& p4 = corners[4];
+            const Vec3& p5 = corners[5];
+            const Vec3& p6 = corners[6];
+            const Vec3& p7 = corners[7];
             const double j0 = (p1 - p0).dot((p3 - p0).cross(p4 - p0));
-            const double j6 = (p2 - p6).dot((p5 - p6).cross(p7 - p6));
-            jac = std::min(j0, j6) * 0.125;
+            const double j1 = (p2 - p1).dot((p0 - p1).cross(p5 - p1));
+            const double j2 = (p3 - p2).dot((p1 - p2).cross(p6 - p2));
+            const double j3 = (p0 - p3).dot((p2 - p3).cross(p7 - p3));
+            const double j4 = (p7 - p4).dot((p5 - p4).cross(p0 - p4));
+            const double j5 = (p4 - p5).dot((p6 - p5).cross(p1 - p5));
+            const double j6 = (p5 - p6).dot((p7 - p6).cross(p2 - p6));
+            const double j7 = (p6 - p7).dot((p4 - p7).cross(p3 - p7));
+            jac = 0.125 * std::min({j0, j1, j2, j3, j4, j5, j6, j7});
             static constexpr int edges[12][2] = {
                 {0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}
             };
@@ -682,12 +746,17 @@ MeshQualityMetrics MeshGenerator::evaluateQuality(const MeshContainer& mesh) {
         qm.minAspectRatio = std::min(qm.minAspectRatio, ar);
         qm.maxAspectRatio = std::max(qm.maxAspectRatio, ar);
         qm.maxSkewness = std::max(qm.maxSkewness, skew);
+        anyMetric = true;
 
-        if (jac <= 1e-14 || minEdge <= 1e-14) {
+        if (!std::isfinite(jac) || jac <= 1e-14 || !std::isfinite(minEdge) || minEdge <= 1e-14) {
             qm.invertedOrDegenerateCount++;
         } else {
             qm.validElements++;
         }
+    }
+    if (!anyMetric) {
+        qm.minJacobian = 0.0;
+        qm.minAspectRatio = 0.0;
     }
     return qm;
 }

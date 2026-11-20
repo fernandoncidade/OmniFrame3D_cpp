@@ -10,10 +10,12 @@ namespace omniframe {
 namespace {
 
 double roundJsonFloat(float value) {
+    if (!std::isfinite(value)) return 0.0;
     return std::round(static_cast<double>(value) * 10000.0) / 10000.0;
 }
 
 float clampf(float v, float lo, float hi) {
+    if (!std::isfinite(v)) return lo;
     return std::clamp(v, lo, hi);
 }
 
@@ -26,6 +28,7 @@ int sanitizeMsaaSamples(int samples) {
 }
 
 float sanitizeResolutionScale(float scale) {
+    if (!std::isfinite(scale)) return 1.0f;
     return clampf(scale, 0.75f, 2.5f);
 }
 
@@ -129,7 +132,10 @@ void RenderQualitySettings::refreshPresetClassification() {
                (autoMsaa || requestedMsaa == ref.requestedMsaa) &&
                shaderLineAA == ref.shaderLineAA &&
                downsampleFilter == ref.downsampleFilter &&
-               approxEq(lineWidthMultiplier, ref.lineWidthMultiplier);
+               approxEq(lineWidthMultiplier, ref.lineWidthMultiplier) &&
+               approxEq(lineSoftness, ref.lineSoftness) &&
+               approxEq(sharpenStrength, ref.sharpenStrength) &&
+               approxEq(planeGridContrast, ref.planeGridContrast);
     };
 
     for (QualityPreset candidate : {

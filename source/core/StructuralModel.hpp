@@ -9,12 +9,120 @@
 #include "kernel/core/KernelTypes.hpp"
 #include "kernel/mesh/MeshGenerator.hpp"
 
-#include <vector>
-#include <unordered_set>
-#include <string>
+#include <cstdint>
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace omniframe {
+
+/**
+ * @brief Índice espacial hash 3D leve com lista intrusiva (sem alocações por bucket)
+ *        para consultas de proximidade em tempo esperado O(1).
+ */
+class SpatialPointHash {
+public:
+    static constexpr std::size_t kInvalidIdx = static_cast<std::size_t>(-1);
+
+    explicit SpatialPointHash(double cellSizeMeters = 1e-4)
+        : m_cellSize(cellSizeMeters > 1e-12 ? cellSizeMeters : 1e-4) {}
+
+    void reserve(std::size_t count) {
+        m_entries.reserve(count);
+        m_buckets.reserve(count);
+    }
+
+    void insert(double x, double y, double z, std::size_t payloadIdx) {
+        const CellKey key = cellKey(x, y, z);
+        auto [it, inserted] = m_buckets.emplace(key, kInvalidIdx);
+        const std::size_t idx = m_entries.size();
+        m_entries.push_back({Vec3{x, y, z}, payloadIdx, it->second});
+        it->second = idx;
+    }
+
+    [[nodiscard]] bool findNearestWithinSq(double x,
+                                           double y,
+                                           double z,
+                                           double tolSq,
+                                           std::size_t* outPayload = nullptr) const {
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+            return false;
+        }
+        const CellKey center = cellKey(x, y, z);
+        double bestSq = tolSq;
+        bool found = false;
+        std::size_t bestPayload = 0;
+
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dz = -1; dz <= 1; ++dz) {
+                    const CellKey probe{center.x + dx, center.y + dy, center.z + dz};
+                    const auto it = m_buckets.find(probe);
+                    if (it == m_buckets.end()) {
+                        continue;
+                    }
+                    for (std::size_t entryIdx = it->second; entryIdx != kInvalidIdx;) {
+                        const Entry& e = m_entries[entryIdx];
+                        const double ddx = e.pos.x - x;
+                        const double ddy = e.pos.y - y;
+                        const double ddz = e.pos.z - z;
+                        const double dSq = ddx * ddx + ddy * ddy + ddz * ddz;
+                        if (dSq <= bestSq) {
+                            bestSq = dSq;
+                            bestPayload = e.payload;
+                            found = true;
+                        }
+                        entryIdx = e.next;
+                    }
+                }
+            }
+        }
+        if (found && outPayload) {
+            *outPayload = bestPayload;
+        }
+        return found;
+    }
+
+private:
+    struct CellKey {
+        std::int64_t x = 0;
+        std::int64_t y = 0;
+        std::int64_t z = 0;
+        bool operator==(const CellKey& o) const = default;
+    };
+
+    struct CellKeyHash {
+        std::size_t operator()(const CellKey& k) const noexcept {
+            const std::uint64_t h1 = static_cast<std::uint64_t>(k.x) * 0x9E3779B97F4A7C15ULL;
+            const std::uint64_t h2 = static_cast<std::uint64_t>(k.y) * 0xBF58476D1CE4E5B9ULL;
+            const std::uint64_t h3 = static_cast<std::uint64_t>(k.z) * 0x94D049BB133111EBULL;
+            std::uint64_t h = h1 ^ (h2 + 0x9E3779B97F4A7C15ULL + (h1 << 6) + (h1 >> 2));
+            h ^= (h3 + 0x9E3779B97F4A7C15ULL + (h << 6) + (h >> 2));
+            return static_cast<std::size_t>(h);
+        }
+    };
+
+    struct Entry {
+        Vec3 pos;
+        std::size_t payload = 0;
+        std::size_t next = kInvalidIdx;
+    };
+
+    CellKey cellKey(double x, double y, double z) const {
+        auto quant = [this](double v) -> std::int64_t {
+            if (!std::isfinite(v)) return 0;
+            const double scaled = std::clamp(std::floor(v / m_cellSize), -1.0e15, 1.0e15);
+            return static_cast<std::int64_t>(scaled);
+        };
+        return {quant(x), quant(y), quant(z)};
+    }
+
+    double m_cellSize = 1e-4;
+    std::vector<Entry> m_entries;
+    std::unordered_map<CellKey, std::size_t, CellKeyHash> m_buckets;
+};
 
 struct RigidLinkSpec {
     NodeId masterNode = INVALID_ID;
@@ -175,13 +283,44 @@ public:
     void clearAll();
     void clearResults();
     void clearUndoHistory();
+    StructuralModel cloneWithoutHistory() const;
+    [[nodiscard]] std::size_t estimatedMemoryBytes() const noexcept;
+    [[nodiscard]] std::size_t estimatedHistoryMemoryBytes() const noexcept;
 
     // Presets
     static StructuralModel createBuildingFrameExample();
     static StructuralModel createCantileverLFrameExample();
     static StructuralModel createSpaceTrussExample();
 
-    // Undo / Redo
+    // Undo / Redo e modo lote (batch)
+    void beginBatchUpdate();
+    void endBatchUpdate(bool pushUndoAtEnd = false);
+    bool isBatchUpdating() const { return m_batchUpdateDepth > 0; }
+
+    struct ScopedUndoSuppression {
+        explicit ScopedUndoSuppression(StructuralModel& model, bool pushUndoOnExit = false)
+            : m_model(&model), m_pushOnExit(pushUndoOnExit) {
+            m_model->beginBatchUpdate();
+        }
+        ~ScopedUndoSuppression() noexcept {
+            if (m_model) {
+                try {
+                    m_model->endBatchUpdate(m_pushOnExit);
+                } catch (...) {
+                }
+            }
+        }
+        ScopedUndoSuppression(const ScopedUndoSuppression&) = delete;
+        ScopedUndoSuppression& operator=(const ScopedUndoSuppression&) = delete;
+
+    private:
+        StructuralModel* m_model = nullptr;
+        bool m_pushOnExit = false;
+    };
+
+    std::uint64_t geometryRevision() const { return m_geometryRevision; }
+    void bumpRevision() { ++m_geometryRevision; }
+
     void pushUndo();
     bool undo();
     bool redo();
@@ -206,17 +345,37 @@ private:
 
     ModelState captureState() const;
     void restoreState(const ModelState& state);
+    void invalidateAllIndices() const;
+    void rebuildNodeIndex() const;
+    void rebuildElementIndex() const;
+    void rebuildMaterialIndex() const;
+    void rebuildSectionIndex() const;
 
     std::vector<Node> m_nodes;
     std::vector<Element> m_elements;
     std::vector<Material> m_materials;
     std::vector<CrossSection> m_sections;
 
+    mutable std::unordered_map<NodeId, std::size_t> m_nodeIndexById;
+    mutable std::unordered_map<ElementId, std::size_t> m_elementIndexById;
+    mutable std::unordered_map<MaterialId, std::size_t> m_materialIndexById;
+    mutable std::unordered_map<SectionId, std::size_t> m_sectionIndexById;
+    mutable bool m_nodeIndexDirty = true;
+    mutable bool m_elementIndexDirty = true;
+    mutable bool m_materialIndexDirty = true;
+    mutable bool m_sectionIndexDirty = true;
+    mutable NodeId m_maxNodeId = 0;
+    mutable ElementId m_maxElementId = 0;
+    mutable MaterialId m_maxMaterialId = 0;
+    mutable SectionId m_maxSectionId = 0;
+
     std::unordered_set<NodeId> m_selectedNodes;
     std::unordered_set<ElementId> m_selectedElements;
 
     std::vector<ModelState> m_history;
     size_t m_undoIndex = 0;
+    int m_batchUpdateDepth = 0;
+    std::uint64_t m_geometryRevision = 1;
 
     std::vector<kernel::LoadCase> m_loadCases;
     std::vector<kernel::LoadCombination> m_loadCombinations;

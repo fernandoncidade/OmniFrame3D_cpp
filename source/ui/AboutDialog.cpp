@@ -25,11 +25,12 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QVBoxLayout>
+#include <utility>
 
 namespace omniframe {
 
 namespace {
-inline constexpr const char* kFallbackAppVersion = "2026.11.18.0";
+inline constexpr const char* kFallbackAppVersion = "2026.11.20.0";
 }
 
 AboutDialog::AboutDialog(QWidget* parent)
@@ -173,7 +174,8 @@ void AboutDialog::applyTheme() {
         if (m_authorLabel && !m_authorLabel->styleSheet().isEmpty()) {
             m_authorLabel->setStyleSheet(QString());
         }
-        for (QWidget* child : findChildren<QWidget*>()) {
+        const QList<QWidget*> children = findChildren<QWidget*>();
+        for (QWidget* child : children) {
             if (!child) continue;
             child->setPalette(QPalette());
             child->setAttribute(Qt::WA_SetPalette, false);
@@ -261,7 +263,7 @@ void AboutDialog::loadDocuments() {
     const bool isEnglish =
         (locale::GerenciadorTraducao::instance().idiomaAtual() == locale::Idioma::InglesEstadosUnidos);
 
-    for (const DocTabSpec& spec : m_docTabs) {
+    for (const DocTabSpec& spec : std::as_const(m_docTabs)) {
         const QString rel = isEnglish ? spec.relPathEn : spec.relPathPt;
         const QString content = locale::GerenciadorTraducao::readAssetDocument(rel);
         spec.browser->setHtml(normalizeTextHtml(content));
